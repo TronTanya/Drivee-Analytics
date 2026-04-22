@@ -1,0 +1,47 @@
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  fetchNotebookRuns,
+  fetchQueryHistory,
+  rerunNotebookRun,
+  saveRunAsReport
+} from "@/lib/api/history";
+import { queryKeys } from "@/hooks/api/query-keys";
+
+export function useNotebookRuns() {
+  return useQuery({
+    queryKey: queryKeys.history.notebookRuns(),
+    queryFn: fetchNotebookRuns,
+    staleTime: 20_000
+  });
+}
+
+export function useQueryHistory() {
+  return useQuery({
+    queryKey: queryKeys.history.queries(),
+    queryFn: fetchQueryHistory,
+    staleTime: 20_000
+  });
+}
+
+export function useRerunNotebookRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => rerunNotebookRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.history.all });
+    }
+  });
+}
+
+export function useSaveRunAsReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runId, name }: { runId: string; name: string }) => saveRunAsReport(runId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.history.all });
+      qc.invalidateQueries({ queryKey: queryKeys.reports.all });
+    }
+  });
+}

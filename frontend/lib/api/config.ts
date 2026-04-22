@@ -1,0 +1,45 @@
+/**
+ * NEXT_PUBLIC_API_URL — backend origin (default http://localhost:8000)
+ * NEXT_PUBLIC_DEMO_MODE:
+ *   - "1" | "true"  — robust demo profile enabled
+ *   - unset / other — regular profile
+ * NEXT_PUBLIC_API_MOCK:
+ *   - unset / "0" / "false" — live only
+ *   - "1" | "true" | "all" — always use client mocks (no network)
+ *   - "fallback" — try live; on network failure or 5xx/404 use mocks
+ * NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK:
+ *   - "1" | "true" — force `/api/v1/analytics/run` mock in demo
+ */
+export function isDemoModeEnabled(): boolean {
+  const v = process.env.NEXT_PUBLIC_DEMO_MODE?.toLowerCase();
+  return v === "1" || v === "true";
+}
+
+export type DemoApiMode = "live" | "fallback" | "mock";
+
+export function getDemoApiMode(): DemoApiMode {
+  if (isApiMockOnly()) return "mock";
+  if (isApiMockFallback()) return "fallback";
+  return "live";
+}
+
+export function shouldForceAnalyticsMock(): boolean {
+  const v = process.env.NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK?.toLowerCase();
+  if (v === "1" || v === "true") return true;
+  // Robust default for defense demos.
+  if (isDemoModeEnabled() && v !== "0" && v !== "false") return true;
+  return false;
+}
+
+export function isApiMockOnly(): boolean {
+  const v = process.env.NEXT_PUBLIC_API_MOCK?.toLowerCase();
+  return v === "1" || v === "true" || v === "all";
+}
+
+export function isApiMockFallback(): boolean {
+  const v = process.env.NEXT_PUBLIC_API_MOCK?.toLowerCase();
+  if (v === "fallback") return true;
+  // In robust demo mode, fallback is the safe default.
+  if (!v && isDemoModeEnabled()) return true;
+  return false;
+}

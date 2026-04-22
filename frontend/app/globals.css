@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+
+  /* Mirrors tailwind theme — usable in arbitrary CSS / future themes */
+  --surface-canvas: #f3f4f6;
+  --surface-card: #ffffff;
+  --border-subtle: #e2e8f0;
+  --foreground: #111111;
+  --foreground-secondary: #5b6472;
+  --brand: #b9ff31;
+  --brand-soft: #eff9cf;
+  --danger: #e11d48;
+  --focus-ring: rgb(185 255 49 / 0.35);
+}
+
+@layer base {
+  body {
+    @apply bg-surface-canvas font-sans text-foreground antialiased;
+  }
+}
+
+@layer components {
+  .surface-hero {
+    @apply relative overflow-hidden rounded-[28px] border border-border-subtle bg-surface-card;
+  }
+
+  .surface-section {
+    @apply overflow-hidden rounded-[24px] border border-border-subtle bg-surface-card transition;
+  }
+
+  .surface-content {
+    @apply rounded-[14px] border border-border-subtle bg-surface-card;
+  }
+
+  .surface-console {
+    @apply rounded-control border border-slate-700/70 bg-[linear-gradient(180deg,#0f172a_0%,#111827_100%)] text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)];
+  }
+
+  .surface-decision {
+    @apply rounded-[16px] border border-border-subtle bg-surface-card;
+  }
+
+  .interactive-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card;
+  }
+
+  .micro-lift {
+    @apply transition duration-150 hover:-translate-y-0.5;
+  }
+
+  .layout-shell-container {
+    @apply mx-auto max-w-7xl px-4 sm:px-6;
+  }
+
+  .layout-shell-grid {
+    @apply grid grid-cols-1 gap-4 py-4 sm:gap-6 sm:py-6 lg:grid-cols-[240px_1fr];
+  }
+
+  .layout-page-stack {
+    @apply space-y-4 sm:space-y-6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
