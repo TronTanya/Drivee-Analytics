@@ -3,13 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import re
 from typing import Any, Optional
 from uuid import uuid4
 
 import pandas as pd
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.session import SessionLocal
+from app.models.data_pipeline import DataImportJob
 from app.schemas.analytics import RunAnalyticsResponse
 from app.schemas.orchestration import OrchestrationInput
 from app.schemas.trace_payload import (
@@ -56,6 +60,44 @@ class NaturalLanguageAnalysisResult:
     applied_correction_id: Optional[str] = None
     correction_similarity: Optional[float] = None
     correction_match_kind: Optional[str] = None
+
+
+_FROM_JOIN_TABLE_RE = re.compile(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)\b", re.IGNORECASE)
+
+
+def _extract_tables_from_sql(sql: str) -> list[str]:
+    if not sql:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _FROM_JOIN_TABLE_RE.finditer(sql):
+        table = str(m.group(1) or "").strip().lower()
+        if not table or table in seen:
+            continue
+        seen.add(table)
+        out.append(table)
+    return out
+
+
+def _latest_staging_source_table() -> Optional[str]:
+    session = SessionLocal()
+    try:
+        stmt = (
+            select(DataImportJob)
+            .where(DataImportJob.job_status == "succeeded")
+            .order_by(desc(DataImportJob.finished_at), desc(DataImportJob.created_at))
+            .limit(1)
+        )
+        job = session.execute(stmt).scalar_one_or_none()
+        if not job:
+            return None
+        tconf = dict(job.transform_config_json or {})
+        table = tconf.get("qualified_table")
+        if isinstance(table, str) and table.strip():
+            return table.strip()
+        return None
+    finally:
+        session.close()
 
 
 def _interpreted_intent_line(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> str:
@@ -242,12 +284,10 @@ def analyze_natural_language(
         f"status={out.execution_status}"
     )
 
-    sql_blob = (out.validated_sql or out.generated_sql or "").lower()
-    used_tables: list[str] = []
-    if clarification_required:
-        used_tables = ["anonymized_incity_orders"]
-    elif sql_blob:
-        used_tables = ["anonymized_incity_orders"]
+    sql_blob = (out.validated_sql or out.generated_sql or "")
+    used_tables: list[str] = _extract_tables_from_sql(sql_blob)
+    if clarification_required and not used_tables:
+        used_tables = _extract_tables_from_sql(settings.ds_default_source_table) or [settings.ds_default_source_table]
 
     dialogue_api = out.dialogue.to_api_dict() if out.dialogue else {}
 
@@ -294,7 +334,7 @@ def _result_to_pipeline_cells(result: NaturalLanguageAnalysisResult) -> list[Pip
         PipelineCellItem(id=str(uuid4()), type="trace", content=result.trace_summary),
         PipelineCellItem(id=str(uuid4()), type="sql", content=result.safe_sql),
         PipelineCellItem(id=str(uuid4()), type="table", content=pd.DataFrame(result.table_records).to_json(orient="records", date_format="iso")),
-        PipelineCellItem(id=str(uuid4()), type="chart", content=json.dumps(chart_payload, ensure_ascii=False)),
+        PipelineCellItem(id=str(uuid4()), type="chart", content=json.dumps(chart_payload, ensure_ascii=False, default=str)),
         PipelineCellItem(id=str(uuid4()), type="insight", content=result.insight),
         PipelineCellItem(id=str(uuid4()), type="forecast", content=pd.DataFrame(result.forecast_records).to_json(orient="records")),
     ]
@@ -612,6 +652,9 @@ def _build_notebook_context_from_cells(notebook_id: str) -> dict[str, Any]:
 
 def run_pipeline(notebook_id: str, prompt: str) -> RunAnalyticsResponse:
     notebook_context = _build_notebook_context_from_cells(notebook_id)
+    source_table = _latest_staging_source_table() or settings.ds_default_source_table
+    notebook_context["source_table"] = source_table
+    notebook_context["ds_staging_qualified"] = source_table
     result = analyze_natural_language(prompt, notebook_context=notebook_context)
     cells = _result_to_pipeline_cells(result)
     prev = MOCK_NOTEBOOK_CELLS.get(notebook_id, [])

@@ -131,7 +131,7 @@ def build_prompt(task: PromptTask, payload: dict[str, Any]) -> PromptTemplate:
             user_prompt=(
                 f"Intent: {payload.get('intent', '')}\n"
                 f"Columns: {json.dumps(payload.get('columns', []), ensure_ascii=False)}\n"
-                f"Rows sample: {json.dumps(trimmed_rows, ensure_ascii=False)}\n"
+                f"Rows sample: {json.dumps(trimmed_rows, ensure_ascii=False, default=str)}\n"
                 + _json_instruction(example)
             ),
         )

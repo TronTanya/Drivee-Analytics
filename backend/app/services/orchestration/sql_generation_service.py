@@ -10,6 +10,20 @@ from app.schemas.orchestration import IntentKind
 class SQLGenerationService:
     SOURCE_TABLE = "anonymized_incity_orders"
 
+    @staticmethod
+    def _resolve_source_table(source_table: Optional[str]) -> str:
+        if not source_table:
+            return SQLGenerationService.SOURCE_TABLE
+        candidate = source_table.strip().lower()
+        # Accept simple table or schema.table names only.
+        import re
+
+        if re.fullmatch(r"[a-z_][a-z0-9_]*", candidate):
+            return candidate
+        if re.fullmatch(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*", candidate):
+            return candidate
+        return SQLGenerationService.SOURCE_TABLE
+
     def build_where_orders(self, entities: dict[str, Any], workspace_id: Optional[str]) -> str:
         parts: list[str] = ["1=1"]
         # Source table is anonymized raw dataset and does not include workspace_id.
@@ -32,9 +46,10 @@ class SQLGenerationService:
         *,
         use_campaigns_only: bool,
         workspace_id: Optional[str],
+        source_table: Optional[str] = None,
     ) -> str:
         _ = use_campaigns_only
-        return self._orders_sql(intent, entities, metric_sql, workspace_id)
+        return self._orders_sql(intent, entities, metric_sql, workspace_id, source_table=source_table)
 
     @staticmethod
     def _build_time_filter(entities: dict[str, Any], weeks: int) -> str:
@@ -68,7 +83,10 @@ class SQLGenerationService:
         entities: dict[str, Any],
         metric_sql: str,
         workspace_id: Optional[str],
+        *,
+        source_table: Optional[str] = None,
     ) -> str:
+        table_name = self._resolve_source_table(source_table)
         where_base = self.build_where_orders(entities, workspace_id)
         grain = entities.get("time_grain") or "week"
         weeks = int(entities.get("window_weeks") or 8)
@@ -80,42 +98,42 @@ class SQLGenerationService:
         )
 
         if intent == "summary":
-            return f"SELECT {metric_sql} AS value FROM {self.SOURCE_TABLE} a WHERE {where_base}"
+            return f"SELECT {metric_sql} AS value FROM {table_name} a WHERE {where_base}"
 
         if intent in ("trend", "forecast"):
             return (
                 f"SELECT date_trunc('{trunc}', a.order_timestamp::timestamp) AS bucket, {metric_sql} AS value "
-                f"FROM {self.SOURCE_TABLE} a WHERE {where_with_time} "
+                f"FROM {table_name} a WHERE {where_with_time} "
                 f"GROUP BY 1 ORDER BY 1"
             )
 
         if intent == "comparison":
             return (
-                f"SELECT a.city_id::text AS dim, {metric_sql} AS value FROM {self.SOURCE_TABLE} a WHERE {where_with_time} "
+                f"SELECT a.city_id::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
                 f"GROUP BY 1 ORDER BY value DESC"
             )
 
         if intent == "ranking":
             return (
-                f"SELECT a.city_id::text AS dim, {metric_sql} AS value FROM {self.SOURCE_TABLE} a WHERE {where_with_time} "
+                f"SELECT a.city_id::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
                 f"GROUP BY 1 ORDER BY value DESC LIMIT {top_n}"
             )
 
         if intent == "geo":
             return (
-                f"SELECT a.city_id::text AS city_id, {metric_sql} AS value FROM {self.SOURCE_TABLE} a WHERE {where_with_time} "
+                f"SELECT a.city_id::text AS city_id, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
                 f"GROUP BY 1 ORDER BY value DESC LIMIT 50"
             )
 
         if intent == "share":
             return (
                 f"WITH base AS ("
-                f"SELECT a.status_order::text AS dim, {metric_sql} AS value FROM {self.SOURCE_TABLE} a WHERE {where_with_time} GROUP BY 1"
+                f"SELECT a.status_order::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} GROUP BY 1"
                 f") SELECT dim, value, value / NULLIF(SUM(value) OVER (), 0) AS share FROM base ORDER BY value DESC"
             )
 
         return (
             f"SELECT date_trunc('{trunc}', a.order_timestamp::timestamp) AS bucket, {metric_sql} AS value "
-            f"FROM {self.SOURCE_TABLE} a WHERE {where_with_time} "
+            f"FROM {table_name} a WHERE {where_with_time} "
             f"GROUP BY 1 ORDER BY 1"
         )

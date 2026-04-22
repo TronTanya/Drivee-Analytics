@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     sql_timeout_seconds: int = 8
     sql_whitelist_tables: list[str] = [
         "anonymized_incity_orders",
+        "user_staging",
     ]
     sql_whitelist_columns: list[str] = [
         "city_id",
