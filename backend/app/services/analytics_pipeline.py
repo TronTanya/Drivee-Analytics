@@ -80,8 +80,7 @@ def _extract_tables_from_sql(sql: str) -> list[str]:
 
 
 def _latest_staging_source_table() -> Optional[str]:
-    session = SessionLocal()
-    try:
+    with SessionLocal() as session:
         stmt = (
             select(DataImportJob)
             .where(DataImportJob.job_status == "succeeded")
@@ -96,8 +95,6 @@ def _latest_staging_source_table() -> Optional[str]:
         if isinstance(table, str) and table.strip():
             return table.strip()
         return None
-    finally:
-        session.close()
 
 
 def _interpreted_intent_line(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> str:

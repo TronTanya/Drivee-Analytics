@@ -28,17 +28,20 @@ class ForecastQualityTests(unittest.TestCase):
                 "order_timestamp": [
                     "2026-01-01T08:00:00Z",
                     "2026-01-01T09:00:00Z",
+                    "2026-01-01T09:30:00Z",
                     "2026-01-02T10:00:00Z",
                 ],
-                "order_id": [101, 102, 103],
+                "order_id": [101, 102, 104, 103],
                 "driverdone_timestamp": [
                     "2026-01-01T08:30:00Z",
                     None,
+                    None,
                     "2026-01-02T10:40:00Z",
                 ],
-                "clientcancel_timestamp": [None, "2026-01-01T09:20:00Z", None],
-                "drivercancel_timestamp": [None, None, "2026-01-02T10:25:00Z"],
-                "price_order_local": [100.0, 200.0, 300.0],
+                # Third row has both cancellation timestamps to verify no double counting.
+                "clientcancel_timestamp": [None, "2026-01-01T09:20:00Z", "2026-01-01T09:40:00Z", None],
+                "drivercancel_timestamp": [None, None, "2026-01-01T09:45:00Z", "2026-01-02T10:25:00Z"],
+                "price_order_local": [100.0, 200.0, 50.0, 300.0],
             }
         )
         semantic_map = {
@@ -60,19 +63,19 @@ class ForecastQualityTests(unittest.TestCase):
         self.assertIn("sum_order_price", series_map)
 
         # orders_count must be per-day distinct order count, not order_id sum.
-        self.assertEqual(float(series_map["orders_count"].iloc[0]), 2.0)
+        self.assertEqual(float(series_map["orders_count"].iloc[0]), 3.0)
         self.assertEqual(float(series_map["orders_count"].iloc[1]), 1.0)
 
         # done_rides must count completion events.
         self.assertEqual(float(series_map["done_rides"].iloc[0]), 1.0)
         self.assertEqual(float(series_map["done_rides"].iloc[1]), 1.0)
 
-        # cancellations_total must count client+driver cancellation events.
-        self.assertEqual(float(series_map["cancellations_total"].iloc[0]), 1.0)
+        # cancellations_total must count cancelled rows (not double count when both timestamps are present).
+        self.assertEqual(float(series_map["cancellations_total"].iloc[0]), 2.0)
         self.assertEqual(float(series_map["cancellations_total"].iloc[1]), 1.0)
 
         # sum_order_price remains numeric sum.
-        self.assertEqual(float(series_map["sum_order_price"].iloc[0]), 300.0)
+        self.assertEqual(float(series_map["sum_order_price"].iloc[0]), 350.0)
         self.assertEqual(float(series_map["sum_order_price"].iloc[1]), 300.0)
 
 
