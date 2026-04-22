@@ -19,6 +19,7 @@ import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
 import { TracePanel } from "@/components/notebook/trace-panel";
 import {
+  ApiError,
   getApiBaseUrl,
   isApiMockFallback,
   isApiMockOnly,
@@ -37,6 +38,17 @@ import {
 // DeepSeek flow may include several sequential LLM calls in one pipeline run.
 // Keep client-side timeout comfortably above a typical multi-call latency.
 const ANALYTICS_TIMEOUT_MS = 45000;
+
+function analyticsRunFailureMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const extra = error.body ? ` ${error.body.slice(0, 160)}` : "";
+    return `${error.message}${extra}`.trim().slice(0, 320);
+  }
+  if (error instanceof Error && error.message !== "ANALYTICS_TIMEOUT") {
+    return error.message.slice(0, 320);
+  }
+  return "Не удалось выполнить промпт.";
+}
 
 function mergeBlocksById(
   prev: NotebookBlock[],
@@ -543,10 +555,11 @@ export default function NotebookDetailsPage() {
       setClarificationRunVersion((v) => v + 1);
     } catch (error) {
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
+      const detail = analyticsRunFailureMessage(error);
       setPageError(
         isTimeout
           ? "Не удалось продолжить цепочку после уточнения: timeout."
-          : "Не удалось продолжить цепочку после уточнения."
+          : `Не удалось продолжить цепочку после уточнения: ${detail}`
       );
       setBlocks((prev) =>
         prev.map((b) =>
@@ -555,7 +568,7 @@ export default function NotebookDetailsPage() {
                 ...b,
                 selectedOptionId: optionId,
                 status: "error" as const,
-                errorMessage: "Не удалось применить уточнение."
+                errorMessage: isTimeout ? "Timeout." : detail.slice(0, 200)
               }
             : b
         )
@@ -641,15 +654,16 @@ export default function NotebookDetailsPage() {
       setTraceModel(traceFromAnalytics(result.trace));
     } catch (error) {
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
+      const detail = analyticsRunFailureMessage(error);
       setPageError(
         isTimeout
           ? "Pipeline отвечает слишком долго. Показан локальный fallback-инсайт, попробуйте еще раз."
-          : "Ошибка запроса к pipeline - показываю локальный fallback-инсайт."
+          : `Ошибка запроса к pipeline: ${detail}`
       );
       setBlocks((prev) =>
         prev.map((b) =>
           b.type === "prompt" && b.text.trim() === text
-            ? { ...b, status: "error" as const, errorMessage: "Не удалось выполнить промпт." }
+            ? { ...b, status: "error" as const, errorMessage: isTimeout ? "Не удалось выполнить промпт." : detail }
             : b
         )
       );
@@ -692,13 +706,16 @@ export default function NotebookDetailsPage() {
       setTraceModel(traceFromAnalytics(result.trace));
     } catch (error) {
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
+      const detail = analyticsRunFailureMessage(error);
       setPageError(
         isTimeout
           ? "Pipeline отвечает слишком долго. Показан локальный fallback-инсайт, попробуйте еще раз."
-          : "Ошибка запроса к pipeline - показываю локальный fallback-инсайт."
+          : `Ошибка запроса к pipeline: ${detail}`
       );
       setBlocks((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: "error" as const, errorMessage: "Не удалось выполнить промпт." } : b))
+        prev.map((b) =>
+          b.id === id ? { ...b, status: "error" as const, errorMessage: isTimeout ? "Не удалось выполнить промпт." : detail } : b
+        )
       );
     } finally {
       if (timeoutId) clearTimeout(timeoutId);

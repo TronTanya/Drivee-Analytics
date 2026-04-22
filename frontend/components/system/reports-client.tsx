@@ -36,6 +36,17 @@ function toFormatLabel(value: string): SavedReportRow["format"] {
   return "PDF";
 }
 
+function matchesScheduleFilter<T extends { name: string; schedule: ScheduleState }>(
+  row: T,
+  search: string,
+  scheduleFilter: ScheduleState | "all"
+): boolean {
+  return (
+    row.name.toLowerCase().includes(search.toLowerCase()) &&
+    (scheduleFilter === "all" || row.schedule === scheduleFilter)
+  );
+}
+
 function IconBtn({
   children,
   title,
@@ -276,15 +287,14 @@ export function ReportsClient() {
     }
   };
 
-  const filterRow = <T extends { name: string; schedule: ScheduleState }>(rows: T[]) =>
-    rows.filter(
-      (row) =>
-        row.name.toLowerCase().includes(search.toLowerCase()) &&
-        (scheduleFilter === "all" || row.schedule === scheduleFilter)
-    );
-
-  const filteredReports = useMemo(() => filterRow(reports), [reports, search, scheduleFilter]);
-  const filteredScenarios = useMemo(() => filterRow(scenarios), [scenarios, search, scheduleFilter]);
+  const filteredReports = useMemo(
+    () => reports.filter((row) => matchesScheduleFilter(row, search, scheduleFilter)),
+    [reports, search, scheduleFilter]
+  );
+  const filteredScenarios = useMemo(
+    () => scenarios.filter((row) => matchesScheduleFilter(row, search, scheduleFilter)),
+    [scenarios, search, scheduleFilter]
+  );
 
   const showReports = kind === "all" || kind === "reports";
   const showScenarios = kind === "all" || kind === "scenarios";

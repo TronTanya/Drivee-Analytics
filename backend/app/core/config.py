@@ -86,9 +86,9 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
-    llm_timeout_seconds: int = 12
+    llm_timeout_seconds: int = 45
     llm_temperature: float = 0.1
-    llm_max_tokens: int = 500
+    llm_max_tokens: int = 1024
     llm_failure_threshold: int = 3
     llm_cooldown_seconds: int = 45
 

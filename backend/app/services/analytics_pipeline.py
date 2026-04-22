@@ -7,8 +7,11 @@ import re
 from typing import Any, Optional
 from uuid import uuid4
 
+import logging
+
 import pandas as pd
 from sqlalchemy import desc, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -31,6 +34,8 @@ from app.services.orchestration.query_orchestrator import (
     build_default_orchestrator,
     build_orchestrator_with_learning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -80,7 +85,9 @@ def _extract_tables_from_sql(sql: str) -> list[str]:
 
 
 def _latest_staging_source_table() -> Optional[str]:
-    with SessionLocal() as session:
+    """Best-effort: при любой ошибке БД возвращаем None (используется ds_default_source_table)."""
+    session = SessionLocal()
+    try:
         stmt = (
             select(DataImportJob)
             .where(DataImportJob.job_status == "succeeded")
@@ -95,6 +102,14 @@ def _latest_staging_source_table() -> Optional[str]:
         if isinstance(table, str) and table.strip():
             return table.strip()
         return None
+    except SQLAlchemyError as exc:
+        logger.warning("latest_staging_source_lookup_failed sqlalchemy=%s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("latest_staging_source_lookup_failed error=%s", exc)
+        return None
+    finally:
+        session.close()
 
 
 def _interpreted_intent_line(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> str:

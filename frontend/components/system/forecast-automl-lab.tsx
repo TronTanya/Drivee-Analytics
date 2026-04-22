@@ -267,7 +267,7 @@ export function ForecastAutoMLLab() {
                 </p>
                 {isHigh ? (
                   <p className="mt-1">
-                    Предупреждение: >5% точек уперлись в cap, проверьте качество данных или увеличьте `DS_METRIC_CAPS`.
+                    Предупреждение: более 5% точек уперлись в cap, проверьте качество данных или увеличьте DS_METRIC_CAPS.
                   </p>
                 ) : null}
               </div>

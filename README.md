@@ -190,7 +190,7 @@ DS слой покрывает:
 
 - `orders_count` считается как `COUNT DISTINCT(order_id)` по дням, а не сумма `order_id`.
 - `done_rides` считается как количество non-null `driverdone_timestamp` по дням.
-- `cancellations_total` считается как сумма non-null `clientcancel_timestamp` + `drivercancel_timestamp`.
+- `cancellations_total` в дневном ряду: число заказов с отменой (non-null `clientcancel_timestamp` **или** `drivercancel_timestamp`); строка с обоими timestamp считается один раз.
 - `sum_order_price` считается как дневная сумма `price_order_local`.
 - Для рядов включен robust preprocessing: winsorization + optional log-transform + metric caps (`DS_METRIC_CAPS`).
 - В backtest/trace возвращаются `configured_cap`, `cap_hit_ratio` и `clipped_points` для контроля качества данных.
@@ -244,6 +244,17 @@ npm run dev
 ```
 
 По умолчанию frontend ожидает backend на `http://localhost:8000`.
+
+### Quality checks
+
+```bash
+# backend tests (pytest)
+make ds-quality
+
+# frontend lint (non-interactive)
+cd frontend
+npm run lint
+```
 
 ## 20) Настройка PostgreSQL
 

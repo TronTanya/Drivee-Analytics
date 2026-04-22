@@ -16,6 +16,25 @@ const ROLE_OPTIONS: { key: UserRole; label: string }[] = [
   { key: "executive", label: "Руководитель" }
 ];
 
+const NAV_ACTIVE =
+  "border border-border-subtle bg-brand-50 text-foreground shadow-xs";
+
+function IconMenu(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      className={props.className}
+      aria-hidden
+    >
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
 export function PlatformShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const router = useRouter();
@@ -58,9 +77,7 @@ export function PlatformShell({ children }: PropsWithChildren) {
               href={item.href as Route}
               aria-current={isActive ? "page" : undefined}
               className={`interactive-focus rounded-control px-3 py-2 text-sm font-medium transition ${
-                isActive
-                  ? "border border-border-subtle bg-[#f6f8ee] text-foreground shadow-xs"
-                  : "text-foreground-secondary hover:bg-surface-muted hover:text-foreground"
+                isActive ? NAV_ACTIVE : "text-foreground-secondary hover:bg-surface-muted hover:text-foreground"
               }`}
             >
               {item.label}
@@ -73,9 +90,7 @@ export function PlatformShell({ children }: PropsWithChildren) {
           href={myDashboard as Route}
           aria-current={pathname === myDashboard ? "page" : undefined}
           className={`interactive-focus rounded-control px-3 py-2 text-sm font-medium transition ${
-            pathname === myDashboard
-              ? "border border-border-subtle bg-[#f6f8ee] text-foreground shadow-xs"
-              : "text-foreground-secondary hover:bg-surface-muted hover:text-foreground"
+            pathname === myDashboard ? NAV_ACTIVE : "text-foreground-secondary hover:bg-surface-muted hover:text-foreground"
           }`}
         >
           Дашборд
@@ -101,7 +116,7 @@ export function PlatformShell({ children }: PropsWithChildren) {
               className="interactive-focus inline-flex h-9 w-9 items-center justify-center rounded-control border border-border-subtle bg-surface-card text-foreground-secondary hover:text-foreground lg:hidden"
               aria-label="Открыть навигацию"
             >
-              ☰
+              <IconMenu className="h-5 w-5" />
             </button>
             <Link
               href={"/demo-router" as Route}

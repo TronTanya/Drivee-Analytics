@@ -39,6 +39,7 @@ class DeepSeekProvider:
             "messages": [self._map_message(msg) for msg in request.messages],
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
+            "stream": False,
         }
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
 

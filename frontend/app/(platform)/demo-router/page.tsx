@@ -143,7 +143,7 @@ export default function DemoRouterPage() {
         <SectionTitle
           kicker="Main demo path"
           title="Стабильные сценарии для защиты"
-          description="Используйте эти маршруты в основном показе: они покрывают NL->SQL->result->report и работают с fallback."
+          description="Используйте эти маршруты в основном показе: они покрывают NL→SQL→result→report и работают с fallback."
         />
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <Link
@@ -151,21 +151,21 @@ export default function DemoRouterPage() {
             className="surface-content p-4 transition hover:border-brand-200 hover:bg-brand-50"
           >
             <p className="text-sm font-semibold text-foreground">Main notebook demo</p>
-            <p className="mt-1 text-xs text-foreground-secondary">Топ-3 города по отменам -> explainability -> SQL -> chart -> save report</p>
+            <p className="mt-1 text-xs text-foreground-secondary">Топ-3 города по отменам → explainability → SQL → chart → save report</p>
           </Link>
           <Link
             href={"/notebooks/clarification-demo" as Route}
             className="surface-content p-4 transition hover:border-brand-200 hover:bg-brand-50"
           >
             <p className="text-sm font-semibold text-foreground">Clarification demo</p>
-            <p className="mt-1 text-xs text-foreground-secondary">Двусмысленный запрос -> уточнение -> обновленный план и результат</p>
+            <p className="mt-1 text-xs text-foreground-secondary">Двусмысленный запрос → уточнение → обновленный план и результат</p>
           </Link>
           <Link
             href={"/notebooks/follow-up-demo" as Route}
             className="surface-content p-4 transition hover:border-brand-200 hover:bg-brand-50"
           >
             <p className="text-sm font-semibold text-foreground">Follow-up demo</p>
-            <p className="mt-1 text-xs text-foreground-secondary">Основной запрос -> follow-up по городу/периоду</p>
+            <p className="mt-1 text-xs text-foreground-secondary">Основной запрос → follow-up по городу/периоду</p>
           </Link>
           <Link
             href={"/reports" as Route}

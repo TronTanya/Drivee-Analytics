@@ -8,10 +8,12 @@ from app.core.error_handlers import register_error_handlers
 from app.core.logging import configure_logging
 from app.db.session import engine
 from app.schemas.health import HealthResponse
+from app.services.llm.factory import log_llm_startup_summary
 
 
 def create_app() -> FastAPI:
     configure_logging()
+    log_llm_startup_summary()
     app = FastAPI(title=settings.app_name, version=settings.app_version, debug=settings.debug)
 
     app.add_middleware(

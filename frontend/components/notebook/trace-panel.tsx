@@ -10,7 +10,7 @@ import { TraceContextBadges } from "@/components/notebook/trace-context-badges";
 const stepDot: Record<string, string> = {
   pending: "bg-foreground-muted",
   running: "bg-brand-500 animate-pulse-soft",
-  done: "bg-slate-900",
+  done: "bg-foreground",
   failed: "bg-danger"
 };
 
@@ -61,6 +61,7 @@ function validationDerived(validationStatus: TracePanelProps["model"]["validatio
 
 export function TracePanel({ model, onClose, className = "" }: TracePanelProps) {
   const [compactMode, setCompactMode] = useState(false);
+  const qualityAttention = model.qualityGate.status !== "passed";
   const { ok, hint } = validationDerived(model.validationStatus);
   const hasSql = model.generatedSql.trim().length > 0;
   const hasEntities = Object.keys(model.extractedEntities).length > 0;
@@ -84,7 +85,8 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
       model.interpretedIntent.trim() ||
       hasPipeline ||
       model.forecastModeActive ||
-      model.clarificationRequested
+      model.clarificationRequested ||
+      qualityAttention
   );
 
   useEffect(() => {
@@ -95,6 +97,42 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
     return () => mq.removeEventListener("change", apply);
   }, []);
 
+  const qualityGateSection = (
+    <CollapsibleSection title="Quality gate" defaultOpen={qualityAttention}>
+      <p className="text-sm">
+        <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
+        <span className="font-medium capitalize text-foreground">{model.qualityGate.status}</span>
+      </p>
+      {model.qualityGate.reasons.length > 0 ? (
+        <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs text-foreground-secondary">
+          {model.qualityGate.reasons.map((reason, i) => (
+            <li key={`${reason}-${i}`}>{reason}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-xs text-foreground-muted">Деградаций качества не обнаружено.</p>
+      )}
+    </CollapsibleSection>
+  );
+
+  const validationSection = (
+    <CollapsibleSection title="Валидация и предупреждения" defaultOpen>
+      <p className="mb-2 text-xs">
+        <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
+        <span className="font-medium capitalize text-foreground">{model.validationStatus}</span>
+      </p>
+      {hasWarnings ? (
+        <ul className="list-inside list-disc space-y-0.5 text-xs text-amber-950">
+          {model.warnings.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-foreground-muted">Предупреждений нет.</p>
+      )}
+    </CollapsibleSection>
+  );
+
   return (
     <div
       className={`surface-section flex max-h-[min(85vh,900px)] flex-col shadow-card ${className}`}
@@ -103,6 +141,14 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Explainability</p>
           <p className="truncate text-sm font-semibold text-foreground">Трассировка запроса</p>
+          {qualityAttention ? (
+            <p className="mt-0.5 line-clamp-2 text-xs text-foreground-secondary">
+              <span className="font-semibold text-foreground">Quality gate:</span> {model.qualityGate.status}
+              {model.qualityGate.reasons.length > 0
+                ? ` — ${model.qualityGate.reasons.slice(0, 2).join(" · ")}`
+                : null}
+            </p>
+          ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <ConfidenceBadge value={model.confidence} />
@@ -163,6 +209,13 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               <p className="text-foreground">{model.interpretedIntent || "—"}</p>
             </CollapsibleSection>
 
+            {qualityAttention ? (
+              <>
+                {qualityGateSection}
+                {validationSection}
+              </>
+            ) : null}
+
             <CollapsibleSection title="Извлеченные сущности" defaultOpen={!compactMode && hasEntities}>
               {hasEntities ? (
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-control border border-border-subtle bg-surface-muted/50 p-2 font-mono text-[11px] leading-relaxed text-foreground">
@@ -221,21 +274,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               )}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Валидация и предупреждения" defaultOpen>
-              <p className="mb-2 text-xs">
-                <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
-                <span className="font-medium capitalize text-foreground">{model.validationStatus}</span>
-              </p>
-              {hasWarnings ? (
-                <ul className="list-inside list-disc space-y-0.5 text-xs text-amber-950">
-                  {model.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-foreground-muted">Предупреждений нет.</p>
-              )}
-            </CollapsibleSection>
+            {qualityAttention ? null : validationSection}
 
             <CollapsibleSection title="Рекомендация графика" defaultOpen={!compactMode && hasChartText}>
               <p className="text-xs font-semibold text-foreground">{model.chartRecommendation.chartType}</p>
@@ -272,21 +311,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               ) : null}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Quality gate" defaultOpen>
-              <p className="text-sm">
-                <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
-                <span className="font-medium capitalize text-foreground">{model.qualityGate.status}</span>
-              </p>
-              {model.qualityGate.reasons.length > 0 ? (
-                <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs text-foreground-secondary">
-                  {model.qualityGate.reasons.map((reason, i) => (
-                    <li key={`${reason}-${i}`}>{reason}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-1 text-xs text-foreground-muted">Деградаций качества не обнаружено.</p>
-              )}
-            </CollapsibleSection>
+            {qualityAttention ? null : qualityGateSection}
 
             {hasPipeline ? (
               <CollapsibleSection title="Таймлайн pipeline" muted defaultOpen={!compactMode}>
