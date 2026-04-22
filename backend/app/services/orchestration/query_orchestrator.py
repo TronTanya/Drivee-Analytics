@@ -279,6 +279,8 @@ class QueryOrchestrator:
                     "entities": entities,
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "forecast_mode": {"active": False, "method": None},
+                    "forecast_selection": {},
+                    "quality_gate": {"status": "warning", "reasons": ["clarification_required"]},
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -380,6 +382,8 @@ class QueryOrchestrator:
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "sql_generation": sql_generation_trace,
                     "forecast_mode": {"active": False, "method": None},
+                    "forecast_selection": {},
+                    "quality_gate": {"status": "failed", "reasons": ["sql_validation_failed"]},
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -432,6 +436,8 @@ class QueryOrchestrator:
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "sql_generation": sql_generation_trace,
                     "forecast_mode": {"active": False, "method": None},
+                    "forecast_selection": {},
+                    "quality_gate": {"status": "failed", "reasons": ["sql_execution_failed"]},
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -516,6 +522,11 @@ class QueryOrchestrator:
             "inheritance_trace": dialogue_res.inheritance_trace,
             "effective_query": effective,
             "forecast_mode": {"active": forecast_active, "method": forecast_method},
+            "forecast_selection": {},
+            "quality_gate": {
+                "status": "warning" if validation_warnings else "passed",
+                "reasons": ["validation_warnings_present"] if validation_warnings else [],
+            },
         }
 
         out = OrchestrationOutput(

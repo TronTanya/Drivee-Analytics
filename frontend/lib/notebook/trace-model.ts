@@ -19,6 +19,16 @@ export const EMPTY_TRACE: TracePanelModel = {
   chartRecommendation: { chartType: "table", rationale: "", alternatives: [] },
   forecastModeActive: false,
   forecastMethod: null,
+  forecastSelection: {
+    metricKey: null,
+    selectedStrategy: null,
+    dataQuality: {},
+    backtestSummary: {}
+  },
+  qualityGate: {
+    status: "passed",
+    reasons: []
+  },
   steps: [],
   logs: []
 };
@@ -36,6 +46,13 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
     alternatives: [] as string[]
   };
   const forecast = trace.forecast_mode ?? { active: false, method: null };
+  const forecastSelection = trace.forecast_selection ?? {
+    metric_key: null,
+    selected_strategy: null,
+    data_quality: {},
+    backtest_summary: {}
+  };
+  const qualityGate = trace.quality_gate ?? { status: "passed", reasons: [] };
   return {
     schemaVersion: 1,
     interpretedIntent: trace.interpreted_intent ?? "",
@@ -57,6 +74,16 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
     },
     forecastModeActive: !!forecast.active,
     forecastMethod: forecast.method ?? null,
+    forecastSelection: {
+      metricKey: forecastSelection.metric_key ?? null,
+      selectedStrategy: forecastSelection.selected_strategy ?? null,
+      dataQuality: forecastSelection.data_quality ?? {},
+      backtestSummary: forecastSelection.backtest_summary ?? {}
+    },
+    qualityGate: {
+      status: qualityGate.status ?? "passed",
+      reasons: qualityGate.reasons ?? []
+    },
     steps: [],
     logs: []
   };

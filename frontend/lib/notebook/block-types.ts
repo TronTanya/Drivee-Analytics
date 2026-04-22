@@ -63,6 +63,11 @@ export interface ChartBlock extends BlockBase {
   visualizationExplanation?: string;
   geoMetadata?: ChartGeoMetadata | null;
   title?: string;
+  subtitle?: string;
+  unitLabel?: string;
+  sampleSize?: number;
+  qualityMetricLabel?: string;
+  qualityMetricValue?: number;
   xKey: string;
   series: { key: string; name: string }[];
   data: Record<string, string | number>[];
@@ -160,6 +165,16 @@ export interface TracePanelModel {
   chartRecommendation: TraceChartRecommendation;
   forecastModeActive: boolean;
   forecastMethod: string | null;
+  forecastSelection: {
+    metricKey: string | null;
+    selectedStrategy: string | null;
+    dataQuality: Record<string, unknown>;
+    backtestSummary: Record<string, unknown>;
+  };
+  qualityGate: {
+    status: "passed" | "warning" | "failed";
+    reasons: string[];
+  };
   /** Optional pipeline timeline (demo / extended diagnostics). */
   steps: TraceStep[];
   logs: TraceLogLine[];

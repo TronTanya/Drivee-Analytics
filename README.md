@@ -184,6 +184,17 @@ DS слой покрывает:
 - генерацию текстовых инсайтов;
 - связывание DS-контекста с notebook workflow.
 
+### Data sanity rules (forecast preprocessing)
+
+Чтобы избежать ложных прогнозов и деградации backtest при «грязных» схемах:
+
+- `orders_count` считается как `COUNT DISTINCT(order_id)` по дням, а не сумма `order_id`.
+- `done_rides` считается как количество non-null `driverdone_timestamp` по дням.
+- `cancellations_total` считается как сумма non-null `clientcancel_timestamp` + `drivercancel_timestamp`.
+- `sum_order_price` считается как дневная сумма `price_order_local`.
+- Для рядов включен robust preprocessing: winsorization + optional log-transform + metric caps (`DS_METRIC_CAPS`).
+- В backtest/trace возвращаются `configured_cap`, `cap_hit_ratio` и `clipped_points` для контроля качества данных.
+
 ## 16) CSV ingestion
 
 Flow:

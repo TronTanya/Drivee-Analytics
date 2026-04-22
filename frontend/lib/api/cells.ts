@@ -74,7 +74,17 @@ export async function runNotebookCell(
             rationale: "",
             alternatives: []
           },
-          forecast_mode: { active: false, method: null }
+          forecast_mode: { active: false, method: null },
+          forecast_selection: {
+            metric_key: null,
+            selected_strategy: null,
+            backtest_summary: {},
+            data_quality: {}
+          },
+          quality_gate: {
+            status: "passed",
+            reasons: []
+          }
         }
       };
     }

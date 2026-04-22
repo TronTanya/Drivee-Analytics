@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     csv_staging_schema: str = "user_staging"
     csv_inference_max_rows: int = 100_000
     ds_default_source_table: str = "public.anonymized_incity_orders"
+    ds_metric_caps: dict[str, float] = {
+        "orders_count": 10_000_000.0,
+        "done_rides": 10_000_000.0,
+        "cancellations_total": 10_000_000.0,
+        "sum_order_price": 1_000_000_000.0,
+    }
     city_id_label_map: dict[str, str] = {
         "67": "Алматы",
     }
@@ -97,6 +103,19 @@ class Settings(BaseSettings):
         if not value:
             return {}
         return {str(k).strip(): str(v).strip() for k, v in value.items() if str(k).strip() and str(v).strip()}
+
+    @field_validator("ds_metric_caps", mode="before")
+    @classmethod
+    def normalize_ds_metric_caps(cls, value: dict[str, float] | None) -> dict[str, float]:
+        if not value:
+            return {}
+        out: dict[str, float] = {}
+        for k, v in value.items():
+            try:
+                out[str(k).strip()] = float(v)
+            except (TypeError, ValueError):
+                continue
+        return out
 
     @model_validator(mode="after")
     def hydrate_database_url(self) -> "Settings":

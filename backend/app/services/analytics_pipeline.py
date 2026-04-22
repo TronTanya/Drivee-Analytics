@@ -15,7 +15,9 @@ from app.schemas.orchestration import OrchestrationInput
 from app.schemas.trace_payload import (
     AnalyticsExplainabilityTraceV1,
     ChartRecommendationTrace,
+    ForecastSelectionTrace,
     ForecastModeTrace,
+    QualityGateTrace,
     SemanticTermTraceItem,
     ValidationStatusLiteral,
 )
@@ -134,6 +136,36 @@ def _chart_rec(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> Cha
     )
 
 
+def _forecast_selection(ft: dict[str, Any]) -> ForecastSelectionTrace:
+    selected = ft.get("forecast_selection")
+    if not isinstance(selected, dict):
+        return ForecastSelectionTrace()
+    return ForecastSelectionTrace(
+        metric_key=str(selected.get("metric_key")) if selected.get("metric_key") else None,
+        selected_strategy=str(selected.get("selected_strategy")) if selected.get("selected_strategy") else None,
+        backtest_summary=dict(selected.get("backtest_summary") or {}),
+        data_quality=dict(selected.get("data_quality") or {}),
+    )
+
+
+def _quality_gate(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> QualityGateTrace:
+    gate = ft.get("quality_gate")
+    if isinstance(gate, dict):
+        status = str(gate.get("status") or "passed")
+        if status not in {"passed", "warning", "failed"}:
+            status = "warning"
+        return QualityGateTrace(status=status, reasons=[str(x) for x in gate.get("reasons") or []])
+    reasons: list[str] = []
+    if result.execution_status != "succeeded":
+        reasons.append("execution_not_succeeded")
+    if result.clarification_required:
+        reasons.append("clarification_required")
+    if result.warnings:
+        reasons.append("validation_warnings_present")
+    status = "failed" if result.execution_status == "failed" else ("warning" if reasons else "passed")
+    return QualityGateTrace(status=status, reasons=reasons)
+
+
 def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> AnalyticsExplainabilityTraceV1:
     ft: dict[str, Any] = dict(result.full_trace or {})
     dialogue = result.dialogue if isinstance(result.dialogue, dict) else {}
@@ -158,6 +190,8 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
         learned_correction_used=bool(learned),
         chart_recommendation=_chart_rec(result, ft),
         forecast_mode=_forecast_mode(ft, result),
+        forecast_selection=_forecast_selection(ft),
+        quality_gate=_quality_gate(result, ft),
     )
 
 
@@ -359,6 +393,15 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
     )
 
     rows = list(result.table_records or [])
+    sample_size = len(rows)
+    unit_label = "шт."
+    lowered_cols = [str(c).lower() for c in (rows[0].keys() if rows else [])]
+    if any("price" in c or "revenue" in c or "rub" in c for c in lowered_cols):
+        unit_label = "RUB"
+    elif any("rate" in c or "share" in c or "%" in c for c in lowered_cols):
+        unit_label = "%"
+    quality_metric_value = float(result.confidence) if result.confidence is not None else None
+    quality_metric_label = "Confidence"
     if not rows:
         return {
             "chartType": "table",
@@ -367,6 +410,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "visualizationExplanation": explanation or "Недостаточно данных для графика, показана таблица.",
             "geoMetadata": geo_metadata,
             "title": "Визуализация результата",
+            "subtitle": "Нет данных для визуализации",
+            "unitLabel": unit_label,
+            "sampleSize": sample_size,
+            "qualityMetricLabel": quality_metric_label,
+            "qualityMetricValue": quality_metric_value,
             "xKey": "label",
             "series": [{"key": "value", "name": "Значение"}],
             "data": [],
@@ -415,6 +463,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "visualizationExplanation": explanation,
             "geoMetadata": geo_metadata,
             "title": "Визуализация результата",
+            "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+            "unitLabel": unit_label,
+            "sampleSize": sample_size,
+            "qualityMetricLabel": quality_metric_label,
+            "qualityMetricValue": quality_metric_value,
             "xKey": x_key,
             "series": [{"key": sc, "name": sc} for sc in series_cols],
             "data": data,
@@ -434,6 +487,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "visualizationExplanation": explanation,
             "geoMetadata": geo_metadata,
             "title": "Структура показателя",
+            "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+            "unitLabel": unit_label,
+            "sampleSize": sample_size,
+            "qualityMetricLabel": quality_metric_label,
+            "qualityMetricValue": quality_metric_value,
             "xKey": label_key,
             "series": [{"key": value_key, "name": value_key}],
             "data": data,
@@ -456,6 +514,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
                 "visualizationExplanation": explanation,
                 "geoMetadata": geo_metadata,
                 "title": "Связь метрик",
+                "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+                "unitLabel": unit_label,
+                "sampleSize": sample_size,
+                "qualityMetricLabel": quality_metric_label,
+                "qualityMetricValue": quality_metric_value,
                 "xKey": x_key,
                 "series": [{"key": y_key, "name": y_key}],
                 "data": data,
@@ -473,6 +536,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
                 "visualizationExplanation": explanation,
                 "geoMetadata": geo_metadata,
                 "title": f"Распределение: {metric}",
+                "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+                "unitLabel": unit_label,
+                "sampleSize": sample_size,
+                "qualityMetricLabel": quality_metric_label,
+                "qualityMetricValue": quality_metric_value,
                 "xKey": "bucket",
                 "series": [{"key": "count", "name": "count"}],
                 "data": data,
@@ -487,6 +555,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "visualizationExplanation": explanation,
             "geoMetadata": geo_metadata,
             "title": "Табличный fallback",
+            "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+            "unitLabel": unit_label,
+            "sampleSize": sample_size,
+            "qualityMetricLabel": quality_metric_label,
+            "qualityMetricValue": quality_metric_value,
             "xKey": columns[0],
             "series": [{"key": c, "name": c} for c in columns[1:2]],
             "data": rows[:60],
@@ -506,6 +579,11 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
         "visualizationExplanation": explanation,
         "geoMetadata": geo_metadata,
         "title": "Визуализация результата",
+        "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+        "unitLabel": unit_label,
+        "sampleSize": sample_size,
+        "qualityMetricLabel": quality_metric_label,
+        "qualityMetricValue": quality_metric_value,
         "xKey": fallback_x,
         "series": [{"key": fallback_metric, "name": fallback_metric}],
         "data": fallback_data,

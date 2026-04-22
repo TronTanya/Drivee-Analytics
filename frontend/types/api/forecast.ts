@@ -52,6 +52,7 @@ export type AutoMLModelScoreDto = {
   mae?: number | null;
   rmse?: number | null;
   mape?: number | null;
+  smape?: number | null;
   score?: number | null;
   backtest_points: number;
   backtest_preview?: Array<{ date: string; actual: number; predicted: number }>;
@@ -69,6 +70,9 @@ export type AutoMLMetricLeaderboardDto = {
   best_score?: number | null;
   forecast_preview: AutoMLForecastPointDto[];
   models: AutoMLModelScoreDto[];
+  quality?: Record<string, unknown>;
+  feature_preview?: Array<Record<string, unknown>>;
+  transform?: Record<string, unknown>;
 };
 
 export type AutoMLBacktestResponseDto = {

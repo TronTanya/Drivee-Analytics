@@ -32,7 +32,9 @@ services:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-drivee}:${POSTGRES_PASSWORD:-drivee}@postgres:5432/${POSTGRES_DB:-drivee_analytics}
-      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000"]}
+      PYTHONPATH: /app
+      CSV_MAX_UPLOAD_MB: ${CSV_MAX_UPLOAD_MB:-300}
     command: >
       sh -c "python scripts/wait_for_postgres.py
       && alembic upgrade head

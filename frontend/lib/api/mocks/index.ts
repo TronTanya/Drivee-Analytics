@@ -52,7 +52,17 @@ const trace: AnalyticsTraceDto = {
     rationale: "Ranking городов по отменам лучше читается bar-графиком.",
     alternatives: ["horizontal_bar", "table"]
   },
-  forecast_mode: { active: false, method: null }
+  forecast_mode: { active: false, method: null },
+  forecast_selection: {
+    metric_key: null,
+    selected_strategy: null,
+    backtest_summary: {},
+    data_quality: {}
+  },
+  quality_gate: {
+    status: "passed",
+    reasons: []
+  }
 };
 
 export async function mockLogin(_body: LoginRequestDto): Promise<AuthSessionDto> {

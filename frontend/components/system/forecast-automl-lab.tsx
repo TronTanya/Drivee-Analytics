@@ -86,6 +86,15 @@ export function ForecastAutoMLLab() {
     setIsBulkApplying(false);
   }
 
+  function asNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
   return (
     <div className="space-y-6">
       <SystemPageIntro
@@ -233,6 +242,38 @@ export function ForecastAutoMLLab() {
         <section key={lb.metric_key} className="surface-section p-5 sm:p-6">
           <h3 className="text-heading-3 text-foreground">Leaderboard: {lb.metric_key}</h3>
           {(() => {
+            const transform = (lb.transform ?? {}) as Record<string, unknown>;
+            const capHitRatio = asNumber(transform.cap_hit_ratio);
+            const configuredCap = asNumber(transform.configured_cap);
+            if (capHitRatio === null && configuredCap === null) return null;
+            const isHigh = capHitRatio !== null && capHitRatio > 0.05;
+            return (
+              <div
+                className={`mt-2 rounded-control border px-3 py-2 text-xs ${
+                  isHigh
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : "border-border-subtle bg-surface-page text-foreground-secondary"
+                }`}
+              >
+                <p>
+                  Cap: <span className="font-semibold text-foreground">{configuredCap ?? "auto"}</span>
+                  {capHitRatio !== null ? (
+                    <>
+                      {" "}
+                      · cap hit ratio:{" "}
+                      <span className="font-semibold text-foreground">{(capHitRatio * 100).toFixed(2)}%</span>
+                    </>
+                  ) : null}
+                </p>
+                {isHigh ? (
+                  <p className="mt-1">
+                    Предупреждение: >5% точек уперлись в cap, проверьте качество данных или увеличьте `DS_METRIC_CAPS`.
+                  </p>
+                ) : null}
+              </div>
+            );
+          })()}
+          {(() => {
             const fallbackBest = lb.models.find((m) => m.status === "ok")?.strategy_key ?? null;
             const strategyForDefault = lb.best_strategy ?? fallbackBest;
             const isCurrentDefault = strategyForDefault ? preferredByMetric[lb.metric_key] === strategyForDefault : false;
@@ -290,6 +331,7 @@ export function ForecastAutoMLLab() {
                   <th className="pb-2 pr-3">MAE</th>
                   <th className="pb-2 pr-3">RMSE</th>
                   <th className="pb-2 pr-3">MAPE</th>
+                  <th className="pb-2 pr-3">sMAPE</th>
                   <th className="pb-2">Score</th>
                 </tr>
               </thead>
@@ -301,6 +343,7 @@ export function ForecastAutoMLLab() {
                     <td className="py-2 pr-3">{m.mae ?? "—"}</td>
                     <td className="py-2 pr-3">{m.rmse ?? "—"}</td>
                     <td className="py-2 pr-3">{m.mape ?? "—"}</td>
+                    <td className="py-2 pr-3">{m.smape ?? "—"}</td>
                     <td className="py-2">{m.score ?? "—"}</td>
                   </tr>
                 ))}

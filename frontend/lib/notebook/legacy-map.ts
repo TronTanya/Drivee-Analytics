@@ -181,6 +181,11 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
           fallbackChartType?: ChartKind | null;
         } | null;
         title?: string;
+        subtitle?: string;
+        unitLabel?: string;
+        sampleSize?: number;
+        qualityMetricLabel?: string;
+        qualityMetricValue?: number;
         xKey?: string;
         series?: { key: string; name: string }[];
         data?: Record<string, string | number>[];
@@ -205,6 +210,11 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
                 }
               : null),
           title: parsed.title,
+          subtitle: parsed.subtitle,
+          unitLabel: parsed.unitLabel,
+          sampleSize: parsed.sampleSize,
+          qualityMetricLabel: parsed.qualityMetricLabel,
+          qualityMetricValue: parsed.qualityMetricValue,
           xKey: parsed.xKey,
           series: parsed.series,
           data: parsed.data

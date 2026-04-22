@@ -24,6 +24,7 @@ export function ChartContainer({ block, onTypeChange, body }: ChartContainerProp
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Визуализация</p>
             <p className="text-sm font-semibold text-foreground">{block.title ?? "Chart output"}</p>
+            {block.subtitle ? <p className="mt-0.5 text-xs text-foreground-secondary">{block.subtitle}</p> : null}
           </div>
           <div className="overflow-x-auto">
             {onTypeChange ? <ChartTypeSwitcher value={selected} onChange={onTypeChange} options={switcherOptions} /> : null}
@@ -40,6 +41,23 @@ export function ChartContainer({ block, onTypeChange, body }: ChartContainerProp
               <span className="font-semibold">{recommended}</span>.
             </p>
           ) : null}
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+            {typeof block.sampleSize === "number" ? (
+              <span className="rounded-md border border-border-subtle bg-surface-card px-2 py-0.5 text-foreground-secondary">
+                n={block.sampleSize}
+              </span>
+            ) : null}
+            {block.unitLabel ? (
+              <span className="rounded-md border border-border-subtle bg-surface-card px-2 py-0.5 text-foreground-secondary">
+                Ед.: {block.unitLabel}
+              </span>
+            ) : null}
+            {typeof block.qualityMetricValue === "number" ? (
+              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-900">
+                {block.qualityMetricLabel ?? "Качество"}: {block.qualityMetricValue.toFixed(2)}
+              </span>
+            ) : null}
+          </div>
         </div>
       </header>
 

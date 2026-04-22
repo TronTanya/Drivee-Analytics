@@ -140,6 +140,17 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               Прогноз: выкл
             </span>
           )}
+          <span
+            className={`rounded-md border px-2 py-0.5 font-mono ${
+              model.qualityGate.status === "failed"
+                ? "border-danger/30 bg-danger-soft text-danger-bold"
+                : model.qualityGate.status === "warning"
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+            }`}
+          >
+            Quality gate: {model.qualityGate.status}
+          </span>
         </div>
       </div>
 
@@ -250,6 +261,31 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
                 <span className="font-semibold text-foreground-muted">Метод:</span>{" "}
                 <span className="font-mono text-xs">{model.forecastMethod ?? "—"}</span>
               </p>
+              <p className="mt-1 text-sm">
+                <span className="font-semibold text-foreground-muted">Выбранная стратегия:</span>{" "}
+                <span className="font-mono text-xs">{model.forecastSelection.selectedStrategy ?? "—"}</span>
+              </p>
+              {Object.keys(model.forecastSelection.dataQuality).length > 0 ? (
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-control border border-border-subtle bg-surface-muted/50 p-2 font-mono text-[11px] leading-relaxed text-foreground">
+                  {JSON.stringify(model.forecastSelection.dataQuality, null, 2)}
+                </pre>
+              ) : null}
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Quality gate" defaultOpen>
+              <p className="text-sm">
+                <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
+                <span className="font-medium capitalize text-foreground">{model.qualityGate.status}</span>
+              </p>
+              {model.qualityGate.reasons.length > 0 ? (
+                <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs text-foreground-secondary">
+                  {model.qualityGate.reasons.map((reason, i) => (
+                    <li key={`${reason}-${i}`}>{reason}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-xs text-foreground-muted">Деградаций качества не обнаружено.</p>
+              )}
             </CollapsibleSection>
 
             {hasPipeline ? (

@@ -18,6 +18,18 @@ export type AnalyticsForecastModeDto = {
   method: string | null;
 };
 
+export type AnalyticsForecastSelectionDto = {
+  metric_key: string | null;
+  selected_strategy: string | null;
+  backtest_summary: Record<string, unknown>;
+  data_quality: Record<string, unknown>;
+};
+
+export type AnalyticsQualityGateDto = {
+  status: "passed" | "warning" | "failed";
+  reasons: string[];
+};
+
 export type AnalyticsExplainabilityTraceV1Dto = {
   schema_version: 1;
   interpreted_intent: string;
@@ -34,6 +46,8 @@ export type AnalyticsExplainabilityTraceV1Dto = {
   learned_correction_used: boolean;
   chart_recommendation: AnalyticsChartRecommendationDto;
   forecast_mode: AnalyticsForecastModeDto;
+  forecast_selection: AnalyticsForecastSelectionDto;
+  quality_gate: AnalyticsQualityGateDto;
 };
 
 /** Older analytics responses (pre explainability v1). */

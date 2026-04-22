@@ -326,6 +326,16 @@ export default function NotebookDetailsPage() {
             rationale: "Сопоставление временного ряда и цели лучше читать на линейном графике.",
             alternatives: ["area", "bar"]
           },
+          forecastSelection: {
+            metricKey: null,
+            selectedStrategy: null,
+            dataQuality: {},
+            backtestSummary: {}
+          },
+          qualityGate: {
+            status: "passed",
+            reasons: []
+          },
           steps: [
             { id: "s1", label: "Инициализация канвы", detail: "Блоки загружены", status: "done" },
             { id: "s2", label: "Ожидание запуска", detail: "Запустите ячейки или добавьте промпт", status: "pending" }
@@ -820,6 +830,17 @@ export default function NotebookDetailsPage() {
               }`}
             >
               Backend: {backendHealth === "up" ? "online" : backendHealth === "down" ? "offline" : "checking..."}
+            </span>
+            <span
+              className={`rounded-full border px-2.5 py-1 font-semibold ${
+                traceModel.qualityGate.status === "failed"
+                  ? "border-danger/30 bg-danger-soft text-danger-bold"
+                  : traceModel.qualityGate.status === "warning"
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-900"
+              }`}
+            >
+              Quality: {traceModel.qualityGate.status}
             </span>
             {backendCheckedAt ? (
               <span className="text-foreground-muted">

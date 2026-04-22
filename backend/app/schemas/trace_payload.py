@@ -27,6 +27,18 @@ class ForecastModeTrace(BaseModel):
     method: Optional[str] = None
 
 
+class ForecastSelectionTrace(BaseModel):
+    metric_key: Optional[str] = None
+    selected_strategy: Optional[str] = None
+    backtest_summary: dict[str, Any] = Field(default_factory=dict)
+    data_quality: dict[str, Any] = Field(default_factory=dict)
+
+
+class QualityGateTrace(BaseModel):
+    status: Literal["passed", "warning", "failed"] = "passed"
+    reasons: list[str] = Field(default_factory=list)
+
+
 class AnalyticsExplainabilityTraceV1(BaseModel):
     """Wire contract for TracePanel — versioned for forward-compatible clients."""
 
@@ -48,3 +60,5 @@ class AnalyticsExplainabilityTraceV1(BaseModel):
     learned_correction_used: bool = False
     chart_recommendation: ChartRecommendationTrace = Field(default_factory=ChartRecommendationTrace)
     forecast_mode: ForecastModeTrace = Field(default_factory=ForecastModeTrace)
+    forecast_selection: ForecastSelectionTrace = Field(default_factory=ForecastSelectionTrace)
+    quality_gate: QualityGateTrace = Field(default_factory=QualityGateTrace)

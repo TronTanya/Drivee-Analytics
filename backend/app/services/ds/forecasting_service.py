@@ -17,10 +17,12 @@ from app.models.user import User
 from app.repositories.data_pipeline_repository import DataPipelineRepository
 from app.services.ds.load_frame import load_default_source_dataframe, load_upload_dataframe
 from app.services.ds.metrics_forecast import (
-    build_daily_metrics_for_forecast,
+    clean_series_for_modeling,
     compute_metrics_bundle,
     generate_insights,
+    prepare_daily_metrics_for_forecast,
     run_forecast_bundle,
+    _smape,
 )
 from app.services.ds.strategies import ForecastStrategy, default_strategies
 
@@ -44,18 +46,54 @@ def _safe_mape(actual: np.ndarray, pred: np.ndarray) -> float:
 
 
 def _score_backtest(actual: np.ndarray, pred: np.ndarray) -> dict[str, float]:
-    err = pred - actual
+    actual = np.nan_to_num(actual.astype(float), nan=0.0, posinf=0.0, neginf=0.0)
+    pred = np.nan_to_num(pred.astype(float), nan=0.0, posinf=0.0, neginf=0.0)
+    # Clip extremes to keep metrics numerically stable on large raw datasets.
+    clip_min, clip_max = -1e9, 1e9
+    actual = np.clip(actual, clip_min, clip_max)
+    pred = np.clip(pred, clip_min, clip_max)
+    err = np.clip(pred - actual, clip_min, clip_max)
     mae = float(np.mean(np.abs(err)))
-    rmse = float(np.sqrt(np.mean(err ** 2)))
-    mape = _safe_mape(actual, pred)
-    # Lower is better; weighted toward absolute fit and stability.
-    score = float(mae * 0.45 + rmse * 0.45 + mape * 0.10)
+    rmse = float(np.sqrt(np.mean(np.square(err))))
+    mape = float(_safe_mape(actual, pred))
+    smape = float(_smape(actual, pred))
+    if not np.isfinite(mae):
+        mae = 1e9
+    if not np.isfinite(rmse):
+        rmse = 1e9
+    if not np.isfinite(mape):
+        mape = 1e9
+    if not np.isfinite(smape):
+        smape = 1e9
+    # Lower is better; weighted toward absolute fit and calibration.
+    score = float(mae * 0.35 + rmse * 0.35 + mape * 0.15 + smape * 0.15)
+    if not np.isfinite(score):
+        score = 1e9
     return {
         "mae": round(mae, 4),
         "rmse": round(rmse, 4),
         "mape": round(mape, 4),
+        "smape": round(smape, 4),
         "score": round(score, 4),
     }
+
+
+def _walk_forward_backtest(values: np.ndarray, strategy: ForecastStrategy, holdout_days: int) -> tuple[np.ndarray, np.ndarray]:
+    holdout_days = max(3, int(holdout_days))
+    if len(values) <= holdout_days + 2:
+        return np.array([], dtype=float), np.array([], dtype=float)
+    train_start = len(values) - holdout_days
+    preds: list[float] = []
+    actuals: list[float] = []
+    for step in range(holdout_days):
+        end = train_start + step
+        train = values[:end]
+        if len(train) < 2:
+            continue
+        pred = strategy.predict(train, 1)
+        preds.append(float(pred[0]) if pred else 0.0)
+        actuals.append(float(values[end]))
+    return np.asarray(actuals, dtype=float), np.asarray(preds, dtype=float)
 
 
 class DataScienceForecastService:
@@ -84,19 +122,50 @@ class DataScienceForecastService:
             df, smap = load_default_source_dataframe(source_table=source_table)
         metrics = compute_metrics_bundle(df, smap)
 
-        series_map: dict[str, pd.Series] = {}
+        prepared_series: dict[str, Any] = {}
         resolved_date_col = date_column or ""
         insights: list[str] = []
         forecasts_payload: dict[str, Any] = {}
         run_id: Optional[UUID] = None
 
         try:
-            series_map, resolved_date_col = build_daily_metrics_for_forecast(df, smap, date_column)
+            prepared_series, resolved_date_col = prepare_daily_metrics_for_forecast(df, smap, date_column)
         except ValueError:
             resolved_date_col = ""
 
-        for metric_key, ser in series_map.items():
-            forecasts_payload[metric_key] = run_forecast_bundle(ser, horizon_days=horizon_days)
+        selected_strategies: dict[str, str] = {}
+        data_quality: dict[str, Any] = {}
+        backtest_summary: dict[str, Any] = {}
+        for metric_key, prepared in prepared_series.items():
+            ser = prepared.series
+            data_quality[metric_key] = prepared.quality
+            values, transform_meta = clean_series_for_modeling(ser, metric_key=metric_key)
+            holdout = max(7, min(21, max(7, len(values) // 4)))
+            candidates: list[dict[str, Any]] = []
+            for strategy in self.strategies:
+                actual, pred = _walk_forward_backtest(values, strategy, holdout)
+                if len(actual) == 0:
+                    continue
+                scored = _score_backtest(actual, pred)
+                candidates.append({"strategy": strategy.key, "points": int(len(actual)), **scored})
+            candidates.sort(key=lambda x: float(x["score"]))
+            selected = candidates[0]["strategy"] if candidates else "rolling_average"
+            if prepared.quality.get("baseline_only"):
+                selected = "rolling_average"
+            selected_strategies[metric_key] = selected
+            backtest_summary[metric_key] = {
+                "best_strategy": selected,
+                "candidates": candidates,
+                "data_quality": prepared.quality,
+                "feature_preview": prepared.feature_preview,
+                "transform": transform_meta,
+            }
+            forecasts_payload[metric_key] = run_forecast_bundle(
+                ser,
+                horizon_days=horizon_days,
+                selected_strategy=selected,
+                baseline_only=bool(prepared.quality.get("baseline_only")),
+            )
 
         combined_forecast = {
             "per_metric": forecasts_payload,
@@ -105,6 +174,9 @@ class DataScienceForecastService:
                 "(UTC-логика дат в данных)."
             ),
             "strategies": [s.key for s in self.strategies],
+            "selected_strategies": selected_strategies,
+            "data_quality": data_quality,
+            "backtest_summary": backtest_summary,
         }
 
         rev_fc: dict[str, Any] = dict(forecasts_payload.get("revenue") or {})
@@ -165,17 +237,18 @@ class DataScienceForecastService:
 
         metrics_bundle = compute_metrics_bundle(df, smap)
         try:
-            series_map, resolved_date_col = build_daily_metrics_for_forecast(df, smap, date_column)
+            prepared_series, resolved_date_col = prepare_daily_metrics_for_forecast(df, smap, date_column)
         except ValueError:
-            series_map, resolved_date_col = {}, ""
+            prepared_series, resolved_date_col = {}, ""
 
         available = {s.key: s for s in self.strategies}
         strategy_keys = [k for k in (strategies or []) if k in available] or list(available.keys())
         chosen = [available[k] for k in strategy_keys]
 
         leaderboards: list[dict[str, Any]] = []
-        for metric_key, ser in series_map.items():
-            values = np.nan_to_num(ser.values.astype(float), nan=0.0)
+        for metric_key, prepared in prepared_series.items():
+            ser = prepared.series
+            values, transform_meta = clean_series_for_modeling(ser, metric_key=metric_key)
             if len(values) < max(6, holdout_days + 2):
                 leaderboards.append(
                     {
@@ -190,30 +263,30 @@ class DataScienceForecastService:
                                 "mae": None,
                                 "rmse": None,
                                 "mape": None,
+                                "smape": None,
                                 "score": None,
                                 "backtest_points": 0,
                                 "backtest_preview": [],
                             }
                             for s in chosen
                         ],
+                        "quality": prepared.quality,
+                        "feature_preview": prepared.feature_preview,
+                        "transform": transform_meta,
                     }
                 )
                 continue
 
-            train = values[:-holdout_days]
-            actual = values[-holdout_days:]
-            holdout_idx = list(ser.index[-holdout_days:])
             model_scores: list[dict[str, Any]] = []
             for s in chosen:
                 try:
-                    pred_list = s.predict(train, holdout_days)
-                    pred = np.asarray(pred_list[:holdout_days], dtype=float)
+                    actual, pred = _walk_forward_backtest(values, s, holdout_days)
                     if len(pred) != len(actual):
                         raise ValueError("prediction_length_mismatch")
                     score = _score_backtest(actual, pred)
                     backtest_preview = []
                     for i in range(len(actual)):
-                        ts = pd.Timestamp(holdout_idx[i])
+                        ts = pd.Timestamp(ser.index[-len(actual) + i])
                         backtest_preview.append(
                             {
                                 "date": str(ts.date()),
@@ -238,6 +311,7 @@ class DataScienceForecastService:
                             "mae": None,
                             "rmse": None,
                             "mape": None,
+                            "smape": None,
                             "score": None,
                             "backtest_points": 0,
                             "backtest_preview": [],
@@ -270,6 +344,9 @@ class DataScienceForecastService:
                     "best_score": best["score"] if best else None,
                     "forecast_preview": forecast_preview,
                     "models": model_scores,
+                    "quality": prepared.quality,
+                    "feature_preview": prepared.feature_preview,
+                    "transform": transform_meta,
                 }
             )
 
@@ -300,15 +377,23 @@ class DataScienceForecastService:
         if not forecasts_payload:
             return None
 
+        selected_strategies = {
+            key: (payload.get("selected_strategy") if isinstance(payload, dict) else None)
+            for key, payload in forecasts_payload.items()
+        }
         run = ForecastRun(
             workspace_id=workspace_id,
             notebook_id=notebook_id,
             metric_key="orders_count" if "orders_count" in forecasts_payload else next(iter(forecasts_payload)),
-            method=preferred_strategy or "strategy_bundle_v1",
+            method=preferred_strategy or selected_strategies.get("orders_count") or "strategy_bundle_v1",
             parameters_json={"horizon_days": horizon_days, "date_column": date_column},
             horizon_steps=horizon_days,
             run_status="succeeded",
-            forecast_metadata_json={"metrics": list(forecasts_payload.keys()), "summary_metrics": metrics},
+            forecast_metadata_json={
+                "metrics": list(forecasts_payload.keys()),
+                "summary_metrics": metrics,
+                "selected_strategies": selected_strategies,
+            },
             created_by=user_id,
             started_at=datetime.now(timezone.utc),
             finished_at=datetime.now(timezone.utc),
@@ -317,7 +402,7 @@ class DataScienceForecastService:
 
         metric_key = run.metric_key
         next7_block = (forecasts_payload.get(metric_key) or {}).get("next_7_days") or {}
-        strategy_key = preferred_strategy if preferred_strategy in next7_block else "linear_regression"
+        strategy_key = preferred_strategy if preferred_strategy in next7_block else (selected_strategies.get(metric_key) or "linear_regression")
         next7 = next7_block.get(strategy_key, [])
         for idx, point in enumerate(next7):
             ts = datetime.fromisoformat(point["date"]) if "T" in point["date"] else datetime.fromisoformat(point["date"] + "T00:00:00")
@@ -328,9 +413,9 @@ class DataScienceForecastService:
                     step_index=idx + 1,
                     forecast_timestamp=ts,
                     predicted_value=Decimal(str(point["value"])),
-                    lower_bound=None,
-                    upper_bound=None,
-                    confidence_score=Decimal("0.75"),
+                    lower_bound=Decimal(str(round(float(point["value"]) * 0.9, 4))),
+                    upper_bound=Decimal(str(round(float(point["value"]) * 1.1, 4))),
+                    confidence_score=Decimal("0.8"),
                     components_json={"strategy": strategy_key},
                 )
             )

@@ -109,6 +109,7 @@ class AutoMLModelScore(BaseModel):
     mae: Optional[float] = None
     rmse: Optional[float] = None
     mape: Optional[float] = None
+    smape: Optional[float] = None
     score: Optional[float] = None
     backtest_points: int = 0
     backtest_preview: list[dict[str, Any]] = Field(default_factory=list)
@@ -126,6 +127,9 @@ class AutoMLMetricLeaderboard(BaseModel):
     best_score: Optional[float] = None
     forecast_preview: list[AutoMLForecastPoint] = Field(default_factory=list)
     models: list[AutoMLModelScore] = Field(default_factory=list)
+    quality: dict[str, Any] = Field(default_factory=dict)
+    feature_preview: list[dict[str, Any]] = Field(default_factory=list)
+    transform: dict[str, Any] = Field(default_factory=dict)
 
 
 class AutoMLBacktestResponse(BaseModel):

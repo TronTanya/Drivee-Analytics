@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell ds-quality
 
 up:
 	$(DC) up --build
@@ -31,3 +31,6 @@ frontend-shell:
 
 postgres-shell:
 	$(DC) exec postgres psql -U $${POSTGRES_USER:-drivee} -d $${POSTGRES_DB:-drivee_analytics}
+
+ds-quality:
+	$(DC) run --rm backend python -m unittest discover -s tests -p "test_*.py"

@@ -159,12 +159,12 @@ def patch_schedule(
     return schedule_to_response(row)
 
 
-@router.delete("/{report_id}/schedule", status_code=204)
+@router.delete("/{report_id}/schedule", status_code=204, response_class=Response)
 def delete_schedule(
     report_id: uuid.UUID,
     user: User = Depends(get_current_active_user),
     session: Session = Depends(get_db_session),
-) -> None:
+) -> Response:
     repo = SavedReportRepository(session)
     report = repo.get(report_id)
     if not report:
@@ -172,6 +172,7 @@ def delete_schedule(
     _require_workspace(session, user.id, report.workspace_id)
     repo.delete_schedules_for_report(report_id)
     session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/{report_id}/download")
