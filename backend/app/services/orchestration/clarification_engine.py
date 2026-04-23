@@ -7,6 +7,7 @@ import re
 from typing import Any, List, Optional
 
 from app.schemas.clarification import ClarificationOption, ClarificationResponse
+from app.schemas.nl_interpretation import NLQueryInterpretation
 from app.schemas.orchestration import IntentKind, SemanticTermResolution
 from app.services.llm.llm_service import LLMService
 
@@ -55,6 +56,32 @@ OPTIONS_GENERIC_COMPARE_DIMENSION: List[ClarificationOption] = [
     ClarificationOption(label="По status_tender", value="dimension_status_tender"),
 ]
 
+OPTIONS_REVENUE_DEFINITION: List[ClarificationOption] = [
+    ClarificationOption(
+        label="Сумма цен заказов (sum_order_price)",
+        value="sum_order_price",
+    ),
+    ClarificationOption(
+        label="Число завершённых поездок (done_rides)",
+        value="done_rides",
+    ),
+    ClarificationOption(
+        label="Средний чек (avg_order_price)",
+        value="avg_order_price",
+    ),
+]
+
+OPTIONS_CITY_SCOPE: List[ClarificationOption] = [
+    ClarificationOption(
+        label="По всем городам (группировка / топ)",
+        value="all_cities",
+    ),
+    ClarificationOption(
+        label="Один город — уточните city_id или название в следующем сообщении",
+        value="single_city_clarify",
+    ),
+]
+
 
 @dataclass
 class ClarificationContext:
@@ -64,6 +91,7 @@ class ClarificationContext:
     resolutions: List[SemanticTermResolution]
     nondefault_semantic_count: int
     intent_signals: List[str]
+    interpretation: Optional[NLQueryInterpretation] = None
 
 
 class ClarificationEngine:
@@ -106,6 +134,40 @@ class ClarificationEngine:
     def _evaluate_rules(self, ctx: ClarificationContext) -> ClarificationResponse:
         q = ctx.effective_query.lower()
         nd = ctx.nondefault_semantic_count
+        interp = ctx.interpretation
+
+        if interp and ("revenue_metric_multiple" in interp.ambiguities or "revenue_definition_unclear" in interp.ambiguities):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="revenue_definition_ambiguous",
+                clarification_question=(
+                    "Что вы имеете в виду под «выручкой»: сумму цен заказов, "
+                    "число завершённых поездок или средний чек?"
+                ),
+                clarification_options=list(OPTIONS_REVENUE_DEFINITION),
+            )
+
+        if interp and "city_scope_all_vs_one" in interp.ambiguities:
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="city_scope_ambiguous",
+                clarification_question="Сравнить или ранжировать по всем городам или сфокусироваться на одном городе?",
+                clarification_options=list(OPTIONS_CITY_SCOPE),
+            )
+
+        if (
+            interp
+            and interp.confidence_band == "low"
+            and interp.ambiguities
+            and interp.confidence_score < 0.45
+        ):
+            opts = OPTIONS_CHANNEL_METRICS if ctx.intent == "ranking" else OPTIONS_SUMMARY_METRICS
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="low_interpretation_confidence",
+                clarification_question="Запрос недостаточно однозначен. Уточните метрику, период или измерение.",
+                clarification_options=list(opts),
+            )
 
         if (
             ctx.intent == "comparison"
@@ -182,6 +244,7 @@ class ClarificationEngine:
         resolutions: List[SemanticTermResolution],
         intent_signals: List[str],
         clarification: ClarificationResponse,
+        interpretation: Optional[NLQueryInterpretation] = None,
     ) -> float:
         """Higher when interpretation is concrete; capped low when clarification is required."""
         base = 0.88
@@ -191,11 +254,19 @@ class ClarificationEngine:
             base -= 0.08
         if any("default:" in s for s in intent_signals):
             base -= 0.04
+        if interpretation is not None:
+            base = 0.45 * base + 0.55 * float(interpretation.confidence_score)
         if clarification.clarification_required:
             # Band for under-specified queries (product default ~0.58).
             if not resolutions or resolutions[0].surface_form == "default":
-                return 0.58
-            return 0.62
+                cap = 0.58
+                if interpretation is not None:
+                    cap = min(cap, float(interpretation.confidence_score))
+                return round(cap, 2)
+            cap = 0.62
+            if interpretation is not None:
+                cap = min(cap, float(interpretation.confidence_score))
+            return round(cap, 2)
         return round(max(0.25, min(1.0, base)), 2)
 
     @staticmethod

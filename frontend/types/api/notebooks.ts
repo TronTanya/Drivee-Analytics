@@ -28,3 +28,13 @@ export type CreateNotebookRequestDto = {
 export type UpdateNotebookRequestDto = Partial<CreateNotebookRequestDto> & {
   notebook_status?: NotebookStatusDto;
 };
+
+export type SaveNotebookScenarioRequestDto = {
+  scenario_title: string;
+  scenario_description?: string;
+};
+
+export type SaveNotebookResponseDto = {
+  notebook_id: string;
+  context_chain_json: Record<string, unknown>;
+};

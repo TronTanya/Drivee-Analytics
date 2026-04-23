@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -8,6 +9,8 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedException
+
+logger = logging.getLogger(__name__)
 
 # Keep bcrypt verification support for legacy rows, but use pbkdf2 by default.
 # This avoids runtime issues with incompatible bcrypt/passlib builds.
@@ -22,8 +25,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+def _access_signing_secret() -> str:
+    raw = (settings.jwt_secret or "").strip()
+    if raw:
+        return raw
+    env = (settings.app_env or "").strip().lower()
+    if env in ("prod", "production"):
+        raise RuntimeError("JWT_SECRET не задан в production")
+    logger.warning(
+        "JWT_SECRET пустой в окружении %s — используется встроенный dev-fallback (задайте секрет в .env).",
+        settings.app_env,
+    )
+    return "drivee-dev-insecure-fallback"
+
+
 def _refresh_secret() -> str:
-    return settings.jwt_refresh_secret or settings.jwt_secret
+    r = (settings.jwt_refresh_secret or "").strip()
+    if r:
+        return r
+    return _access_signing_secret()
 
 
 def create_access_token(*, user_id: UUID, role_key: str) -> str:
@@ -34,7 +54,7 @@ def create_access_token(*, user_id: UUID, role_key: str) -> str:
         "role": role_key,
         "exp": expires_at,
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, _access_signing_secret(), algorithm=settings.jwt_algorithm)
 
 
 def create_refresh_token(*, user_id: UUID) -> str:
@@ -49,7 +69,7 @@ def create_refresh_token(*, user_id: UUID) -> str:
 
 def decode_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(token, _access_signing_secret(), algorithms=[settings.jwt_algorithm])
     except JWTError as exc:
         raise UnauthorizedException("Invalid or expired access token") from exc
     if payload.get("typ") != "access":

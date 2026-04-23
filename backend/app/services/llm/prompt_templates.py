@@ -38,6 +38,9 @@ def build_prompt(task: PromptTask, payload: dict[str, Any]) -> PromptTemplate:
             "dimensions": ["city_id"],
             "filters": ["last_week"],
             "time_period": "last_week",
+            "comparison": "wow",
+            "sort": "desc",
+            "limit": 10,
             "ambiguities": [],
             "confidence": 0.84,
         }

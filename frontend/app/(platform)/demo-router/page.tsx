@@ -3,7 +3,8 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useSession } from "@/lib/auth/session-context";
-import { isDemoModeEnabled } from "@/lib/api";
+import { getDemoApiMode, isDemoModeEnabled, shouldForceAnalyticsMock } from "@/lib/api";
+import { DEFENSE_DEMO_SCENARIOS } from "@/lib/demo/defense-scenarios";
 
 const ROLE_INFO: Record<
   "admin" | "manager" | "marketer" | "executive",
@@ -121,6 +122,8 @@ export default function DemoRouterPage() {
   const activeRole = ROLE_INFO[session.role];
   const activeCapabilities = ROLE_CAPABILITIES[session.role];
   const demoMode = isDemoModeEnabled();
+  const apiMode = getDemoApiMode();
+  const analyticsForcedMock = shouldForceAnalyticsMock();
 
   return (
     <div className="space-y-8">
@@ -128,8 +131,16 @@ export default function DemoRouterPage() {
         <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Текущая роль</p>
         <h2 className="mt-1 text-heading-2 text-foreground">{activeRole.title}</h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-foreground-secondary">{activeRole.summary}</p>
-        <div className="mt-3 inline-flex rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-900">
-          Demo mode: {demoMode ? "enabled" : "disabled"}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="inline-flex rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-900">
+            Demo mode: {demoMode ? "enabled" : "disabled"}
+          </span>
+          <span className="inline-flex rounded-full border border-border-subtle bg-surface-muted px-3 py-1 text-xs font-semibold text-foreground-secondary">
+            API: {apiMode}
+          </span>
+          <span className="inline-flex rounded-full border border-border-subtle bg-surface-muted px-3 py-1 text-xs font-semibold text-foreground-secondary">
+            Analytics: {analyticsForcedMock ? "client mock only" : "live + error fallback"}
+          </span>
         </div>
         <Link
           href={activeRole.dashboardHref}
@@ -137,6 +148,59 @@ export default function DemoRouterPage() {
         >
           Открыть дашборд роли
         </Link>
+      </section>
+
+      <section className="surface-section p-5 sm:p-6">
+        <SectionTitle
+          kicker="Defense scenarios"
+          title="Четыре сценария защиты"
+          description="Каждый сопровождается seed-данными, шаблоном/промптом, ожидаемым результатом и контролируемым fallback (см. docs/demo-defense.md)."
+        />
+        <div className="mt-4 space-y-4">
+          {DEFENSE_DEMO_SCENARIOS.map((s) => (
+            <article key={s.id} className="surface-content space-y-3 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <h3 className="text-sm font-semibold text-foreground">{s.title}</h3>
+                <Link
+                  href={s.primaryHref}
+                  className="shrink-0 rounded-control bg-brand-500 px-3 py-1 text-xs font-semibold text-black hover:bg-brand-400"
+                >
+                  Открыть
+                </Link>
+              </div>
+              <p className="text-xs text-foreground-secondary">{s.pitch}</p>
+              <div className="rounded-control border border-border-subtle bg-surface-muted p-2 font-mono text-[11px] text-foreground">
+                {s.nlPrompt}
+              </div>
+              <p className="text-[11px] text-foreground-muted">
+                <span className="font-semibold text-foreground-secondary">Seed / данные: </span>
+                {s.seedDataRu}
+              </p>
+              <p className="text-[11px] text-foreground-muted">
+                <span className="font-semibold text-foreground-secondary">Ожидаемый результат: </span>
+                {s.expectedOutcomeRu}
+              </p>
+              <p className="text-[11px] text-foreground-muted">
+                <span className="font-semibold text-foreground-secondary">Fallback: </span>
+                {s.fallbackFlowRu}
+              </p>
+              {s.queryTemplateKey ? (
+                <p className="text-[11px] font-mono text-foreground-muted">template_key: {s.queryTemplateKey}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {s.secondaryHrefs.map((x) => (
+                  <Link
+                    key={x.href}
+                    href={x.href}
+                    className="rounded-control border border-border-subtle px-2 py-1 text-[11px] font-semibold text-foreground-secondary hover:bg-surface-muted"
+                  >
+                    {x.label}
+                  </Link>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="surface-section p-5 sm:p-6">

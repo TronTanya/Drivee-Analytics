@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db_session
+from app.core.config import settings
 from app.core.exceptions import ForbiddenException, NotFoundException
+from app.services.cache.ttl_cache import TTLCache
 from app.models.user import User
 from app.repositories.query_template_repository import QueryTemplateRepository
 from app.repositories.workspace_repository import WorkspaceRepository
@@ -14,6 +18,28 @@ from app.schemas.reporting import QueryTemplateResponse, TemplateQuickRunRespons
 from app.services.analytics_pipeline import analyze_natural_language
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+
+_tpl_run_cache: TTLCache[dict] | None = None
+
+
+def _template_quick_run_cache() -> TTLCache[dict]:
+    global _tpl_run_cache
+    if _tpl_run_cache is None:
+        _tpl_run_cache = TTLCache(
+            maxsize=max(1, int(settings.template_quick_run_cache_max_entries)),
+            ttl_seconds=float(settings.template_quick_run_cache_ttl_seconds),
+        )
+    return _tpl_run_cache
+
+
+def _template_run_cache_key(
+    template_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    default_params: dict,
+) -> str:
+    h = hashlib.sha256(json.dumps(default_params, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+    return f"{template_id}:{workspace_id}:{user_id}:{h}"
 
 
 def _require_workspace(session: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) -> None:
@@ -47,15 +73,22 @@ def quick_run_template(
         raise NotFoundException("Template not found")
     if user.role and tpl.target_role_id and tpl.target_role_id != user.role.id:
         raise ForbiddenException("This template is not available for your role")
+    params = dict(tpl.default_params_json or {})
+    ck = _template_run_cache_key(template_id, workspace_id, user.id, params)
+    hit = _template_quick_run_cache().get(ck)
+    if hit is not None:
+        return TemplateQuickRunResponse.model_validate(hit)
+
     role_key = user.role.role_key if user.role else None
     result = analyze_natural_language(
         tpl.nl_prompt_template,
         notebook_context=dict(tpl.default_params_json or {}),
         workspace_id=str(workspace_id),
         role_key=role_key,
+        user_id=str(user.id),
         db_session=session,
     )
-    return TemplateQuickRunResponse(
+    resp = TemplateQuickRunResponse(
         template_id=template_id,
         execution_status=result.execution_status,
         safe_sql=result.safe_sql,
@@ -65,3 +98,6 @@ def quick_run_template(
         confidence=result.confidence,
         warnings=list(result.warnings),
     )
+    if resp.execution_status == "succeeded":
+        _template_quick_run_cache().set(ck, resp.model_dump(mode="json"))
+    return resp

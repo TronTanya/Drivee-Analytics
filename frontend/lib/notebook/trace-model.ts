@@ -1,4 +1,4 @@
-import type { TracePanelModel, TraceSemanticTerm } from "@/lib/notebook/block-types";
+import type { TracePanelModel, TraceSemanticTerm, TraceStep, TraceStepStatus } from "@/lib/notebook/block-types";
 import type { AnalyticsExplainabilityTraceV1Dto, AnalyticsTraceDto } from "@/types/api/trace";
 import { isExplainabilityTraceV1 } from "@/types/api/trace";
 
@@ -29,9 +29,19 @@ export const EMPTY_TRACE: TracePanelModel = {
     status: "passed",
     reasons: []
   },
+  guardrails: {
+    blocked: false,
+    codes: [],
+    messagesRu: []
+  },
   steps: [],
   logs: []
 };
+
+function coercePhaseStatus(s: string | undefined): TraceStepStatus {
+  if (s === "running" || s === "pending" || s === "done" || s === "failed" || s === "skipped") return s;
+  return "pending";
+}
 
 function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
   const terms: TraceSemanticTerm[] = (trace.semantic_terms ?? []).map((t) => ({
@@ -53,6 +63,14 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
     backtest_summary: {}
   };
   const qualityGate = trace.quality_gate ?? { status: "passed", reasons: [] };
+  const guardrailsRaw = trace.guardrails ?? { blocked: false, codes: [], messages_ru: [] };
+  const phases = trace.execution_phases ?? [];
+  const stepsFromPhases: TraceStep[] = phases.map((p) => ({
+    id: p.phase_id,
+    label: p.label,
+    detail: p.detail?.trim() ? p.detail : undefined,
+    status: coercePhaseStatus(p.status)
+  }));
   return {
     schemaVersion: 1,
     interpretedIntent: trace.interpreted_intent ?? "",
@@ -84,7 +102,14 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
       status: qualityGate.status ?? "passed",
       reasons: qualityGate.reasons ?? []
     },
-    steps: [],
+    guardrails: {
+      blocked: !!guardrailsRaw.blocked,
+      codes: Array.isArray(guardrailsRaw.codes) ? guardrailsRaw.codes.map(String) : [],
+      messagesRu: Array.isArray(guardrailsRaw.messages_ru)
+        ? guardrailsRaw.messages_ru.map(String)
+        : []
+    },
+    steps: stepsFromPhases,
     logs: []
   };
 }

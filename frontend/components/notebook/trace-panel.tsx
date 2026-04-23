@@ -11,7 +11,8 @@ const stepDot: Record<string, string> = {
   pending: "bg-foreground-muted",
   running: "bg-brand-500 animate-pulse-soft",
   done: "bg-foreground",
-  failed: "bg-danger"
+  failed: "bg-danger",
+  skipped: "bg-border-subtle ring-1 ring-border-subtle"
 };
 
 function CollapsibleSection(props: {
@@ -74,8 +75,10 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
     model.chartRecommendation.rationale.trim().length > 0 ||
     (chartType.length > 0 && chartType !== "table");
   const hasPipeline = model.steps.length > 0 || model.logs.length > 0;
+  const hasGuardrailsBlock = model.guardrails.blocked && model.guardrails.messagesRu.length > 0;
   const hasBody = Boolean(
-    hasSql ||
+    hasGuardrailsBlock ||
+      hasSql ||
       hasEntities ||
       hasTerms ||
       hasTables ||
@@ -205,6 +208,24 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
           <p className="text-sm text-foreground-secondary">Запустите ячейку, чтобы заполнить explainability trace.</p>
         ) : (
           <div className="space-y-2">
+            {hasGuardrailsBlock ? (
+              <div
+                role="status"
+                className="rounded-control border border-danger/35 bg-danger-soft px-3 py-2.5 text-sm text-danger-bold"
+              >
+                <p className="font-semibold">Запрос заблокирован политикой безопасности</p>
+                {model.guardrails.codes.length > 0 ? (
+                  <p className="mt-1 font-mono text-xs text-foreground-secondary">
+                    {model.guardrails.codes.join(", ")}
+                  </p>
+                ) : null}
+                <ul className="mt-2 list-inside list-disc space-y-0.5 text-sm text-foreground">
+                  {model.guardrails.messagesRu.map((m, i) => (
+                    <li key={`${m}-${i}`}>{m}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <CollapsibleSection title="Интерпретированное намерение" defaultOpen>
               <p className="text-foreground">{model.interpretedIntent || "—"}</p>
             </CollapsibleSection>
@@ -314,7 +335,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
             {qualityAttention ? null : qualityGateSection}
 
             {hasPipeline ? (
-              <CollapsibleSection title="Таймлайн pipeline" muted defaultOpen={!compactMode}>
+              <CollapsibleSection title="Этапы выполнения" muted defaultOpen={!compactMode}>
                 {model.steps.length > 0 ? (
                   <ul className="mb-3 space-y-2">
                     {model.steps.map((s) => (
@@ -325,6 +346,9 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
                         <div>
                           <p className="font-medium text-foreground">{s.label}</p>
                           {s.detail ? <p className="text-foreground-secondary">{s.detail}</p> : null}
+                          {s.status === "skipped" && !s.detail ? (
+                            <p className="text-foreground-muted">Этап не выполнялся в этом запуске.</p>
+                          ) : null}
                         </div>
                       </li>
                     ))}

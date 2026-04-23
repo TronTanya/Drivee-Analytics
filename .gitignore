@@ -17,3 +17,11 @@ build/
 coverage/
 *.log
 
+# Backend runtime (CSV uploads, local artifacts)
+backend/var/
+# Large local datasets (do not commit)
+backend/data/*.csv
+
+# TypeScript incremental cache
+*.tsbuildinfo
+

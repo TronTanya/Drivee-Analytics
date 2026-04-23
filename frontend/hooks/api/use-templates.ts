@@ -4,10 +4,11 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { fetchNotebookTemplates, fetchQueryTemplates, quickRunQueryTemplate } from "@/lib/api/templates";
 import { queryKeys } from "@/hooks/api/query-keys";
 
-export function useQueryTemplates() {
+export function useQueryTemplates(workspaceId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.templates.queries(),
-    queryFn: fetchQueryTemplates,
+    queryKey: [...queryKeys.templates.queries(), workspaceId ?? "none"],
+    queryFn: () => fetchQueryTemplates(workspaceId!),
+    enabled: Boolean(workspaceId && workspaceId.length >= 8),
     staleTime: 60_000
   });
 }
@@ -22,6 +23,7 @@ export function useNotebookTemplates() {
 
 export function useQuickRunQueryTemplate() {
   return useMutation({
-    mutationFn: (templateId: string) => quickRunQueryTemplate(templateId)
+    mutationFn: ({ workspaceId, templateId }: { workspaceId: string; templateId: string }) =>
+      quickRunQueryTemplate(workspaceId, templateId)
   });
 }

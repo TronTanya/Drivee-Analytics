@@ -76,6 +76,62 @@ function HeatmapFallback({ block }: { block: ChartBlock }) {
   );
 }
 
+function MapPlaceholder({ block }: { block: ChartBlock }) {
+  const metric = block.series[0]?.key;
+  const labelKey = block.xKey;
+  const sorted = [...block.data]
+    .map((row) => ({
+      row,
+      v: metric ? normalizeNumeric(row[metric]) ?? 0 : 0
+    }))
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 8);
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <div className="rounded-xl border border-dashed border-brand-200/80 bg-gradient-to-br from-brand-50/90 via-surface-card to-slate-50/80 px-4 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-800">Карта (MVP)</p>
+        <p className="mx-auto mt-1.5 max-w-md text-sm text-foreground-secondary">
+          Интерактивная карта появится в следующей версии. Ниже — рейтинг локаций по выбранной метрике (тот же результат,
+          что и для операционных решений).
+        </p>
+      </div>
+      <div className="rounded-control border border-border-subtle bg-surface-muted/40 px-3 py-2 text-[11px] text-foreground-secondary">
+        <span className="font-semibold text-foreground">Geo</span>
+        {block.geoMetadata?.geoDimension ? (
+          <>
+            {" "}
+            · измерение <span className="font-mono text-foreground">{block.geoMetadata.geoDimension}</span>
+          </>
+        ) : null}
+        {block.geoMetadata?.mapScope ? (
+          <>
+            {" "}
+            · охват <span className="font-mono text-foreground">{block.geoMetadata.mapScope}</span>
+          </>
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Рейтинг по метрике</p>
+        {sorted.length === 0 ? (
+          <p className="text-sm text-foreground-muted">Нет строк для отображения.</p>
+        ) : (
+          sorted.map(({ row, v }, idx) => (
+            <div
+              key={idx}
+              className="flex items-center justify-between gap-2 rounded-control border border-border-subtle bg-surface-card px-2.5 py-1.5 text-xs shadow-xs"
+            >
+              <span className="truncate font-medium text-foreground">
+                <span className="tabular-nums text-foreground-muted">{idx + 1}.</span> {String(row[labelKey] ?? "—")}
+              </span>
+              <span className="shrink-0 tabular-nums font-semibold text-brand-800">{metric ? v.toLocaleString("ru-RU") : "—"}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TableFallback({ block }: { block: ChartBlock }) {
   const cols = [block.xKey, ...block.series.map((s) => s.key)];
   return (
@@ -119,10 +175,13 @@ export function ChartRenderer({ block }: { block: ChartBlock }) {
   if (block.chartType === "heatmap") {
     return <HeatmapFallback block={block} />;
   }
+  if (block.chartType === "map") {
+    return <MapPlaceholder block={block} />;
+  }
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      {block.chartType === "horizontal_bar" || block.chartType === "map" ? (
+      {block.chartType === "horizontal_bar" ? (
         <BarChart data={block.data} layout="vertical" margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid {...grid} horizontal={false} />
           <XAxis type="number" tick={axisTick} axisLine={false} tickLine={false} />

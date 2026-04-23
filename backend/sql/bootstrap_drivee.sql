@@ -488,9 +488,14 @@ CREATE TABLE IF NOT EXISTS anonymized_incity_orders (
   price_order_local NUMERIC(18,3),
   price_tender_local NUMERIC(18,3),
   price_start_local NUMERIC(18,3),
+  order_channel TEXT NOT NULL DEFAULT 'unknown',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (city_id, order_id, tender_id)
 );
+
+-- Старые БД без колонки: добавить с дефолтом (новые инсталляции получают колонку из CREATE выше).
+ALTER TABLE anonymized_incity_orders
+  ADD COLUMN IF NOT EXISTS order_channel TEXT NOT NULL DEFAULT 'unknown';
 
 CREATE INDEX IF NOT EXISTS idx_notebook_cells_notebook_position ON notebook_cells (notebook_id, position);
 CREATE INDEX IF NOT EXISTS idx_notebook_cells_parent ON notebook_cells (parent_cell_id);
@@ -502,6 +507,7 @@ CREATE INDEX IF NOT EXISTS idx_metric_snapshots_workspace_metric_date ON metric_
 CREATE INDEX IF NOT EXISTS idx_anonymized_incity_orders_order_ts ON anonymized_incity_orders (order_timestamp);
 CREATE INDEX IF NOT EXISTS idx_anonymized_incity_orders_status_order ON anonymized_incity_orders (status_order);
 CREATE INDEX IF NOT EXISTS idx_anonymized_incity_orders_status_tender ON anonymized_incity_orders (status_tender);
+CREATE INDEX IF NOT EXISTS idx_anonymized_incity_orders_channel ON anonymized_incity_orders (order_channel);
 
 INSERT INTO roles (id, role_key, role_name, description) VALUES
 ('11111111-1111-1111-1111-111111111111', 'admin', 'Admin', 'Platform governance and correction learning'),
@@ -560,12 +566,13 @@ INSERT INTO anonymized_incity_orders (
   status_order, status_tender, order_timestamp, tender_timestamp, driveraccept_timestamp,
   driverarrived_timestamp, driverstarttheride_timestamp, driverdone_timestamp,
   clientcancel_timestamp, drivercancel_timestamp, order_modified_local, cancel_before_accept_local,
-  distance_in_meters, duration_in_seconds, price_order_local, price_tender_local, price_start_local
+  distance_in_meters, duration_in_seconds, price_order_local, price_tender_local, price_start_local,
+  order_channel
 ) VALUES
-('101', 3, 'ORD-1001', 'TND-1001', 'USR-1', 'DRV-1', 'done', 'matched', '2026-04-01T09:00:00Z', '2026-04-01T09:01:00Z', '2026-04-01T09:02:30Z', '2026-04-01T09:08:00Z', '2026-04-01T09:10:00Z', '2026-04-01T09:30:00Z', NULL, NULL, '2026-04-01T09:30:00Z', NULL, 8200, 1200, 420, 410, 350),
-('101', 3, 'ORD-1002', 'TND-1002', 'USR-2', 'DRV-2', 'client_cancelled', 'searching', '2026-04-01T10:00:00Z', '2026-04-01T10:00:30Z', NULL, NULL, NULL, NULL, '2026-04-01T10:03:00Z', NULL, '2026-04-01T10:03:00Z', '2026-04-01T10:03:00Z', 0, 180, 0, 390, 330),
-('205', 3, 'ORD-1003', 'TND-1003', 'USR-3', 'DRV-3', 'driver_cancelled', 'matched', '2026-04-02T11:00:00Z', '2026-04-02T11:01:00Z', '2026-04-02T11:02:00Z', NULL, NULL, NULL, NULL, '2026-04-02T11:06:00Z', '2026-04-02T11:06:00Z', NULL, 0, 300, 0, 450, 390),
-('310', 6, 'ORD-1004', 'TND-1004', 'USR-4', 'DRV-4', 'done', 'matched', '2026-04-03T12:00:00Z', '2026-04-03T12:01:20Z', '2026-04-03T12:03:00Z', '2026-04-03T12:07:30Z', '2026-04-03T12:09:00Z', '2026-04-03T12:28:00Z', NULL, NULL, '2026-04-03T12:28:00Z', NULL, 5600, 1140, 360, 355, 300)
+('101', 3, 'ORD-1001', 'TND-1001', 'USR-1', 'DRV-1', 'done', 'matched', '2026-04-01T09:00:00Z', '2026-04-01T09:01:00Z', '2026-04-01T09:02:30Z', '2026-04-01T09:08:00Z', '2026-04-01T09:10:00Z', '2026-04-01T09:30:00Z', NULL, NULL, '2026-04-01T09:30:00Z', NULL, 8200, 1200, 420, 410, 350, 'app'),
+('101', 3, 'ORD-1002', 'TND-1002', 'USR-2', 'DRV-2', 'client_cancelled', 'searching', '2026-04-01T10:00:00Z', '2026-04-01T10:00:30Z', NULL, NULL, NULL, NULL, '2026-04-01T10:03:00Z', NULL, '2026-04-01T10:03:00Z', '2026-04-01T10:03:00Z', 0, 180, 0, 390, 330, 'app'),
+('205', 3, 'ORD-1003', 'TND-1003', 'USR-3', 'DRV-3', 'driver_cancelled', 'matched', '2026-04-02T11:00:00Z', '2026-04-02T11:01:00Z', '2026-04-02T11:02:00Z', NULL, NULL, NULL, NULL, '2026-04-02T11:06:00Z', '2026-04-02T11:06:00Z', NULL, 0, 300, 0, 450, 390, 'web'),
+('310', 6, 'ORD-1004', 'TND-1004', 'USR-4', 'DRV-4', 'done', 'matched', '2026-04-03T12:00:00Z', '2026-04-03T12:01:20Z', '2026-04-03T12:03:00Z', '2026-04-03T12:07:30Z', '2026-04-03T12:09:00Z', '2026-04-03T12:28:00Z', NULL, NULL, '2026-04-03T12:28:00Z', NULL, 5600, 1140, 360, 355, 300, 'partner_api')
 ON CONFLICT (city_id, order_id, tender_id) DO NOTHING;
 
 INSERT INTO notebooks (id, workspace_id, owner_user_id, title, description, notebook_status, context_chain_json) VALUES

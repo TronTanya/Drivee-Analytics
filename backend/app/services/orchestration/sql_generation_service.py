@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
+from app.core.config import settings
 from app.schemas.orchestration import IntentKind
 
 
@@ -12,17 +14,31 @@ class SQLGenerationService:
 
     @staticmethod
     def _resolve_source_table(source_table: Optional[str]) -> str:
+        """Таблицы из whitelist по basename или staging `schema.t_*` из настроек."""
+        allowed = {t.lower() for t in settings.sql_whitelist_tables}
+        default = SQLGenerationService.SOURCE_TABLE
         if not source_table:
-            return SQLGenerationService.SOURCE_TABLE
+            return default
         candidate = source_table.strip().lower()
-        # Accept simple table or schema.table names only.
-        import re
-
-        if re.fullmatch(r"[a-z_][a-z0-9_]*", candidate):
-            return candidate
-        if re.fullmatch(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*", candidate):
-            return candidate
-        return SQLGenerationService.SOURCE_TABLE
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?", candidate):
+            return default
+        parts = candidate.split(".")
+        if len(parts) == 2:
+            schema, base = parts[0], parts[1]
+        else:
+            schema = (settings.sql_implicit_schema or "public").strip().lower()
+            base = parts[0]
+        staging_schema = (settings.csv_staging_schema or "user_staging").strip().lower()
+        pat = getattr(settings, "sql_staging_upload_table_pattern", r"^t_[a-f0-9]{12}$") or r"^t_[a-f0-9]{12}$"
+        try:
+            staging_re = re.compile(pat, re.IGNORECASE)
+        except re.error:
+            staging_re = re.compile(r"^t_[a-f0-9]{12}$", re.IGNORECASE)
+        if schema == staging_schema and staging_re.fullmatch(base):
+            return f"{schema}.{base}"
+        if base not in allowed:
+            return default
+        return candidate
 
     def build_where_orders(self, entities: dict[str, Any], workspace_id: Optional[str]) -> str:
         parts: list[str] = ["1=1"]
@@ -53,7 +69,23 @@ class SQLGenerationService:
 
     @staticmethod
     def _build_time_filter(entities: dict[str, Any], weeks: int) -> str:
+        if entities.get("window_days") is not None:
+            try:
+                d = max(1, min(366, int(entities["window_days"])))
+            except (TypeError, ValueError):
+                d = 7
+            return f"a.order_timestamp::timestamp >= (current_date - interval '{d} day')"
         time_period = str(entities.get("time_period") or "").lower()
+        if time_period == "yesterday":
+            return (
+                "a.order_timestamp::timestamp >= date_trunc('day', current_date) - interval '1 day' "
+                "AND a.order_timestamp::timestamp < date_trunc('day', current_date)"
+            )
+        if time_period == "previous_week":
+            return (
+                "a.order_timestamp::timestamp >= date_trunc('week', current_date) - interval '2 week' "
+                "AND a.order_timestamp::timestamp < date_trunc('week', current_date) - interval '1 week'"
+            )
         if time_period in {"this_week", "current_week"}:
             return "a.order_timestamp::timestamp >= date_trunc('week', current_date)"
         if time_period == "last_week":

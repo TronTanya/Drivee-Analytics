@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
+import math
 import re
 from typing import Any, Optional
 from uuid import uuid4
@@ -22,8 +23,10 @@ from app.schemas.orchestration import OrchestrationInput
 from app.schemas.trace_payload import (
     AnalyticsExplainabilityTraceV1,
     ChartRecommendationTrace,
+    ExecutionPhaseTrace,
     ForecastSelectionTrace,
     ForecastModeTrace,
+    GuardrailsTrace,
     QualityGateTrace,
     SemanticTermTraceItem,
     ValidationStatusLiteral,
@@ -36,6 +39,17 @@ from app.services.orchestration.query_orchestrator import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_unit_interval(value: Any, *, default: float = 0.0) -> float:
+    """Для trace/UI: безопасное число в [0, 1] (OrchestrationOutput иногда даёт edge-case из провайдеров)."""
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(x):
+        return default
+    return max(0.0, min(1.0, x))
 
 
 @dataclass
@@ -84,9 +98,109 @@ def _extract_tables_from_sql(sql: str) -> list[str]:
     return out
 
 
+_PHASE_SPECS: list[tuple[str, str, frozenset[str]]] = [
+    (
+        "parsing",
+        "Парсинг и интерпретация",
+        frozenset(
+            {
+                "preprocess_query",
+                "llm_intelligence_layer",
+                "dialogue_context",
+                "classify_intent",
+                "extract_entities",
+                "resolve_semantic_terms",
+                "clarification_engine",
+                "compute_confidence_score",
+                "awaiting_user_clarification",
+                "guardrails_policy",
+                "orchestration",
+            }
+        ),
+    ),
+    ("generating_sql", "Генерация SQL", frozenset({"correction_learning", "generate_sql"})),
+    ("validating", "Проверка SQL", frozenset({"validate_sql"})),
+    ("executing", "Выполнение запроса", frozenset({"execute_sql", "normalize_dimensions"})),
+    ("visualizing", "Визуализация", frozenset({"recommend_chart_type"})),
+    (
+        "done",
+        "Инсайт и финализация",
+        frozenset({"generate_insight", "forecast_sidecar", "build_trace_payload", "persist_results"}),
+    ),
+]
+
+
+def enrich_notebook_context_for_orchestration(notebook_context: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Единая точка: staging-таблица + дефолтный датасет для NL→SQL (run_pipeline и run_cell)."""
+    ctx = dict(notebook_context or {})
+    explicit = ctx.get("source_table") or ctx.get("ds_staging_qualified")
+    if isinstance(explicit, str) and explicit.strip():
+        st = explicit.strip()
+        ctx["source_table"] = st
+        ctx["ds_staging_qualified"] = st
+        return ctx
+    source_table = _latest_staging_source_table() or settings.ds_default_source_table
+    ctx["source_table"] = source_table
+    ctx["ds_staging_qualified"] = source_table
+    return ctx
+
+
+def _step_ok_for_phase(name: str, ok: bool, awaiting_clarification: bool) -> bool:
+    if name == "clarification_engine" and not ok and awaiting_clarification:
+        return True
+    return ok
+
+
+def build_execution_phases(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> list[ExecutionPhaseTrace]:
+    raw = ft.get("pipeline_steps")
+    if not isinstance(raw, list):
+        raw = []
+    step_records: list[tuple[str, bool]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        n = str(item.get("name") or "").strip()
+        if not n:
+            continue
+        step_records.append((n, bool(item.get("ok", True))))
+    awaiting_clarification = any(n == "awaiting_user_clarification" for n, _ in step_records)
+
+    def ok_for(name: str, step_ok: bool) -> bool:
+        return _step_ok_for_phase(name, step_ok, awaiting_clarification)
+
+    phases: list[ExecutionPhaseTrace] = []
+    saw_failure = False
+    for phase_id, label, members in _PHASE_SPECS:
+        present = [n for n, ok in step_records if n in members]
+        if saw_failure and not present:
+            phases.append(ExecutionPhaseTrace(phase_id=phase_id, label=label, status="skipped", detail=""))
+            continue
+        if not present:
+            phases.append(ExecutionPhaseTrace(phase_id=phase_id, label=label, status="skipped", detail=""))
+            continue
+        failed = [n for n, ok in step_records if n in members and not ok_for(n, ok)]
+        if failed:
+            saw_failure = True
+            phases.append(
+                ExecutionPhaseTrace(
+                    phase_id=phase_id,
+                    label=label,
+                    status="failed",
+                    detail=", ".join(failed),
+                )
+            )
+            continue
+        phases.append(ExecutionPhaseTrace(phase_id=phase_id, label=label, status="done", detail=""))
+    return phases
+
+
 def _latest_staging_source_table() -> Optional[str]:
     """Best-effort: при любой ошибке БД возвращаем None (используется ds_default_source_table)."""
-    session = SessionLocal()
+    try:
+        session = SessionLocal()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("latest_staging_source_session_failed error=%s", exc)
+        return None
     try:
         stmt = (
             select(DataImportJob)
@@ -202,6 +316,19 @@ def _forecast_selection(ft: dict[str, Any]) -> ForecastSelectionTrace:
     )
 
 
+def _guardrails_trace(ft: dict[str, Any]) -> GuardrailsTrace:
+    g = ft.get("guardrails")
+    if not isinstance(g, dict):
+        return GuardrailsTrace()
+    msgs = g.get("messages_ru")
+    codes = g.get("codes")
+    return GuardrailsTrace(
+        blocked=bool(g.get("blocked")),
+        codes=[str(x) for x in codes] if isinstance(codes, list) else [],
+        messages_ru=[str(x) for x in msgs] if isinstance(msgs, list) else [],
+    )
+
+
 def _quality_gate(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> QualityGateTrace:
     gate = ft.get("quality_gate")
     if isinstance(gate, dict):
@@ -238,7 +365,7 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
         generated_sql=_generated_sql(ft, result),
         validation_status=_validation_status(result),
         warnings=list(result.warnings),
-        confidence=float(result.confidence),
+        confidence=_coerce_unit_interval(result.confidence, default=0.0),
         clarification_requested=bool(result.clarification_required),
         follow_up_context_used=bool(dialogue.get("is_followup")),
         learned_correction_used=bool(learned),
@@ -246,6 +373,8 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
         forecast_mode=_forecast_mode(ft, result),
         forecast_selection=_forecast_selection(ft),
         quality_gate=_quality_gate(result, ft),
+        execution_phases=build_execution_phases(result, ft),
+        guardrails=_guardrails_trace(ft),
     )
 
 
@@ -261,19 +390,60 @@ def analyze_natural_language(
     notebook_context: Optional[dict[str, Any]] = None,
     workspace_id: Optional[str] = None,
     role_key: Optional[str] = None,
+    user_id: Optional[str] = None,
     db_session: Optional[Session] = None,
 ) -> NaturalLanguageAnalysisResult:
+    ctx = enrich_notebook_context_for_orchestration(notebook_context)
     inp = OrchestrationInput(
         raw_query=prompt,
-        notebook_context=dict(notebook_context or {}),
+        notebook_context=ctx,
         workspace_id=workspace_id,
         role_key=role_key,
+        user_id=user_id,
     )
-    out = _resolve_orchestrator(db_session).run(inp)
+    try:
+        out = _resolve_orchestrator(db_session).run(inp)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("orchestration_run_failed prompt_prefix=%s", (prompt or "")[:120])
+        err = str(exc)[:400]
+        return NaturalLanguageAnalysisResult(
+            prompt=prompt,
+            safe_sql="",
+            table_records=[],
+            chart_hint="",
+            chart_type="table",
+            insight=f"Ошибка оркестрации: {err}",
+            forecast_records=[],
+            trace_summary=f"status=failed error={type(exc).__name__}",
+            confidence=0.0,
+            warnings=[f"orchestration_error: {err}"],
+            used_tables=[],
+            used_columns=[],
+            parsed={"intent": "error", "metric": "", "is_follow_up": "False", "sql_generation_source": "none"},
+            full_trace={
+                "intent": "error",
+                "pipeline_steps": [{"name": "orchestration", "ok": False, "detail": {"error": err}}],
+                "quality_gate": {"status": "failed", "reasons": ["orchestration_exception"]},
+                "entities": {},
+                "semantic_terms": [],
+                "forecast_mode": {"active": False, "method": None},
+                "forecast_selection": {},
+            },
+            execution_status="failed",
+            clarification_required=False,
+            clarification_reason="",
+            clarification_question="",
+            clarification_options=[],
+            dialogue={},
+            visualization={},
+            sql_generation_source="none",
+        )
 
     warnings = list(out.validation_warnings)
     if settings.mock_mode:
         warnings.append("Mock fallback active: PostgreSQL execution is stubbed.")
+    elif any("MOCK_SQL_EXECUTION_FALLBACK=true" in str(w) for w in warnings):
+        warnings.append("Выполнение SQL: ошибка Postgres, показаны stub-строки (MOCK_SQL_EXECUTION_FALLBACK).")
     if out.ambiguity.required and out.ambiguity.question:
         warnings.append(f"Ambiguity: {out.ambiguity.question}")
 
@@ -319,7 +489,7 @@ def analyze_natural_language(
         insight=out.insight_text,
         forecast_records=list(out.forecast_records),
         trace_summary=trace_summary,
-        confidence=out.confidence_score,
+        confidence=_coerce_unit_interval(out.confidence_score, default=0.82),
         warnings=warnings,
         used_tables=used_tables,
         used_columns=list(out.result_columns),
@@ -662,12 +832,31 @@ def _build_notebook_context_from_cells(notebook_id: str) -> dict[str, Any]:
     }
 
 
-def run_pipeline(notebook_id: str, prompt: str) -> RunAnalyticsResponse:
-    notebook_context = _build_notebook_context_from_cells(notebook_id)
-    source_table = _latest_staging_source_table() or settings.ds_default_source_table
-    notebook_context["source_table"] = source_table
-    notebook_context["ds_staging_qualified"] = source_table
-    result = analyze_natural_language(prompt, notebook_context=notebook_context)
+def run_pipeline(
+    notebook_id: str,
+    prompt: str,
+    *,
+    result_limit: int | None = None,
+    result_offset: int | None = None,
+) -> RunAnalyticsResponse:
+    result = analyze_natural_language(
+        prompt,
+        notebook_context=_build_notebook_context_from_cells(notebook_id),
+    )
+    if result_limit is not None:
+        rows = list(result.table_records)
+        off = max(0, int(result_offset or 0))
+        end = min(len(rows), off + int(result_limit))
+        slice_rows = rows[off:end]
+        pag_msg = (
+            f"Пагинация результата: показаны строки {off}–{end} из {len(rows)} "
+            "(см. параметры result_limit / result_offset)."
+        )
+        result = replace(
+            result,
+            table_records=slice_rows,
+            warnings=list(result.warnings) + [pag_msg],
+        )
     cells = _result_to_pipeline_cells(result)
     prev = MOCK_NOTEBOOK_CELLS.get(notebook_id, [])
     MOCK_NOTEBOOK_CELLS[notebook_id] = prev + cells

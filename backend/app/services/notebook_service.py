@@ -185,6 +185,7 @@ class NotebookService:
             notebook_context=dict(notebook.context_chain_json or {}),
             workspace_id=str(notebook.workspace_id) if notebook.workspace_id else None,
             role_key=user.role.role_key if user.role else None,
+            user_id=str(user.id),
             db_session=self._session(),
         )
         needs_clarification = analysis.clarification_required

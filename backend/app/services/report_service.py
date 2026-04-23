@@ -89,6 +89,7 @@ def run_saved_report_payload(
         notebook_context=ctx,
         workspace_id=str(workspace_id),
         role_key=role_key,
+        user_id=str(user.id),
         db_session=session,
     )
     return RunReportResponse(

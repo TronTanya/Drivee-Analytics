@@ -10,11 +10,13 @@ import { SystemPageIntro } from "@/components/system/system-page-intro";
 import { SmartTooltip } from "@/components/ui/smart-tooltip";
 import {
   useCreateReport,
+  useCreateReportSchedule,
   useDeleteReport,
   useNotebookScenarios,
   useRerunReport,
   useSavedReports
 } from "@/hooks/api/use-reports";
+import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { downloadReportPdf, type ReportPdfMode } from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
@@ -23,6 +25,17 @@ import { runAnalyticsPipeline } from "@/lib/api";
 import type { NotebookScenarioRow, SavedReportRow, ScheduleState } from "@/lib/system/mock-data";
 
 type KindFilter = "all" | "reports" | "scenarios";
+type CatalogTab = "saved" | "scheduled" | "templates";
+
+const FAVORITE_TEMPLATES_LS = "drivee.favorite_template_keys.v1";
+
+const STARTER_TEMPLATES: { key: string; title: string; prompt: string }[] = [
+  { key: "trips_by_city", title: "Поездки по городам", prompt: "Покажи количество завершённых поездок по city_id за последние 14 дней" },
+  { key: "cancellations", title: "Отмены за период", prompt: "Покажи количество отменённых заказов по дням за последние 30 дней" },
+  { key: "conversion", title: "Конверсия по неделям", prompt: "Покажи долю завершённых заказов по неделям за последние 8 недель" },
+  { key: "avg_check", title: "Средний чек по городам", prompt: "Покажи средний чек заказа по city_id за последние 30 дней" },
+  { key: "orders_trend", title: "Динамика заказов", prompt: "Покажи динамику числа заказов по дням за последние 14 дней" }
+];
 
 function toScheduleState(value: string): ScheduleState {
   if (value === "active" || value === "paused" || value === "none") return value;
@@ -85,7 +98,10 @@ export function ReportsClient() {
   const [search, setSearch] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleState | "all">("all");
   const [kind, setKind] = useState<KindFilter>("all");
-  const savedReportsQuery = useSavedReports();
+  const [catalogTab, setCatalogTab] = useState<CatalogTab>("saved");
+  const [favKeys, setFavKeys] = useState<string[]>([]);
+  const workspaceQuery = useWorkspaceId();
+  const savedReportsQuery = useSavedReports(workspaceQuery.data);
   const scenariosQuery = useNotebookScenarios();
   const [reports, setReports] = useState<SavedReportRow[]>([]);
   const [scenarios, setScenarios] = useState<NotebookScenarioRow[]>([]);
@@ -95,17 +111,42 @@ export function ReportsClient() {
   const createReport = useCreateReport();
   const deleteReport = useDeleteReport();
   const upsertSchedule = useUpsertSchedule();
+  const createReportSchedule = useCreateReportSchedule();
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FAVORITE_TEMPLATES_LS);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) setFavKeys(parsed.filter((x) => typeof x === "string"));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleFavoriteTemplate = (key: string) => {
+    setFavKeys((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      try {
+        window.localStorage.setItem(FAVORITE_TEMPLATES_LS, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   const mappedReports = useMemo(
     () =>
       (savedReportsQuery.data ?? []).map((r) => ({
         id: r.id,
-        name: r.name,
-        owner: r.owner_email ?? "demo@drivee.local",
+        name: r.title,
+        owner: r.created_by ?? "—",
         updatedAt: new Date(r.updated_at).toISOString().slice(0, 16).replace("T", " "),
-        schedule: toScheduleState(r.schedule),
-        format: toFormatLabel(r.format),
-        href: "/reports" as Route
+        schedule: r.has_schedule ? toScheduleState("active") : toScheduleState("none"),
+        format: toFormatLabel("pdf"),
+        href: "/reports" as Route,
+        hasSchedule: r.has_schedule
       })),
     [savedReportsQuery.data]
   );
@@ -183,18 +224,38 @@ export function ReportsClient() {
     setBusyKey(`report-edit-${row.id}`);
     const updated = nextSchedule(row.schedule);
     try {
-      await upsertSchedule.mutateAsync({
-        name: `Расписание отчета ${row.name}`,
-        cron: "0 9 * * 1",
-        timezone: "Asia/Almaty",
-        target_type: "report",
-        target_id: row.id,
-        is_active: scheduleToIsActive(updated)
+      await createReportSchedule.mutateAsync({
+        reportId: row.id,
+        body: {
+          frequency: updated === "active" ? "weekly" : updated === "paused" ? "monthly" : "daily",
+          hour_utc: 9,
+          minute_utc: 0,
+          day_of_week: 1,
+          day_of_month: 1,
+          delivery_channel: "email_mock",
+          is_active: scheduleToIsActive(updated),
+          delivery_config_json: { channel: "email_mock", note: "Stub delivery — без реальной SMTP-инфраструктуры." }
+        }
       });
-      setReports((prev) => prev.map((x) => (x.id === row.id ? { ...x, schedule: updated } : x)));
-      setActionMsg(`Расписание отчета "${row.name}" обновлено.`);
+      setReports((prev) =>
+        prev.map((x) => (x.id === row.id ? { ...x, schedule: updated, hasSchedule: updated !== "none" } : x))
+      );
+      setActionMsg(`Расписание отчета "${row.name}" записано (weekly / email_mock stub).`);
     } catch {
-      setActionMsg(`Не удалось обновить расписание отчета "${row.name}".`);
+      try {
+        await upsertSchedule.mutateAsync({
+          name: `Расписание отчета ${row.name}`,
+          cron: "0 9 * * 1",
+          timezone: "Asia/Almaty",
+          target_type: "report",
+          target_id: row.id,
+          is_active: scheduleToIsActive(updated)
+        });
+        setReports((prev) => prev.map((x) => (x.id === row.id ? { ...x, schedule: updated } : x)));
+        setActionMsg(`Расписание отчета "${row.name}" обновлено (legacy schedules API).`);
+      } catch {
+        setActionMsg(`Не удалось обновить расписание отчета "${row.name}".`);
+      }
     } finally {
       setBusyKey(null);
     }
@@ -232,14 +293,25 @@ export function ReportsClient() {
     setActionMsg(null);
     setBusyKey(`scenario-report-${row.id}`);
     try {
+      const ws = workspaceQuery.data;
+      if (!ws) {
+        setActionMsg("Нужен workspace (NEXT_PUBLIC_DEFAULT_WORKSPACE_ID или /auth/me).");
+        return;
+      }
       const created = await createReport.mutateAsync({
-        name: `Отчет: ${row.name}`,
-        format: "pdf",
-        notebook_id: row.notebookId
+        workspace_id: ws,
+        title: `Отчет: ${row.name}`,
+        notebook_id: row.notebookId,
+        payload: {
+          prompt: `Сценарий «${row.name}»`,
+          interpreted_query: "Экспорт из сохранённого сценария",
+          result_metadata: { source: "scenario", scenario_id: row.id },
+          captured_at: new Date().toISOString()
+        }
       });
       upsertReportSnapshot({
         report_id: created.id,
-        report_name: created.name,
+        report_name: created.title,
         notebook_id: row.notebookId,
         prompt: "Scenario-based report export",
         insight: `Report created from scenario "${row.name}"`,
@@ -248,8 +320,8 @@ export function ReportsClient() {
       setReports((prev) => [
         {
           id: created.id,
-          name: created.name,
-          owner: created.owner_email ?? row.owner,
+          name: created.title,
+          owner: row.owner,
           updatedAt: new Date(created.updated_at).toISOString().slice(0, 16).replace("T", " "),
           schedule: "none",
           format: "PDF",
@@ -257,7 +329,7 @@ export function ReportsClient() {
         },
         ...prev
       ]);
-      setActionMsg(`Отчет "${created.name}" создан из сценария.`);
+      setActionMsg(`Отчет "${created.title}" создан из сценария.`);
     } catch {
       setActionMsg(`Не удалось создать отчет из сценария "${row.name}".`);
     } finally {
@@ -296,6 +368,11 @@ export function ReportsClient() {
     [scenarios, search, scheduleFilter]
   );
 
+  const visibleReports = useMemo(() => {
+    if (catalogTab === "scheduled") return filteredReports.filter((r) => r.hasSchedule);
+    return filteredReports;
+  }, [filteredReports, catalogTab]);
+
   const showReports = kind === "all" || kind === "reports";
   const showScenarios = kind === "all" || kind === "scenarios";
 
@@ -327,6 +404,31 @@ export function ReportsClient() {
           {actionMsg}
         </div>
       ) : null}
+
+      <div className="rounded-card border border-border-subtle bg-surface-card p-2 shadow-xs">
+        <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Каталог</p>
+        <div className="flex flex-wrap gap-1">
+          {(
+            [
+              ["saved", "Сохранённые отчёты"],
+              ["scheduled", "По расписанию"],
+              ["templates", "Шаблоны (избранное)"]
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setCatalogTab(key)}
+              aria-pressed={catalogTab === key}
+              className={`rounded-control px-3 py-1.5 text-xs font-semibold ${
+                catalogTab === key ? "bg-brand-50 text-brand-900 shadow-xs" : "text-foreground-secondary hover:bg-surface-muted"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="surface-section flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="min-w-0 flex-1 sm:min-w-[200px]">
@@ -383,10 +485,52 @@ export function ReportsClient() {
         </div>
       </div>
 
-      {showReports ? (
+      {showReports && catalogTab === "templates" ? (
+        <SectionCard
+          title="Базовые шаблоны и избранное"
+          description="Типовые NL-запросы. Отметьте избранное — список хранится в браузере. Полный каталог шаблонов workspace — на странице «Шаблоны»."
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            {STARTER_TEMPLATES.map((t) => (
+              <article key={t.key} className="surface-content space-y-2 px-3 py-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-foreground">{t.title}</p>
+                  <button
+                    type="button"
+                    onClick={() => toggleFavoriteTemplate(t.key)}
+                    className="shrink-0 rounded-control border border-border-subtle px-2 py-0.5 text-[11px] font-semibold text-foreground-secondary hover:border-brand-200"
+                  >
+                    {favKeys.includes(t.key) ? "★" : "☆"}
+                  </button>
+                </div>
+                <p className="text-xs text-foreground-secondary">{t.prompt}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={"/templates" as Route}
+                    className="rounded-control border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-900 hover:bg-brand-100"
+                  >
+                    Открыть шаблоны
+                  </Link>
+                  <Link
+                    href={`/notebooks/ops-health` as Route}
+                    className="rounded-control border border-border-subtle bg-surface-muted px-2 py-1 text-xs font-semibold text-foreground-secondary hover:border-brand-200"
+                  >
+                    В сценарий
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
+          {favKeys.length ? (
+            <p className="mt-3 text-xs text-foreground-muted">Избранные ключи: {favKeys.join(", ")}</p>
+          ) : null}
+        </SectionCard>
+      ) : null}
+
+      {showReports && catalogTab !== "templates" ? (
         <SectionCard title="Сохраненные отчеты" description="Экспорты и готовые к публикации артефакты.">
           <div className="space-y-3 md:hidden">
-            {filteredReports.map((row) => (
+            {visibleReports.map((row) => (
               <article key={row.id} className="surface-content space-y-3 px-3 py-3">
                 <div className="space-y-1">
                   <Link
@@ -428,7 +572,7 @@ export function ReportsClient() {
                 </div>
               </article>
             ))}
-            {filteredReports.length === 0 ? (
+            {visibleReports.length === 0 ? (
               <p className="py-4 text-center text-sm text-foreground-muted">Нет отчетов по заданным фильтрам.</p>
             ) : null}
           </div>
@@ -445,7 +589,7 @@ export function ReportsClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
-                {filteredReports.map((row) => (
+                {visibleReports.map((row) => (
                   <tr key={row.id} className="hover:bg-surface-muted/40">
                     <td className="py-3 pr-4 font-medium text-foreground">
                       <Link href={row.href as Route} className="interactive-focus rounded-control px-0.5 hover:text-brand-800 hover:underline">
@@ -492,7 +636,7 @@ export function ReportsClient() {
                 ))}
               </tbody>
             </table>
-            {filteredReports.length === 0 ? (
+            {visibleReports.length === 0 ? (
               <p className="py-6 text-center text-sm text-foreground-muted">Нет отчетов по заданным фильтрам.</p>
             ) : null}
           </div>

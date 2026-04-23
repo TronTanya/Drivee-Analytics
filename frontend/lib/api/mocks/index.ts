@@ -4,6 +4,7 @@ import type {
   NotebookCellDto,
   RunNotebookAnalyticsResponseDto
 } from "@/types/api/cells";
+import { isExplainabilityTraceV1 } from "@/types/api/trace";
 import type { CorrectionDto } from "@/types/api/corrections";
 import type { DashboardSuggestionsResponseDto } from "@/types/api/dashboard";
 import type { DataUploadJobDto, DataUploadPreviewDto } from "@/types/api/data-upload";
@@ -11,10 +12,14 @@ import type { DictionaryEntryDto } from "@/types/api/dictionary";
 import type { AutoMLBacktestRequestDto, AutoMLBacktestResponseDto, ForecastRunResponseDto } from "@/types/api/forecast";
 import type { NotebookRunDto, QueryHistoryDto } from "@/types/api/history";
 import type { NotebookDetailDto, NotebookListItemDto } from "@/types/api/notebooks";
-import type { NotebookScenarioDto, SavedReportDto } from "@/types/api/reports";
+import type { NotebookScenarioDto, SavedReportListApiDto } from "@/types/api/reports";
 import type { ScheduleDto } from "@/types/api/schedules";
 import type { NotebookTemplateDto, QueryTemplateDto } from "@/types/api/templates";
 import {
+  comparativeDoneShareAlmatyAstana,
+  dailyCancelledOrdersByDay,
+  deterministicSqlComparativeDoneShare,
+  deterministicSqlDailyCancellations,
   deterministicSqlTopCancelledCities,
   topCityCancellations,
   topCityLimitFromPrompt
@@ -62,7 +67,15 @@ const trace: AnalyticsTraceDto = {
   quality_gate: {
     status: "passed",
     reasons: []
-  }
+  },
+  execution_phases: [
+    { phase_id: "parsing", label: "Парсинг и интерпретация", status: "done", detail: "" },
+    { phase_id: "generating_sql", label: "Генерация SQL", status: "done", detail: "" },
+    { phase_id: "validating", label: "Проверка SQL", status: "done", detail: "" },
+    { phase_id: "executing", label: "Выполнение запроса", status: "done", detail: "" },
+    { phase_id: "visualizing", label: "Визуализация", status: "done", detail: "" },
+    { phase_id: "done", label: "Инсайт и финализация", status: "done", detail: "" }
+  ]
 };
 
 export async function mockLogin(_body: LoginRequestDto): Promise<AuthSessionDto> {
@@ -95,12 +108,14 @@ export async function mockRegister(body: RegisterRequestDto): Promise<AuthSessio
 }
 
 export async function mockMe(): Promise<UserDto> {
+  const wid = "00000000-0000-0000-0000-000000000001";
   return {
     id: "user-mock",
     email: "you@company.com",
     full_name: "Пользователь",
     role: "manager",
-    workspace_id: "ws-1"
+    workspace_id: wid,
+    default_workspace_id: wid
   };
 }
 
@@ -142,31 +157,158 @@ export async function mockListCells(notebookId: string): Promise<NotebookCellDto
 }
 
 export async function mockRunAnalytics(notebookId: string, prompt: string): Promise<RunNotebookAnalyticsResponseDto> {
-  const topLimit = topCityLimitFromPrompt(prompt, 3);
-  const rows = topCityCancellations(topLimit);
-  const topLabel = `топ-${topLimit}`;
-  const tablePayload = {
-    columns: [
-      "city_id",
-      "cancelled_orders",
-      "avg_price_order_local",
-      "avg_duration_in_seconds",
-      "avg_distance_in_meters"
-    ],
-    rows,
-    caption: `Mock dataset: ${topLabel} города по отменам (текущая неделя)`
-  };
-  const chartPayload = {
-    chartType: "bar",
-    recommendedChartType: "bar",
-    alternativeChartTypes: ["horizontal_bar", "table"],
-    visualizationExplanation: "Bar chart стабильно отображает ranking городов по отменам.",
-    title: `${topLabel[0]?.toUpperCase() ?? "Т"}${topLabel.slice(1)} города по отменённым заказам`,
-    xKey: "city_id",
-    series: [{ key: "cancelled_orders", name: "Отмены" }],
-    data: tablePayload.rows
-  };
   const normalizedPrompt = prompt.toLowerCase();
+  const isComparative =
+    /сравни/.test(normalizedPrompt) &&
+    /алматы/.test(normalizedPrompt) &&
+    /астан/.test(normalizedPrompt);
+  const isReporting =
+    (/операционн|ежедневн|регулярн|сводк|дашборд|отчётн/.test(normalizedPrompt) ||
+      (/по дням/.test(normalizedPrompt) && /отмен/.test(normalizedPrompt))) &&
+    !isComparative;
+  const isCollaboration =
+    /шаблон|каталог шаблон|weekly_cancellations|из библиотек/.test(normalizedPrompt);
+
+  const topLimit = topCityLimitFromPrompt(prompt, 3);
+  const topLabel = `топ-${topLimit}`;
+  const rankRows = topCityCancellations(topLimit);
+
+  type TablePayload = {
+    columns: string[];
+    rows: Record<string, string | number>[];
+    caption: string;
+  };
+  let tablePayload: TablePayload;
+  let chartPayload: Record<string, unknown>;
+  let traceModel: AnalyticsTraceDto;
+  let traceText: string;
+  let insightBody: string;
+
+  if (isComparative) {
+    const rows = comparativeDoneShareAlmatyAstana();
+    tablePayload = {
+      columns: ["city_id", "done_orders", "total_orders", "done_share"],
+      rows,
+      caption:
+        "Controlled fallback: сравнение доли завершённых заказов (Алматы vs Астана), детерминированный демо-датасет."
+    };
+    chartPayload = {
+      chartType: "bar",
+      recommendedChartType: "bar",
+      alternativeChartTypes: ["table"],
+      visualizationExplanation: "Сравнение двух городов по доле завершённых заказов.",
+      title: "Доля завершённых: Алматы vs Астана",
+      xKey: "city_id",
+      series: [{ key: "done_share", name: "Доля завершённых" }],
+      data: rows
+    };
+    traceModel = {
+      ...trace,
+      interpreted_intent: "comparison · done_share(almaty_vs_astana)",
+      extracted_entities: { cities: ["Алматы", "Астана"], window_days: 14 },
+      generated_sql: deterministicSqlComparativeDoneShare(),
+      chart_recommendation: {
+        chart_type: "bar",
+        rationale: "Две точки сравнения — bar проще читать, чем line.",
+        alternatives: ["table"]
+      }
+    };
+    traceText = "Намерение: сравнение городов · метрика: share(completed) · окно: 14 дней";
+    const [a, b] = rows;
+    insightBody = [
+      `Инсайт по запросу: «${prompt}».`,
+      `Алматы: доля завершённых ${a?.done_share ?? "—"} при ${a?.total_orders ?? 0} заказах в выборке.`,
+      `Астана: доля завершённых ${b?.done_share ?? "—"} при ${b?.total_orders ?? 0} заказах в выборке.`,
+      "Примечание: это демо-агрегат из SEEDED_ORDERS при недоступности live SQL."
+    ].join("\n");
+  } else if (isReporting) {
+    const rows = dailyCancelledOrdersByDay();
+    tablePayload = {
+      columns: ["day", "cancellations"],
+      rows,
+      caption:
+        "Controlled fallback: ежедневные отмены по демо-датасету (регулярная отчётность / операционный срез)."
+    };
+    chartPayload = {
+      chartType: "line",
+      recommendedChartType: "line",
+      alternativeChartTypes: ["bar", "table"],
+      visualizationExplanation: "Временной ряд отмен по дням для операционного мониторинга.",
+      title: "Отмены по дням (демо-ряд)",
+      xKey: "day",
+      series: [{ key: "cancellations", name: "Отмены" }],
+      data: rows
+    };
+    traceModel = {
+      ...trace,
+      interpreted_intent: "timeseries · daily_cancellations",
+      extracted_entities: { period: "seeded_demo_window" },
+      generated_sql: deterministicSqlDailyCancellations(),
+      chart_recommendation: {
+        chart_type: "line",
+        rationale: "Динамика по дням — line.",
+        alternatives: ["bar", "table"]
+      }
+    };
+    traceText = "Намерение: операционная сводка · метрика: cancellations · гранулярность: day";
+    const peakDay =
+      rows.length > 0 ? rows.reduce((best, r) => (r.cancellations > best.cancellations ? r : best), rows[0]) : null;
+    insightBody = [
+      `Инсайт по запросу: «${prompt}».`,
+      `Пик отмен в окне демо-данных: ${peakDay ? `${peakDay.day} (${peakDay.cancellations})` : "—"}.`,
+      "Рекомендация: в live-режиме привязать окно к календарю SLA и исключить тестовые заказы."
+    ].join("\n");
+  } else {
+    tablePayload = {
+      columns: [
+        "city_id",
+        "cancelled_orders",
+        "avg_price_order_local",
+        "avg_duration_in_seconds",
+        "avg_distance_in_meters"
+      ],
+      rows: rankRows,
+      caption: isCollaboration
+        ? "Controlled fallback: тот же ranking-запрос, помечен как запуск из шаблона weekly_cancellations_by_city."
+        : `Mock dataset: ${topLabel} города по отменам (текущая неделя)`
+    };
+    chartPayload = {
+      chartType: "bar",
+      recommendedChartType: "bar",
+      alternativeChartTypes: ["horizontal_bar", "table"],
+      visualizationExplanation: "Bar chart стабильно отображает ranking городов по отменам.",
+      title: `${topLabel[0]?.toUpperCase() ?? "Т"}${topLabel.slice(1)} города по отменённым заказам`,
+      xKey: "city_id",
+      series: [{ key: "cancelled_orders", name: "Отмены" }],
+      data: tablePayload.rows
+    };
+    traceModel = {
+      ...trace,
+      interpreted_intent: isCollaboration
+        ? `template · weekly_cancellations_by_city · ranking(top_${topLimit})`
+        : `ranking · cancelled_orders_by_city(top_${topLimit})`,
+      extracted_entities: isCollaboration
+        ? {
+            ...(isExplainabilityTraceV1(trace) ? trace.extracted_entities : {}),
+            template_key: "weekly_cancellations_by_city"
+          }
+        : isExplainabilityTraceV1(trace)
+          ? trace.extracted_entities
+          : {},
+      generated_sql: deterministicSqlTopCancelledCities(topLimit)
+    };
+    traceText = isCollaboration
+      ? "Намерение: шаблон команды → ranking отмен по городам · период: текущая неделя"
+      : "Намерение: ranking отмен по городам · метрика: cancelled_orders · период: текущая неделя";
+    insightBody = [
+      `Инсайт по запросу: «${prompt}».`,
+      `Лидер по отменам: ${rankRows[0]?.city_id ?? "—"} (${rankRows[0]?.cancelled_orders ?? 0}).`,
+      isCollaboration
+        ? "Совместная работа: один и тот же NL/SQL-шаблон в workspace даёт сопоставимые запуски между ролями."
+        : "Рекомендуемый guardrail: алерт при росте отмен > 10% WoW."
+    ].join("\n");
+  }
+
   const isAmbiguous = normalizedPrompt.includes("лучшие города");
   const clarificationPayload = isAmbiguous
     ? {
@@ -185,11 +327,9 @@ export async function mockRunAnalytics(notebookId: string, prompt: string): Prom
           { id: "split", label: "Показать оба варианта" }
         ]
       };
-  const traceModel: AnalyticsTraceDto = {
-    ...trace,
-    interpreted_intent: `ranking · cancelled_orders_by_city(top_${topLimit})`,
-    generated_sql: deterministicSqlTopCancelledCities(topLimit)
-  };
+
+  const sqlContent =
+    isComparative ? deterministicSqlComparativeDoneShare() : isReporting ? deterministicSqlDailyCancellations() : deterministicSqlTopCancelledCities(topLimit);
 
   return {
     notebook_id: notebookId,
@@ -212,14 +352,14 @@ export async function mockRunAnalytics(notebookId: string, prompt: string): Prom
         id: `${notebookId}-tr1`,
         notebook_id: notebookId,
         type: "trace",
-        content: "Намерение: ranking отмен по городам · метрика: cancelled_orders · период: текущая неделя",
+        content: traceText,
         position: 2
       },
       {
         id: `${notebookId}-sql1`,
         notebook_id: notebookId,
         type: "sql",
-        content: deterministicSqlTopCancelledCities(topLimit),
+        content: sqlContent,
         position: 3
       },
       {
@@ -240,11 +380,7 @@ export async function mockRunAnalytics(notebookId: string, prompt: string): Prom
         id: `${notebookId}-in1`,
         notebook_id: notebookId,
         type: "insight",
-        content: [
-          `Инсайт по запросу: «${prompt}».`,
-          `Лидер по отменам: ${rows[0]?.city_id ?? "—"} (${rows[0]?.cancelled_orders ?? 0}).`,
-          "Рекомендуемый guardrail: алерт при росте отмен > 10% WoW."
-        ].join("\n"),
+        content: insightBody,
         position: 6
       }
     ],
@@ -252,16 +388,20 @@ export async function mockRunAnalytics(notebookId: string, prompt: string): Prom
   };
 }
 
-export async function mockListReports(): Promise<SavedReportDto[]> {
+export async function mockListReports(): Promise<SavedReportListApiDto[]> {
+  const now = "2026-04-20T06:00:00Z";
   return [
     {
       id: "r1",
-      name: "Еженедельный KPI-пак",
-      owner_email: "finance@acme.co",
-      updated_at: "2026-04-20T06:00:00Z",
-      schedule: "active",
-      format: "pdf",
-      notebook_id: "nb-1"
+      workspace_id: "00000000-0000-0000-0000-000000000001",
+      title: "Еженедельный KPI-пак",
+      description: null,
+      notebook_id: "nb-1",
+      created_by: null,
+      is_shared: false,
+      created_at: now,
+      updated_at: now,
+      has_schedule: true
     }
   ];
 }
@@ -353,8 +493,19 @@ export async function mockListQueryHistory(): Promise<QueryHistoryDto[]> {
       sql_preview: "SELECT city_id, COUNT(*) AS cancelled_orders ...",
       notebook_id: "ops-health",
       validation_ok: true,
-      validation_hint: "Lint OK",
-      duration_ms: 890
+      validation_hint: "passed",
+      duration_ms: 890,
+      chart_type: "bar",
+      interpreted_summary: "comparison · city ranking",
+      owner_user_id: "user-mock",
+      rerun_cell_id: "q-1",
+      rerun_notebook_id: "ops-health",
+      save_as_report_body_hint: {
+        workspace_id: "00000000-0000-0000-0000-000000000001",
+        title: "Top-3 cancelled cities this week",
+        source_cell_id: "q-1",
+        notebook_id: "ops-health"
+      }
     }
   ];
 }
@@ -362,11 +513,20 @@ export async function mockListQueryHistory(): Promise<QueryHistoryDto[]> {
 export async function mockListDictionary(): Promise<DictionaryEntryDto[]> {
   return [
     {
-      id: "d-1",
-      term: "Завершенные поездки",
-      synonyms: ["completed rides"],
-      sql_expression: "COUNT(CASE WHEN driverdone_timestamp IS NOT NULL THEN 1 END)",
-      visibility_roles: ["admin", "manager", "marketer", "executive"]
+      id: "done_rides",
+      term: "Завершённые поездки",
+      synonyms: ["завершённые поездки", "completed rides", "выполненные заказы"],
+      sql_expression: "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)",
+      visibility_roles: ["admin", "manager", "marketer", "executive"],
+      domain: "orders_rides",
+      canonical_metric_key: "done_rides",
+      source_table: "anonymized_incity_orders",
+      source_column: "driverdone_timestamp",
+      aggregation_type: "case_count",
+      constraints: { intents_allowed: ["summary", "trend", "ranking", "forecast"] },
+      example_queries: ["Сколько поездок завершилось вчера по Алматы?"],
+      system_interpretation_ru:
+        "Каноническая метрика: done_rides. Домен: orders_rides. Источник: anonymized_incity_orders, колонка driverdone_timestamp."
     }
   ];
 }

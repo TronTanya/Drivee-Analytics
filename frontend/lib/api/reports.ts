@@ -5,11 +5,20 @@ export type { ReportPdfMode } from "@/lib/preferences/report-pdf";
 import { requestJson } from "@/lib/api/request";
 import { mockListReports, mockListScenarios } from "@/lib/api/mocks";
 import { getReportSnapshot } from "@/lib/reports/local-snapshots";
-import type { CreateReportRequestDto, NotebookScenarioDto, SavedReportDto } from "@/types/api/reports";
+import type {
+  CreateReportScheduleRequestDto,
+  CreateSavedReportRequestDto,
+  LegacyCreateReportRequestDto,
+  NotebookScenarioDto,
+  RunSavedReportResponseDto,
+  SavedReportDetailApiDto,
+  SavedReportListApiDto
+} from "@/types/api/reports";
 
-export async function fetchSavedReports(): Promise<SavedReportDto[]> {
+export async function fetchSavedReports(workspaceId: string): Promise<SavedReportListApiDto[]> {
+  const qs = new URLSearchParams({ workspace_id: workspaceId });
   return requestJson({
-    path: "/api/v1/reports",
+    path: `/api/v1/reports?${qs.toString()}`,
     init: { method: "GET", cache: "no-store" },
     mock: () => mockListReports()
   });
@@ -23,30 +32,91 @@ export async function fetchNotebookScenarios(): Promise<NotebookScenarioDto[]> {
   });
 }
 
-export async function createReport(body: CreateReportRequestDto): Promise<SavedReportDto> {
+function normalizeCreateReportBody(
+  body: CreateSavedReportRequestDto | LegacyCreateReportRequestDto
+): CreateSavedReportRequestDto {
+  if ("title" in body && body.title) {
+    return body as CreateSavedReportRequestDto;
+  }
+  const legacy = body as LegacyCreateReportRequestDto;
+  if (!legacy.workspace_id?.trim()) {
+    throw new Error("workspace_id обязателен для сохранения отчёта");
+  }
+  return {
+    workspace_id: legacy.workspace_id,
+    title: legacy.name,
+    description: null,
+    notebook_id: legacy.notebook_id ?? null,
+    payload: legacy.payload
+  };
+}
+
+export async function createReport(
+  body: CreateSavedReportRequestDto | LegacyCreateReportRequestDto
+): Promise<SavedReportDetailApiDto> {
+  const payload = normalizeCreateReportBody(body);
   return requestJson({
     path: "/api/v1/reports",
-    init: { method: "POST", body: JSON.stringify(body) },
+    init: { method: "POST", body: JSON.stringify(payload) },
     mock: async () => {
       const id = `r-${Date.now()}`;
+      const now = new Date().toISOString();
       return {
         id,
-        name: body.name,
-        updated_at: new Date().toISOString(),
-        schedule: "none",
-        format: body.format,
-        notebook_id: body.notebook_id ?? null,
-        download_url: `/api/v1/reports/${id}/download`
+        workspace_id: payload.workspace_id,
+        title: payload.title,
+        description: payload.description ?? null,
+        notebook_id: payload.notebook_id ?? null,
+        created_by: null,
+        is_shared: false,
+        created_at: now,
+        updated_at: now,
+        has_schedule: false,
+        report_payload_json: { ...(payload.payload ?? {}), prompt: payload.payload?.prompt ?? "mock" },
+        schedule: null
       };
     }
   });
 }
 
-export async function rerunReport(id: string): Promise<{ status: string }> {
+export async function createReportSchedule(
+  reportId: string,
+  body: CreateReportScheduleRequestDto
+): Promise<Record<string, unknown>> {
   return requestJson({
-    path: `/api/v1/reports/${encodeURIComponent(id)}/rerun`,
+    path: `/api/v1/reports/${encodeURIComponent(reportId)}/schedule`,
+    init: { method: "POST", body: JSON.stringify(body) },
+    mock: async () => ({
+      id: `sch-${Date.now()}`,
+      report_id: reportId,
+      cron_expression: "0 9 * * *",
+      timezone: "UTC",
+      is_active: body.is_active ?? true,
+      delivery_channel: body.delivery_channel ?? "in_app",
+      delivery_config_json: body.delivery_config_json ?? {},
+      next_run_at: new Date().toISOString(),
+      frequency: body.frequency,
+      hour_utc: body.hour_utc
+    })
+  });
+}
+
+export async function rerunReport(id: string): Promise<RunSavedReportResponseDto> {
+  return requestJson({
+    path: `/api/v1/reports/${encodeURIComponent(id)}/run`,
     init: { method: "POST" },
-    mock: async () => ({ status: "queued" })
+    mock: async () => ({
+      report_id: id,
+      execution_status: "succeeded",
+      safe_sql: "SELECT 1",
+      insight: "Mock rerun",
+      chart_type: "line",
+      table_records: [],
+      confidence: 0.9,
+      warnings: [],
+      trace_summary: "",
+      clarification_required: false
+    })
   });
 }
 

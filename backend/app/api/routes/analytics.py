@@ -8,4 +8,9 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 @router.post("/run", response_model=RunAnalyticsResponse)
 def run_analytics(payload: RunAnalyticsRequest) -> RunAnalyticsResponse:
-    return run_pipeline(notebook_id=payload.notebook_id, prompt=payload.prompt)
+    return run_pipeline(
+        notebook_id=payload.notebook_id,
+        prompt=payload.prompt,
+        result_limit=payload.result_limit,
+        result_offset=payload.result_offset,
+    )

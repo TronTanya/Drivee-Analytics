@@ -17,6 +17,8 @@ from app.models.user import User
 from app.models.user_profile import UserProfile
 from app.models.workspace import Workspace, WorkspaceMembership
 
+from app.demo_data.seed_analytics_orders import replace_demo_orders_dataset
+
 DEFAULT_ROLES = [
     ("admin", "Administrator"),
     ("manager", "Manager"),
@@ -222,6 +224,55 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "line",
             "SELECT date_trunc('day', order_timestamp)::date AS day, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS done_share FROM public.anonymized_incity_orders GROUP BY 1 ORDER BY 1",
         ),
+        (
+            "trips_by_city",
+            "Поездки по городам",
+            "Покажи количество завершённых поездок по city_id за последние 14 дней",
+            "bar",
+            "SELECT city_id, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.anonymized_incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+        ),
+        (
+            "cancellations_by_period",
+            "Отмены за период",
+            "Покажи количество отменённых заказов по дням за последние 30 дней",
+            "line",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.anonymized_incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "weekly_conversion",
+            "Конверсия по неделям",
+            "Покажи долю завершённых заказов по неделям за последние 8 недель",
+            "line",
+            "SELECT date_trunc('week', order_timestamp)::date AS week, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS conversion_rate FROM public.anonymized_incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "avg_check_by_city",
+            "Средний чек по городам",
+            "Покажи средний чек заказа (price_order_local) по city_id за последние 30 дней",
+            "bar",
+            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.anonymized_incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+        ),
+        (
+            "orders_dynamics",
+            "Динамика заказов",
+            "Покажи динамику числа заказов по дням за последние 14 дней",
+            "line",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.anonymized_incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "wow_done_rides_by_city",
+            "Завершённые поездки: эта неделя vs прошлая",
+            "Сравни количество завершённых поездок по city_id за текущую и предыдущую календарную неделю",
+            "bar",
+            "SELECT city_id, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL AND order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS done_this_week, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL AND order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS done_prev_week FROM public.anonymized_incity_orders WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day' GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "conversion_by_channel",
+            "Конверсия по каналам заказа",
+            "Покажи конверсию в завершённую поездку по order_channel за 28 дней",
+            "bar",
+            "SELECT order_channel, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS conversion_rate, COUNT(DISTINCT order_id)::bigint AS orders FROM public.anonymized_incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 3 DESC",
+        ),
     ]
     for template_key, template_name, nl_template, chart, sql_template in templates:
         tpl = session.scalar(
@@ -246,7 +297,10 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
 
 
 def ensure_business_demo_data(session, workspace: Workspace) -> None:
-    _ = (session, workspace)
+    n = replace_demo_orders_dataset(session)
+    _ = workspace
+    if n:
+        print(f"Seeded anonymized_incity_orders demo bulk rows: {n}")
 
 
 def ensure_demo_notebook_and_history(session, workspace: Workspace, admin_user: User) -> None:
@@ -343,8 +397,56 @@ def main() -> None:
         ensure_query_templates(session, workspace, users, roles)
         ensure_business_demo_data(session, workspace)
         ensure_demo_notebook_and_history(session, workspace, users["admin"])
+        ensure_defense_demo_history(session, workspace, users["admin"])
         session.commit()
     print("Demo seed completed (idempotent, platform-wide).")
+
+
+def ensure_defense_demo_history(session, workspace: Workspace, admin_user: User) -> None:
+    """История NL под четыре сценария защиты (идемпотентно по тексту запроса)."""
+    notebook = session.scalar(
+        select(Notebook).where(
+            Notebook.workspace_id == workspace.id,
+            Notebook.title == "Demo In-city Orders Notebook",
+        )
+    )
+    if notebook is None:
+        return
+    seeds: list[tuple[str, str, str]] = [
+        ("def_quick", "Покажи топ-3 города по количеству отменённых заказов на этой неделе", "ranking"),
+        ("def_compare", "Сравни долю завершённых заказов Алматы и Астана за последние 14 дней", "comparison"),
+        ("def_reporting", "Сводка для операционного дашборда: отмены по дням за последние 7 дней", "timeseries"),
+        (
+            "def_templates",
+            "Из каталога шаблонов: отмены по городам за неделю (weekly_cancellations_by_city)",
+            "template_run",
+        ),
+    ]
+    for scenario_id, query, intent in seeds:
+        exists = session.scalar(
+            select(NLQueryHistory).where(
+                NLQueryHistory.notebook_id == notebook.id,
+                NLQueryHistory.original_query == query,
+            )
+        )
+        if exists is not None:
+            continue
+        session.add(
+            NLQueryHistory(
+                workspace_id=workspace.id,
+                user_id=admin_user.id,
+                notebook_id=notebook.id,
+                notebook_cell_id=None,
+                original_query=query,
+                resolved_query=query,
+                interpreted_intent=intent,
+                semantic_terms_json=[],
+                generated_sql=None,
+                validation_result_json={"status": "seeded_defense_demo"},
+                execution_status="succeeded",
+                trace_payload_json={"defense_scenario_id": scenario_id, "seed_only": True},
+            )
+        )
 
 
 if __name__ == "__main__":

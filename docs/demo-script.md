@@ -1,56 +1,56 @@
-# Drivee Analytics Notebook — Demo Script (Defense)
+# Drivee Analytics Notebook — сценарий демонстрации
 
-## Main demo path (guaranteed)
+Цель — за **10–15 минут** показать живой NL→SQL, trace, сохранение артефактов и честные fallback-режимы. Расширенный контекст: **`docs/demo-defense.md`**. Карта экранов: **`/demo-router`**.
 
-1. Open `/demo-router`.
-2. Open `Main notebook demo` (`/notebooks/ops-health`).
-3. In prompt cell, run:
-   - `Покажи топ-3 города по количеству отменённых заказов на этой неделе`
-4. Show chain:
-   - `Уточнение` -> `План` (trace) -> `SQL` -> `Таблица` -> `График` -> `Инсайт`.
-5. Click `Сохранить как отчет`.
-6. Click `PDF по умолчанию`.
-7. Go to `/reports` and show created report row.
-8. Go to `/history` and show rerun/save-from-history actions.
+## Перед стартом
 
-## Additional scenario 1 — Clarification
+1. Поднять стек: **`docker compose up --build`** (см. **[DOCKER.md](../DOCKER.md)**).
+2. Убедиться, что применены миграции и seed: **`make migrate`**, **`make seed`** — в БД появятся пользователи, workspace, шаблоны, ноутбук и **массовый датасет `DEMO-*`** (см. **[demo-analytics-dataset.md](./demo-analytics-dataset.md)**).
+3. Frontend для «честной» аналитики:
+   - **`NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK`** — не включать (или `false`), чтобы `/api/v1/analytics/run` шёл в backend.
+   - **`NEXT_PUBLIC_API_MOCK=fallback`** или **`NEXT_PUBLIC_DEMO_MODE=true`** — при сбое сети/5xx подставляется контролируемый мок.
+4. Логин: например `manager@drivee.local` / `demo123` (см. `backend/scripts/seed_demo_data.py`).
 
-1. Open `/notebooks/clarification-demo`.
-2. Run prompt:
-   - `Покажи лучшие города за неделю`
-3. Show clarification question and choose one option.
-4. Verify plan/result chain updates.
+## Блок A — Главный путь (обязательный)
 
-## Additional scenario 2 — Follow-up
+1. Открыть **`/demo-router`**: показать бейджи режима API (**live** / **fallback** / **mock**) и блок «Сценарии защиты».
+2. Перейти в **`Main notebook demo`** (`/notebooks/ops-health`).
+3. Ввести промпт (варианты):
+   - из **`frontend/lib/demo/defense-scenarios.ts`** (`DEFENSE_DEMO_SCENARIOS[0].nlPrompt`), **или**
+   - **`Покажи топ-3 города по количеству отменённых заказов на этой неделе`**, **или**
+   - с опорой на объёмные данные: **`Покажи конверсию в завершённую поездку по order_channel за 28 дней`** (ожидается SQL с `order_channel` после seed).
+4. Показать цепочку: **Уточнение (если было)** → **План / trace** → **SQL** → **Таблица** → **График** → **Инсайт** (и при необходимости forecast).
+5. Нажать **«Сохранить как отчёт»** → **«PDF по умолчанию»**.
+6. Открыть **`/reports`** — строка созданного отчёта.
+7. Открыть **`/history`** — повторный запуск / сохранение из истории (если в live-режиме контракт совпадает с backend; иначе озвучить ограничение из **`docs/improvement-roadmap.md`**).
 
-1. Open `/notebooks/follow-up-demo`.
-2. Run prompt:
-   - `Покажи отмены по городам за неделю. А теперь только по Москве.`
-3. Show updated trace + SQL + chart.
+## Блок B — Clarification
 
-## Additional scenario 3 — Report reuse
+1. Открыть **`/notebooks/clarification-demo`** (или использовать двусмысленный промпт в ops-health).
+2. Пример: **`Покажи лучшие города за неделю`**.
+3. Показать вопрос и варианты ответа; после выбора — обновлённый trace и результат.
 
-1. Open `/reports`.
-2. Select report actions:
-   - rerun report;
-   - download PDF.
-3. Open `/history`.
-4. Save run/query as report and confirm action message.
+## Блок C — Follow-up
 
-## Fallback path if one step fails
+1. Открыть **`/notebooks/follow-up-demo`**.
+2. Пример одной ячейки:  
+   **`Покажи отмены по городам за неделю. А теперь только по city_id=101.`**
+3. Показать в trace наследование контекста и изменённый SQL.
 
-1. If backend/LLM is unavailable, keep same flow on notebooks page.
-2. Verify `Demo Health` badge:
-   - API mode (`Live + fallback` or `Mock only`)
-   - backend status (`online/offline`)
-3. Continue demo with fallback cells:
-   - explainability + SQL preview + table + chart + insight remain visible.
-4. Continue with save report and local PDF generation.
+## Блок D — Шаблоны и типовая отчётность
 
-## Expected visible outcomes
+1. Открыть **`/templates`** — каталог шаблонов workspace (после seed: отмены по городам, динамика завершённых, WoW по городам, конверсия по каналу и др.).
+2. Запустить шаблон (если UI в live подключён к `GET /api/v1/templates` и `POST .../run`) **или** скопировать NL из карточки шаблона в ноутбук и выполнить там.
+3. Коротко связать с блоком A: «типовой вопрос → сохранённый SQL → отчёт».
 
-- No dead-end UI.
-- No raw stack traces.
-- Clear status banners and controlled fallback.
-- Repeatable outputs across reruns (seeded demo data).
+## Блок E — Если шаг упал (fallback)
 
+1. Проверить, что не включён **`NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK`** — иначе live-pipeline не демонстрируется.
+2. При недоступности backend/LLM UI заполняет ячейки контролируемым ответом; на **`/demo-router`** видно режим **fallback** / **mock**.
+3. Продолжить сценарий: trace + таблица + график; объяснить, что цифры fallback не равны выборке из вашей БД без live.
+
+## Ожидаемые наблюдаемые результаты
+
+- Нет «тупикового» UI и сырых stack trace в демо-профиле.
+- Явные баннеры статуса и понятный режим данных/API.
+- При **`make seed`** — ненулевые агрегаты по городам, дням, неделям и каналам для SQL-шаблонов.

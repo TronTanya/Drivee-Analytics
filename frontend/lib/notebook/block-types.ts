@@ -118,7 +118,7 @@ export type NotebookBlock =
   | ForecastBlock
   | TraceBlock;
 
-export type TraceStepStatus = "pending" | "running" | "done" | "failed";
+export type TraceStepStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
 export interface TraceStep {
   id: string;
@@ -175,6 +175,11 @@ export interface TracePanelModel {
     status: "passed" | "warning" | "failed";
     reasons: string[];
   };
+  guardrails: {
+    blocked: boolean;
+    codes: string[];
+    messagesRu: string[];
+  };
   /** Optional pipeline timeline (demo / extended diagnostics). */
   steps: TraceStep[];
   logs: TraceLogLine[];
@@ -187,7 +192,9 @@ export interface NotebookHeaderProps {
   notebookId: string;
   updatedAtLabel?: string;
   /** High-level run state for the whole notebook */
-  runState?: "idle" | "running";
+  runState?: "idle" | "running" | "failed";
+  /** Shown under the title while the pipeline is busy (client-side hint until ответ API). */
+  runPhaseHint?: string | null;
   /** Extra controls (e.g. trace toggle injected by parent) */
   trailing?: ReactNode;
 }

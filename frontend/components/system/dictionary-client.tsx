@@ -1,212 +1,140 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
+import { fetchDictionaryEntries } from "@/lib/api/dictionary";
 import type { DictionaryRow } from "@/lib/system/mock-data";
-import { MOCK_DICTIONARY } from "@/lib/system/mock-data";
+import type { DictionaryEntryDto } from "@/types/api/dictionary";
 import type { UserRole } from "@/lib/types";
 
-const ROLES: UserRole[] = ["admin", "manager", "marketer", "executive"];
-const ROLE_LABEL: Record<UserRole, string> = {
-  admin: "Администратор",
-  manager: "Менеджер",
-  marketer: "Маркетолог",
-  executive: "Руководитель"
+const DOMAIN_LABEL: Record<string, string> = {
+  orders_rides: "Поездки и заказы",
+  cancellations_revenue: "Отмены, конверсия и выручка"
 };
 
-function emptyForm(): Omit<DictionaryRow, "id"> {
-  return { term: "", synonyms: [], sqlExpression: "", visibility: ["manager"] };
+function dtoToRow(e: DictionaryEntryDto): DictionaryRow {
+  return {
+    id: e.id,
+    term: e.term,
+    synonyms: e.synonyms ?? [],
+    sqlExpression: e.sql_expression,
+    visibility: (e.visibility_roles ?? []) as UserRole[],
+    domain: e.domain,
+    canonicalMetricKey: e.canonical_metric_key,
+    sourceTable: e.source_table,
+    sourceColumn: e.source_column ?? undefined,
+    aggregationType: e.aggregation_type,
+    constraints: e.constraints,
+    exampleQueries: e.example_queries,
+    systemInterpretationRu: e.system_interpretation_ru
+  };
+}
+
+function rowSearchBlob(r: DictionaryRow): string {
+  return [r.term, r.canonicalMetricKey ?? "", r.domain ?? "", ...(r.synonyms ?? []), r.sqlExpression].join(" ").toLowerCase();
 }
 
 export function DictionaryClient() {
-  const [rows, setRows] = useState<DictionaryRow[]>(MOCK_DICTIONARY);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formMsg, setFormMsg] = useState<string | null>(null);
-  const [term, setTerm] = useState("");
-  const [synonymsStr, setSynonymsStr] = useState("");
-  const [sqlExpression, setSqlExpression] = useState("");
-  const [visibility, setVisibility] = useState<UserRole[]>(["manager"]);
+  const [rows, setRows] = useState<DictionaryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const formTitle = creating ? "Создать термин" : editingId ? "Редактировать термин" : null;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const data = await fetchDictionaryEntries();
+        if (!cancelled) {
+          setRows(data.map(dtoToRow));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : "Не удалось загрузить словарь");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const resetForm = () => {
-    setCreating(false);
-    setEditingId(null);
-    setFormError(null);
-    setFormMsg(null);
-    const e = emptyForm();
-    setTerm(e.term);
-    setSynonymsStr("");
-    setSqlExpression(e.sqlExpression);
-    setVisibility(e.visibility);
-  };
+  const readOnlySemantic = useMemo(
+    () => rows.length > 0 && rows.some((r) => Boolean(r.canonicalMetricKey)),
+    [rows]
+  );
 
-  const loadRow = (row: DictionaryRow) => {
-    setEditingId(row.id);
-    setCreating(false);
-    setTerm(row.term);
-    setSynonymsStr(row.synonyms.join(", "));
-    setSqlExpression(row.sqlExpression);
-    setVisibility(row.visibility);
-  };
-
-  const parseSynonyms = (s: string) =>
-    s
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-
-  const toggleRole = (r: UserRole) => {
-    setVisibility((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
-  };
-
-  const save = () => {
-    setFormError(null);
-    setFormMsg(null);
-    if (!term.trim() || !sqlExpression.trim()) {
-      setFormError("Термин и SQL-выражение обязательны.");
-      return;
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) {
+      return rows;
     }
-    const syn = parseSynonyms(synonymsStr);
-    if (visibility.length === 0) {
-      setFormError("Выберите хотя бы одну роль видимости.");
-      return;
-    }
-    if (creating) {
-      const id = `d-${Date.now()}`;
-      setRows((prev) => [...prev, { id, term: term.trim(), synonyms: syn, sqlExpression: sqlExpression.trim(), visibility }]);
-      setFormMsg(`Термин "${term.trim()}" создан.`);
-    } else if (editingId) {
-      setRows((prev) =>
-        prev.map((r) =>
-          r.id === editingId
-            ? { ...r, term: term.trim(), synonyms: syn, sqlExpression: sqlExpression.trim(), visibility }
-            : r
-        )
-      );
-      setFormMsg(`Термин "${term.trim()}" обновлен.`);
-    }
-    setCreating(false);
-    setEditingId(null);
-    setTerm("");
-    setSynonymsStr("");
-    setSqlExpression("");
-    setVisibility(["manager"]);
-  };
+    return rows.filter((r) => rowSearchBlob(r).includes(q));
+  }, [rows, search]);
 
-  const filtered = useMemo(() => rows, [rows]);
+  const selected = useMemo(
+    () => (selectedId ? rows.find((r) => r.id === selectedId) ?? null : null),
+    [rows, selectedId]
+  );
 
   return (
     <div className="space-y-6">
       <SystemPageIntro
-        title="Бизнес-словарь"
-        subtitle="Канонические термины, синонимы, SQL-фрагменты и ролевая видимость в сценариях."
+        title="Семантический словарь"
+        subtitle="Канонические метрики, синонимы и SQL-фрагменты: как NL→SQL сопоставляет запрос с источником anonymized_incity_orders."
       />
       <DemoQuickActions
         items={[
-          { label: "Открыть сценарий", href: "/notebooks/ops-health", hint: "Посмотреть применение терминов в парсинге промпта" },
+          {
+            label: "Открыть сценарий",
+            href: "/notebooks/ops-health",
+            hint: "Промпт проходит через semantic parse → resolve_semantic_terms → SQL"
+          },
           { label: "Шаблоны", href: "/templates", hint: "Workflow шаблоны + словарь" },
-          { label: "Загрузка данных", href: "/data-upload", hint: "После ingest сопоставьте новые поля здесь" }
+          { label: "Загрузка данных", href: "/data-upload", hint: "После ingest проверьте соответствие полей словарю" }
         ]}
       />
-      {formMsg ? (
+
+      {loadError ? (
+        <div className="rounded-card border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{loadError}</div>
+      ) : null}
+
+      {readOnlySemantic ? (
         <div className="rounded-card border border-border-subtle bg-surface-card px-4 py-3 text-sm text-foreground-secondary">
-          {formMsg}
+          Словарь задаётся на сервере (файл <span className="font-mono text-xs">app/data/semantic_dictionary.json</span>
+          ). Редактирование через API в MVP отключено.
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <button
-          type="button"
-          onClick={() => {
-            resetForm();
-            setCreating(true);
-          }}
-          className="interactive-focus micro-lift rounded-control bg-brand-500 px-3 py-2 text-xs font-semibold text-black shadow-xs hover:bg-brand-400 active:translate-y-0"
-        >
-          Новый термин
-        </button>
-        {(creating || editingId) && (
-          <button
-            type="button"
-            onClick={resetForm}
-            className="interactive-focus rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary hover:bg-surface-muted"
-          >
-            Отмена
-          </button>
-        )}
-      </div>
+      <SectionCard title="Поиск" description="Фильтр по бизнес-термину, синониму или каноническому ключу.">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Например: отмены, средний чек, done_rides…"
+          className="interactive-focus w-full rounded-control border border-border-subtle px-3 py-2 text-sm focus:border-brand-400"
+        />
+      </SectionCard>
 
-      {(creating || editingId) && (
-        <SectionCard title={formTitle!} description="Mock-форма - сохраняется только в состоянии сессии.">
-          {formError ? (
-            <div className="mb-3 rounded-control border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-              {formError}
-            </div>
-          ) : null}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className="text-[11px] font-semibold uppercase text-foreground-muted">Бизнес-термин</label>
-              <input
-                value={term}
-                onChange={(e) => setTerm(e.target.value)}
-                className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm focus:border-brand-400"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="text-[11px] font-semibold uppercase text-foreground-muted">Синонимы (через запятую)</label>
-              <input
-                value={synonymsStr}
-                onChange={(e) => setSynonymsStr(e.target.value)}
-                placeholder="NR, net sales"
-                className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm focus:border-brand-400"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="text-[11px] font-semibold uppercase text-foreground-muted">SQL-выражение</label>
-              <textarea
-                value={sqlExpression}
-                onChange={(e) => setSqlExpression(e.target.value)}
-                rows={3}
-                className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 font-mono text-xs focus:border-brand-400"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <p className="text-[11px] font-semibold uppercase text-foreground-muted">Видимость по ролям</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {ROLES.map((r) => (
-                  <label key={r} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={visibility.includes(r)}
-                      onChange={() => toggleRole(r)}
-                      className="rounded border-border-subtle text-brand-600 focus:ring-brand-500"
-                    />
-                    {ROLE_LABEL[r]}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={save}
-            className="interactive-focus micro-lift mt-4 rounded-control bg-brand-500 px-4 py-2 text-sm font-semibold text-black hover:bg-brand-400 active:translate-y-0"
-          >
-            {creating ? "Создать" : "Сохранить изменения"}
-          </button>
-        </SectionCard>
-      )}
-
-      <SectionCard title="Термины" description="Нажмите строку для редактирования.">
-        {filtered.length === 0 ? (
+      <SectionCard
+        title="Термины"
+        description={loading ? "Загрузка…" : `Всего записей: ${filtered.length}${search.trim() ? ` (из ${rows.length})` : ""}`}
+      >
+        {loading ? (
+          <p className="text-sm text-foreground-secondary">Загрузка словаря…</p>
+        ) : filtered.length === 0 ? (
           <div className="rounded-control border border-dashed border-border-subtle bg-surface-page px-4 py-10 text-center">
-            <p className="text-sm font-semibold text-foreground">Пока нет терминов в словаре</p>
-            <p className="mt-1 text-sm text-foreground-secondary">Создайте термин, чтобы включить семантическое сопоставление в сценариях.</p>
+            <p className="text-sm font-semibold text-foreground">Ничего не найдено</p>
+            <p className="mt-1 text-sm text-foreground-secondary">Измените строку поиска или сбросьте фильтр.</p>
           </div>
         ) : (
           <>
@@ -214,39 +142,46 @@ export function DictionaryClient() {
               {filtered.map((row) => (
                 <article
                   key={row.id}
-                  onClick={() => loadRow(row)}
-                  className="cursor-pointer rounded-control border border-border-subtle bg-surface-page px-3 py-3 shadow-xs transition hover:border-brand-200 hover:bg-brand-50/40"
+                  onClick={() => setSelectedId(row.id === selectedId ? null : row.id)}
+                  className={`cursor-pointer rounded-control border px-3 py-3 shadow-xs transition hover:border-brand-200 hover:bg-brand-50/40 ${
+                    selectedId === row.id ? "border-brand-400 bg-brand-50/50" : "border-border-subtle bg-surface-page"
+                  }`}
                 >
                   <p className="text-sm font-semibold text-foreground">{row.term}</p>
+                  {row.canonicalMetricKey ? (
+                    <p className="mt-1 font-mono text-[11px] text-foreground-muted">{row.canonicalMetricKey}</p>
+                  ) : null}
                   <p className="mt-1 text-xs text-foreground-secondary">{row.synonyms.join(" · ") || "—"}</p>
-                  <p className="mt-2 rounded-control bg-surface-muted px-2 py-1 font-mono text-[11px] text-foreground-secondary">
-                    {row.sqlExpression}
-                  </p>
-                  <p className="mt-2 text-xs text-foreground-muted">Видимость: {row.visibility.join(", ")}</p>
                 </article>
               ))}
             </div>
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[720px] border-collapse text-left text-body-sm">
+              <table className="w-full min-w-[840px] border-collapse text-left text-body-sm">
                 <thead>
                   <tr className="border-b border-border-subtle text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
                     <th className="pb-2 pr-4">Термин</th>
+                    <th className="pb-2 pr-4">Канон. метрика</th>
+                    <th className="pb-2 pr-4">Домен</th>
                     <th className="pb-2 pr-4">Синонимы</th>
-                    <th className="pb-2 pr-4">SQL</th>
-                    <th className="pb-2">Видимость</th>
+                    <th className="pb-2">SQL-фрагмент</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-subtle">
                   {filtered.map((row) => (
                     <tr
                       key={row.id}
-                      onClick={() => loadRow(row)}
-                      className="cursor-pointer hover:bg-brand-50/50"
+                      onClick={() => setSelectedId(row.id === selectedId ? null : row.id)}
+                      className={`cursor-pointer hover:bg-brand-50/50 ${selectedId === row.id ? "bg-brand-50/60" : ""}`}
                     >
                       <td className="py-3 pr-4 font-medium text-foreground">{row.term}</td>
-                      <td className="py-3 pr-4 text-xs text-foreground-secondary">{row.synonyms.join(" · ")}</td>
-                      <td className="py-3 pr-4 font-mono text-[11px] text-foreground-secondary">{row.sqlExpression}</td>
-                      <td className="py-3 text-xs text-foreground-secondary">{row.visibility.join(", ")}</td>
+                      <td className="py-3 pr-4 font-mono text-[11px] text-foreground-secondary">{row.canonicalMetricKey ?? "—"}</td>
+                      <td className="py-3 pr-4 text-xs text-foreground-secondary">
+                        {row.domain ? (DOMAIN_LABEL[row.domain] ?? row.domain) : "—"}
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-foreground-secondary">{row.synonyms.join(" · ") || "—"}</td>
+                      <td className="max-w-[320px] truncate py-3 font-mono text-[11px] text-foreground-secondary" title={row.sqlExpression}>
+                        {row.sqlExpression}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -255,6 +190,62 @@ export function DictionaryClient() {
           </>
         )}
       </SectionCard>
+
+      {selected ? (
+        <SectionCard
+          title="Как система понимает термин"
+          description={`Канонический ключ: ${selected.canonicalMetricKey ?? selected.id}`}
+        >
+          <div className="space-y-4 text-sm">
+            <div>
+              <p className="text-[11px] font-semibold uppercase text-foreground-muted">Интерпретация</p>
+              <p className="mt-1 text-foreground-secondary">
+                {selected.systemInterpretationRu ?? "Описание недоступно для этой записи."}
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase text-foreground-muted">Таблица</p>
+                <p className="mt-1 font-mono text-xs text-foreground">{selected.sourceTable ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase text-foreground-muted">Колонка</p>
+                <p className="mt-1 font-mono text-xs text-foreground">{selected.sourceColumn ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase text-foreground-muted">Агрегация</p>
+                <p className="mt-1 text-foreground-secondary">{selected.aggregationType ?? "—"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase text-foreground-muted">Видимость ролей</p>
+                <p className="mt-1 text-xs text-foreground-secondary">{selected.visibility.join(", ") || "—"}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase text-foreground-muted">Ограничения (constraints)</p>
+              <pre className="mt-2 max-h-48 overflow-auto rounded-control bg-surface-muted p-3 font-mono text-[11px] text-foreground-secondary">
+                {JSON.stringify(selected.constraints ?? {}, null, 2)}
+              </pre>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase text-foreground-muted">Примеры запросов</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-foreground-secondary">
+                {(selected.exampleQueries ?? []).length ? (
+                  selected.exampleQueries!.map((q) => <li key={q}>{q}</li>)
+                ) : (
+                  <li>Нет примеров в словаре.</li>
+                )}
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase text-foreground-muted">SQL-выражение (фрагмент SELECT)</p>
+              <pre className="mt-2 overflow-x-auto rounded-control bg-surface-muted p-3 font-mono text-[11px] text-foreground-secondary">
+                {selected.sqlExpression}
+              </pre>
+            </div>
+          </div>
+        </SectionCard>
+      ) : null}
     </div>
   );
 }

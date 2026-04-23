@@ -7,13 +7,23 @@ import { RunAllButton } from "@/components/notebook/run-all-button";
 import { NotebookCanvas } from "@/components/notebook/notebook-canvas";
 import { NotebookCell } from "@/components/notebook/notebook-cell";
 import { NotebookHeader } from "@/components/notebook/notebook-header";
+import { AnalysisRunSummary } from "@/components/notebook/analysis-run-summary";
+import { NotebookHistoryChips, NotebookHistoryPanel } from "@/components/notebook/notebook-history-panel";
 import {
+  NotebookClarificationNeededState,
   NotebookEmptyState,
   NotebookErrorBanner,
-  NotebookLoadingState
+  NotebookFallbackModeState,
+  NotebookLoadingState,
+  NotebookNoDataState,
+  NotebookPipelineLoadingState,
+  NotebookValidationBlockedState
 } from "@/components/notebook/notebook-states";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { useCreateReport } from "@/hooks/api/use-reports";
+import { useWorkspaceId } from "@/hooks/use-workspace-id";
+import { useAnalyticsBusyPhaseHint } from "@/hooks/use-analytics-busy-phase-hint";
+import { saveNotebookScenario } from "@/lib/api/notebooks";
 import { downloadReportPdf, type ReportPdfMode } from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
@@ -26,7 +36,9 @@ import {
   runAnalyticsPipeline,
   shouldForceAnalyticsMock
 } from "@/lib/api";
-import type { ChartKind, NotebookBlock, TracePanelModel } from "@/lib/notebook/block-types";
+import type { ChartKind, NotebookBlock, PromptBlock, TracePanelModel } from "@/lib/notebook/block-types";
+import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
+import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
 import { EMPTY_TRACE, traceFromAnalytics } from "@/lib/notebook/trace-model";
 import {
@@ -34,10 +46,16 @@ import {
   topCityCancellations,
   topCityLimitFromPrompt
 } from "@/lib/demo/seeded-data";
+import { isUuidString } from "@/lib/utils/uuid";
 
 // DeepSeek flow may include several sequential LLM calls in one pipeline run.
 // Keep client-side timeout comfortably above a typical multi-call latency.
 const ANALYTICS_TIMEOUT_MS = 45000;
+
+function traceClarificationRequested(trace: unknown): boolean {
+  if (!trace || typeof trace !== "object") return false;
+  return Boolean((trace as { clarification_requested?: boolean }).clarification_requested);
+}
 
 function analyticsRunFailureMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -128,9 +146,11 @@ function stabilizeScenarioBlocks(
     useDeterministicFallback?: boolean;
   }
 ): NotebookBlock[] {
-  const lastPrompt =
-    [...blocks].reverse().find((b) => b.type === "prompt") ??
-    ({ id: `${notebookId}-p1`, type: "prompt", text: promptText } as NotebookBlock);
+  const foundPrompt = [...blocks].reverse().find((b) => b.type === "prompt");
+  const lastPrompt: PromptBlock =
+    foundPrompt && foundPrompt.type === "prompt"
+      ? foundPrompt
+      : { id: `${notebookId}-p1`, type: "prompt", text: promptText, status: "idle" };
   const fallback = options?.useDeterministicFallback === false ? [] : buildDemoBlocks(notebookId, promptText);
   const fallbackByType = new Map(fallback.map((b) => [b.type, b]));
   const byType = new Map<NotebookBlock["type"], NotebookBlock>();
@@ -174,6 +194,17 @@ function stabilizeScenarioBlocks(
     },
     ...stableCore
   ];
+}
+
+function finalizeScenarioBlocks(
+  blocks: NotebookBlock[],
+  notebookId: string,
+  promptText: string,
+  options: Parameters<typeof stabilizeScenarioBlocks>[3] | undefined,
+  trace: TracePanelModel
+): NotebookBlock[] {
+  const stable = stabilizeScenarioBlocks(blocks, notebookId, promptText, options);
+  return enrichBlocksWithAutoChart(stable, trace);
 }
 
 function scenarioPresetByNotebookId(notebookId: string): {
@@ -300,18 +331,28 @@ export default function NotebookDetailsPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [runAllLoading, setRunAllLoading] = useState(false);
-  const [headerRunState, setHeaderRunState] = useState<"idle" | "running">("idle");
   const [savingReport, setSavingReport] = useState(false);
+  const [savingScenario, setSavingScenario] = useState(false);
   const [lastReport, setLastReport] = useState<{ id: string; name: string } | null>(null);
+  const [promptHistory, setPromptHistory] = useState<NotebookHistoryItem[]>([]);
   const [downloadingPdfMode, setDownloadingPdfMode] = useState<ReportPdfMode | null>(null);
   const [clarificationRunVersion, setClarificationRunVersion] = useState(0);
   const [backendHealth, setBackendHealth] = useState<"checking" | "up" | "down">("checking");
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
   const createReport = useCreateReport();
+  const workspaceQuery = useWorkspaceId();
   const useDeterministicFallback = useMemo(
     () => isApiMockOnly() || shouldForceAnalyticsMock(),
     []
   );
+
+  useEffect(() => {
+    setPromptHistory(loadNotebookHistory(notebookId));
+  }, [notebookId]);
+
+  const busyAnalyticsHint = useAnalyticsBusyPhaseHint(composerBusy || runAllLoading);
+  const headerRunState = pageError ? "failed" : composerBusy || runAllLoading ? "running" : "idle";
+  const canPersistNotebook = useMemo(() => isUuidString(notebookId), [notebookId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,6 +414,21 @@ export default function NotebookDetailsPage() {
   }, []);
   const clarificationBlock = useMemo(
     () => blocks.find((b) => b.type === "clarification"),
+    [blocks]
+  );
+
+  const clarificationPending = Boolean(
+    traceModel.clarificationRequested && clarificationBlock && !clarificationBlock.selectedOptionId
+  );
+
+  const lastPromptForHistory = useMemo(() => {
+    const p = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim());
+    return p && p.type === "prompt" ? p.text.trim() : "";
+  }, [blocks]);
+
+  const emptyAnalyticTable = useMemo(
+    () =>
+      blocks.some((b) => b.type === "table" && b.columns.length > 0 && Array.isArray(b.rows) && b.rows.length === 0),
     [blocks]
   );
 
@@ -454,23 +510,102 @@ export default function NotebookDetailsPage() {
   const handleSaveAsReport = useCallback(async () => {
     setPageError(null);
     setPageNotice(null);
+    const workspaceId = workspaceQuery.data;
+    if (!workspaceId) {
+      setPageError("Нужен workspace: войдите в систему или задайте NEXT_PUBLIC_DEFAULT_WORKSPACE_ID.");
+      return;
+    }
     setSavingReport(true);
-    const reportName = `Отчет ${notebookId} · ${new Date().toLocaleString("ru-RU")}`;
+    const reportTitle = `Отчет ${notebookId} · ${new Date().toLocaleString("ru-RU")}`;
+    const promptBlock = [...blocks].reverse().find((b) => b.type === "prompt");
+    const sqlBlock = [...blocks].reverse().find((b) => b.type === "sql");
+    const tableBlock = [...blocks].reverse().find((b) => b.type === "table");
+    const chartBlock = [...blocks].reverse().find((b) => b.type === "chart");
+    const insightBlock = [...blocks].reverse().find((b) => b.type === "insight");
+    const insightPreview =
+      insightBlock && insightBlock.type === "insight"
+        ? (insightBlock.summary ?? insightBlock.title).slice(0, 500)
+        : null;
+    const promptText =
+      promptBlock && promptBlock.type === "prompt" ? promptBlock.text.trim() : lastPromptForHistory || "—";
+    const sqlText =
+      sqlBlock && sqlBlock.type === "sql"
+        ? sqlBlock.sql
+        : traceModel.generatedSql?.trim() || null;
+    const nowIso = new Date().toISOString();
     try {
       const report = await createReport.mutateAsync({
-        name: reportName,
-        format: "pdf",
-        notebook_id: notebookId
+        workspace_id: workspaceId,
+        title: reportTitle,
+        notebook_id: notebookId,
+        source_cell_id: sqlBlock?.id ?? promptBlock?.id ?? null,
+        payload: {
+          prompt: promptText,
+          interpreted_query: traceModel.interpretedIntent || null,
+          generated_sql: sqlText,
+          result_metadata: {
+            notebook_id: notebookId,
+            insight_preview: insightPreview,
+            table_row_count: tableBlock && tableBlock.type === "table" ? tableBlock.rows.length : null,
+            table_columns: tableBlock && tableBlock.type === "table" ? tableBlock.columns : null,
+            tables_used: traceModel.tablesUsed,
+            validation_status: traceModel.validationStatus
+          },
+          chart_type: chartBlock && chartBlock.type === "chart" ? chartBlock.chartType : traceModel.chartRecommendation.chartType,
+          trace_summary: traceModel.steps.map((s) => `${s.label}: ${s.status}`).join(" · ") || null,
+          confidence: traceModel.confidence,
+          warnings: traceModel.warnings,
+          captured_at: nowIso,
+          saved_at: nowIso
+        }
       });
-      buildSnapshot(report.id, report.name);
-      setLastReport({ id: report.id, name: report.name });
-      setPageNotice(`Отчет сохранен: ${report.name}`);
+      buildSnapshot(report.id, report.title);
+      setLastReport({ id: report.id, name: report.title });
+      setPageNotice(`Отчет сохранен: ${report.title}`);
     } catch {
       setPageError("Не удалось сохранить отчет. Повторите попытку.");
     } finally {
       setSavingReport(false);
     }
-  }, [buildSnapshot, createReport, notebookId]);
+  }, [
+    blocks,
+    buildSnapshot,
+    createReport,
+    lastPromptForHistory,
+    notebookId,
+    traceModel.chartRecommendation.chartType,
+    traceModel.confidence,
+    traceModel.generatedSql,
+    traceModel.interpretedIntent,
+    traceModel.steps,
+    traceModel.tablesUsed,
+    traceModel.validationStatus,
+    traceModel.warnings,
+    workspaceQuery.data
+  ]);
+
+  const handleSaveNotebookScenario = useCallback(async () => {
+    if (!canPersistNotebook) return;
+    setPageError(null);
+    setPageNotice(null);
+    setSavingScenario(true);
+    const lastPrompt = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim());
+    const promptPreview =
+      lastPrompt && lastPrompt.type === "prompt" ? lastPrompt.text.trim().slice(0, 200) : "";
+    const scenarioTitle = `Снимок · ${new Date().toLocaleString("ru-RU")}`;
+    try {
+      await saveNotebookScenario(notebookId, {
+        scenario_title: scenarioTitle,
+        scenario_description: promptPreview || undefined
+      });
+      setPageNotice("Сценарий записан в context_chain ноутбука (сервер).");
+    } catch (error) {
+      const msg = error instanceof ApiError ? error.message : "Не удалось сохранить сценарий.";
+      setPageError(msg);
+    } finally {
+      setSavingScenario(false);
+    }
+  }, [blocks, canPersistNotebook, notebookId]);
 
   const handleChartTypeChange = useCallback((id: string, chartType: ChartKind) => {
     setBlocks((prev) =>
@@ -486,9 +621,9 @@ export default function NotebookDetailsPage() {
 
   const handleClarificationSelect = useCallback(async (clarificationId: string, optionId: string) => {
     let selectedLabel = "";
+    const basePromptBlock = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim().length > 0);
     const basePrompt =
-      [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim().length > 0)?.text ??
-      "Уточнение сценария";
+      basePromptBlock && basePromptBlock.type === "prompt" ? basePromptBlock.text : "Уточнение сценария";
     setBlocks((prev) =>
       prev.map((b) => {
         if (b.type === "clarification" && b.id === clarificationId) {
@@ -503,7 +638,6 @@ export default function NotebookDetailsPage() {
     const clarificationPrompt = `${basePrompt}\nУточнение: ${selectedLabel}`;
     setPageError(null);
     setComposerBusy(true);
-    setHeaderRunState("running");
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -515,7 +649,8 @@ export default function NotebookDetailsPage() {
       ]);
       if (timeoutId) clearTimeout(timeoutId);
       const mapped = cellDtosToBlocks(result.cells);
-      const clarificationRequested = Boolean(result.trace?.clarification_requested);
+      const clarificationRequested = traceClarificationRequested(result.trace);
+      const traceBase = traceFromAnalytics(result.trace);
       setBlocks((prev) => {
         const incoming = mapped.filter((b) => b.type !== "prompt");
         const updated = prev.map((b) =>
@@ -524,14 +659,20 @@ export default function NotebookDetailsPage() {
             : b
         );
         const merged = mergeBlocksById(updated, incoming);
-        return stabilizeScenarioBlocks(merged, notebookId, basePrompt, {
-          selectedClarificationId: optionId,
-          hideClarification: !clarificationRequested,
-          useDeterministicFallback
-        });
+        return finalizeScenarioBlocks(
+          merged,
+          notebookId,
+          basePrompt,
+          {
+            selectedClarificationId: optionId,
+            hideClarification: !clarificationRequested,
+            useDeterministicFallback
+          },
+          traceBase
+        );
       });
       setTraceModel((t) => {
-        const next = traceFromAnalytics(result.trace);
+        const next = traceBase;
         return {
           ...next,
           steps: next.steps.length
@@ -551,6 +692,11 @@ export default function NotebookDetailsPage() {
             ...(next.logs ?? [])
           ]
         };
+      });
+      setPromptHistory((h) => {
+        const next = appendNotebookHistory(notebookId, clarificationPrompt, h);
+        saveNotebookHistory(notebookId, next);
+        return next;
       });
       setClarificationRunVersion((v) => v + 1);
     } catch (error) {
@@ -576,7 +722,6 @@ export default function NotebookDetailsPage() {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
-      setHeaderRunState("idle");
     }
   }, [blocks, notebookId, useDeterministicFallback]);
 
@@ -596,7 +741,6 @@ export default function NotebookDetailsPage() {
       .map((b) => b.id);
     if (runnableIds.length === 0) return;
     setRunAllLoading(true);
-    setHeaderRunState("running");
     setTraceModel((t) => ({
       ...t,
       steps: t.steps.map((s) => (s.status === "pending" ? { ...s, status: "running" as const } : s))
@@ -612,7 +756,6 @@ export default function NotebookDetailsPage() {
       logs: [...t.logs, { level: "info", message: `Последовательно выполнено ячеек: ${runnableIds.length}.`, at: "t+end" }]
     }));
     setRunAllLoading(false);
-    setHeaderRunState("idle");
   }, [blocks, runSingleCell]);
 
   const handleComposerSubmit = useCallback(async () => {
@@ -620,7 +763,6 @@ export default function NotebookDetailsPage() {
     if (!text) return;
     setPageError(null);
     setComposerBusy(true);
-    setHeaderRunState("running");
     setClarificationRunVersion(0);
 
     const promptBlock: NotebookBlock = {
@@ -641,23 +783,35 @@ export default function NotebookDetailsPage() {
       ]);
       if (timeoutId) clearTimeout(timeoutId);
       const mapped = cellDtosToBlocks(result.cells);
-      const clarificationRequested = Boolean(result.trace?.clarification_requested);
+      const clarificationRequested = traceClarificationRequested(result.trace);
+      const traceNext = traceFromAnalytics(result.trace);
       setBlocks((prev) => {
         // Keep optimistic prompt block and skip exact prompt duplicate by text.
         const merged = mergeBlocksById(prev, mapped, { skipPromptText: text });
-        return stabilizeScenarioBlocks(merged, notebookId, text, {
-          resetClarification: clarificationRequested,
-          hideClarification: !clarificationRequested,
-          useDeterministicFallback
-        });
+        return finalizeScenarioBlocks(
+          merged,
+          notebookId,
+          text,
+          {
+            resetClarification: clarificationRequested,
+            hideClarification: !clarificationRequested,
+            useDeterministicFallback
+          },
+          traceNext
+        );
       });
-      setTraceModel(traceFromAnalytics(result.trace));
+      setTraceModel(traceNext);
+      setPromptHistory((h) => {
+        const next = appendNotebookHistory(notebookId, text, h);
+        saveNotebookHistory(notebookId, next);
+        return next;
+      });
     } catch (error) {
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
       const detail = analyticsRunFailureMessage(error);
       setPageError(
         isTimeout
-          ? "Pipeline отвечает слишком долго. Показан локальный fallback-инсайт, попробуйте еще раз."
+          ? "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента."
           : `Ошибка запроса к pipeline: ${detail}`
       );
       setBlocks((prev) =>
@@ -670,7 +824,6 @@ export default function NotebookDetailsPage() {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
-      setHeaderRunState("idle");
     }
   }, [composer, notebookId, useDeterministicFallback]);
 
@@ -679,7 +832,6 @@ export default function NotebookDetailsPage() {
     if (!text) return;
     setPageError(null);
     setComposerBusy(true);
-    setHeaderRunState("running");
     setClarificationRunVersion(0);
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, status: "running" as const, errorMessage: undefined } : b)));
 
@@ -693,23 +845,35 @@ export default function NotebookDetailsPage() {
       ]);
       if (timeoutId) clearTimeout(timeoutId);
       const mapped = cellDtosToBlocks(result.cells);
-      const clarificationRequested = Boolean(result.trace?.clarification_requested);
+      const clarificationRequested = traceClarificationRequested(result.trace);
+      const traceNext = traceFromAnalytics(result.trace);
       setBlocks((prev) => {
         const updated = prev.map((b) => (b.id === id ? { ...b, status: "success" as const, errorMessage: undefined } : b));
         const merged = mergeBlocksById(updated, mapped, { skipPromptText: text });
-        return stabilizeScenarioBlocks(merged, notebookId, text, {
-          resetClarification: clarificationRequested,
-          hideClarification: !clarificationRequested,
-          useDeterministicFallback
-        });
+        return finalizeScenarioBlocks(
+          merged,
+          notebookId,
+          text,
+          {
+            resetClarification: clarificationRequested,
+            hideClarification: !clarificationRequested,
+            useDeterministicFallback
+          },
+          traceNext
+        );
       });
-      setTraceModel(traceFromAnalytics(result.trace));
+      setTraceModel(traceNext);
+      setPromptHistory((h) => {
+        const next = appendNotebookHistory(notebookId, text, h);
+        saveNotebookHistory(notebookId, next);
+        return next;
+      });
     } catch (error) {
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
       const detail = analyticsRunFailureMessage(error);
       setPageError(
         isTimeout
-          ? "Pipeline отвечает слишком долго. Показан локальный fallback-инсайт, попробуйте еще раз."
+          ? "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента."
           : `Ошибка запроса к pipeline: ${detail}`
       );
       setBlocks((prev) =>
@@ -720,9 +884,28 @@ export default function NotebookDetailsPage() {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
-      setHeaderRunState("idle");
     }
   }, [notebookId, useDeterministicFallback]);
+
+  const handlePickHistoryPrompt = useCallback((text: string) => {
+    setComposer(text);
+  }, []);
+
+  const handleClearHistory = useCallback(() => {
+    setPromptHistory([]);
+    saveNotebookHistory(notebookId, []);
+  }, [notebookId]);
+
+  const handleRerunLastPrompt = useCallback(() => {
+    const text = lastPromptForHistory;
+    if (!text || composerBusy) return;
+    const block = [...blocks].reverse().find((b) => b.type === "prompt");
+    if (block && block.type === "prompt") {
+      void handlePromptSubmit(block.id, text);
+    } else {
+      setComposer(text);
+    }
+  }, [blocks, composerBusy, handlePromptSubmit, lastPromptForHistory]);
 
   const presetPrompts = useMemo(
     () => [
@@ -748,7 +931,13 @@ export default function NotebookDetailsPage() {
   if (boot === "loading") {
     return (
       <div className="space-y-4">
-        <NotebookHeader title={title} notebookId={notebookId} subtitle="AI-канва аналитики" runState="running" />
+        <NotebookHeader
+          title={title}
+          notebookId={notebookId}
+          subtitle="AI-канва аналитики"
+          runState="running"
+          runPhaseHint={busyAnalyticsHint}
+        />
         <NotebookLoadingState />
       </div>
     );
@@ -764,17 +953,29 @@ export default function NotebookDetailsPage() {
   }
 
   return (
-    <NotebookCanvas
-      traceOpen={traceOpen}
-      trace={<TracePanel model={traceModel} onClose={() => setTraceOpen(false)} />}
-    >
-      <div className="space-y-6">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,230px)_minmax(0,1fr)] xl:items-start">
+      <div className="hidden xl:block">
+        <NotebookHistoryPanel
+          items={promptHistory}
+          onSelect={handlePickHistoryPrompt}
+          onRerunLast={handleRerunLastPrompt}
+          disabled={composerBusy}
+          lastPromptText={lastPromptForHistory}
+          onClear={handleClearHistory}
+        />
+      </div>
+      <NotebookCanvas
+        traceOpen={traceOpen}
+        trace={<TracePanel model={traceModel} onClose={() => setTraceOpen(false)} />}
+      >
+        <div className="space-y-6">
         <NotebookHeader
           title={title}
           subtitle="Промпт · план · SQL · результаты · графики · инсайты — с живым trace."
           notebookId={notebookId}
           updatedAtLabel="Workspace"
           runState={headerRunState}
+          runPhaseHint={busyAnalyticsHint}
           trailing={
             <>
               <button
@@ -787,11 +988,16 @@ export default function NotebookDetailsPage() {
               <RunAllButton onClick={handleRunAll} loading={runAllLoading} disabled={runAllLoading} />
               <button
                 type="button"
-                onClick={handleSaveAsReport}
-                disabled={savingReport}
-                className="w-full rounded-control border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 shadow-xs hover:bg-emerald-100 disabled:opacity-60 sm:w-auto"
+                onClick={() => void handleSaveNotebookScenario()}
+                disabled={!canPersistNotebook || savingScenario || composerBusy}
+                title={
+                  canPersistNotebook
+                    ? "POST /api/v1/notebooks/{id}/save — снимок в context_chain_json"
+                    : "Нужен UUID ноутбука в адресе страницы (демо-id вроде ops-health не сохраняются в API)."
+                }
+                className="w-full rounded-control border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-950 shadow-xs hover:bg-sky-100 disabled:opacity-50 sm:w-auto"
               >
-                {savingReport ? "Сохранение..." : "Сохранить как отчет"}
+                {savingScenario ? "Запись..." : "Сохранить сценарий"}
               </button>
               <button
                 type="button"
@@ -829,6 +1035,13 @@ export default function NotebookDetailsPage() {
             {pageNotice}
           </section>
         ) : null}
+        {composerBusy ? <NotebookPipelineLoadingState /> : null}
+        {!composerBusy && isApiMockFallback() ? <NotebookFallbackModeState /> : null}
+        {!composerBusy && traceModel.guardrails.blocked ? (
+          <NotebookValidationBlockedState messages={traceModel.guardrails.messagesRu} />
+        ) : null}
+        {!composerBusy && clarificationPending ? <NotebookClarificationNeededState /> : null}
+        {!composerBusy && emptyAnalyticTable ? <NotebookNoDataState /> : null}
         <section className="rounded-card border border-border-subtle bg-surface-card px-4 py-3 shadow-xs">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full border border-border-subtle bg-surface-muted px-2.5 py-1 font-semibold text-foreground-secondary">
@@ -945,6 +1158,23 @@ export default function NotebookDetailsPage() {
           </div>
         </section>
 
+        <NotebookHistoryChips
+          items={promptHistory}
+          onSelect={handlePickHistoryPrompt}
+          disabled={composerBusy}
+        />
+
+        <AnalysisRunSummary
+          blocks={blocks}
+          traceModel={traceModel}
+          onSaveReport={() => void handleSaveAsReport()}
+          savingReport={savingReport}
+          onRerunLast={handleRerunLastPrompt}
+          runBusy={composerBusy}
+          onChartTypeChange={handleChartTypeChange}
+          clarificationPending={clarificationPending}
+        />
+
         {blocks.length === 0 ? (
           <NotebookEmptyState />
         ) : (
@@ -972,7 +1202,8 @@ export default function NotebookDetailsPage() {
           loading={composerBusy}
           disabled={composerBusy}
         />
-      </div>
-    </NotebookCanvas>
+        </div>
+      </NotebookCanvas>
+    </div>
   );
 }

@@ -13,6 +13,8 @@ export type SavedReportRow = {
   schedule: ScheduleState;
   format: "PDF" | "Slides" | "Notebook" | "CSV";
   href: Route;
+  /** Из API saved_reports.has_schedule */
+  hasSchedule?: boolean;
 };
 
 export type NotebookScenarioRow = {
@@ -47,6 +49,10 @@ export type QueryHistoryRow = {
   validationHint: string;
   durationMs: number;
   notebookHref: Route;
+  interpretedSummary?: string;
+  chartType?: string;
+  ownerUserId?: string;
+  saveAsReportBodyHint?: Record<string, unknown>;
 };
 
 export type QueryTemplateRow = {
@@ -73,6 +79,14 @@ export type DictionaryRow = {
   synonyms: string[];
   sqlExpression: string;
   visibility: UserRole[];
+  domain?: string;
+  canonicalMetricKey?: string;
+  sourceTable?: string;
+  sourceColumn?: string | null;
+  aggregationType?: string;
+  constraints?: Record<string, unknown>;
+  exampleQueries?: string[];
+  systemInterpretationRu?: string;
 };
 
 export const MOCK_SAVED_REPORTS: SavedReportRow[] = [

@@ -42,3 +42,4 @@ class AnonymizedIncityOrder(Base):
     price_order_local: Mapped[Optional[float]] = mapped_column(Numeric(18, 3), nullable=True)
     price_tender_local: Mapped[Optional[float]] = mapped_column(Numeric(18, 3), nullable=True)
     price_start_local: Mapped[Optional[float]] = mapped_column(Numeric(18, 3), nullable=True)
+    order_channel: Mapped[str] = mapped_column(String(64), nullable=False, server_default="unknown", index=True)

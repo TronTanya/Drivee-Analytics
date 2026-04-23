@@ -8,6 +8,7 @@ import {
   saveRunAsReport
 } from "@/lib/api/history";
 import { queryKeys } from "@/hooks/api/query-keys";
+import type { QueryHistoryFilters } from "@/types/api/history";
 
 export function useNotebookRuns() {
   return useQuery({
@@ -17,10 +18,11 @@ export function useNotebookRuns() {
   });
 }
 
-export function useQueryHistory() {
+export function useQueryHistory(workspaceId: string | undefined, filters: QueryHistoryFilters = {}) {
   return useQuery({
-    queryKey: queryKeys.history.queries(),
-    queryFn: fetchQueryHistory,
+    queryKey: [...queryKeys.history.queries(), workspaceId ?? "none", JSON.stringify(filters)],
+    queryFn: () => fetchQueryHistory(workspaceId!, filters),
+    enabled: Boolean(workspaceId && workspaceId.length >= 8),
     staleTime: 20_000
   });
 }

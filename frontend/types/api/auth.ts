@@ -25,6 +25,8 @@ export type UserDto = {
   full_name?: string;
   role: UserRole;
   workspace_id?: string;
+  /** Соответствует backend `UserMeResponse.default_workspace_id`. */
+  default_workspace_id?: string | null;
 };
 
 export type AuthSessionDto = {

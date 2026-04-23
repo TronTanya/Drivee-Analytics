@@ -5,6 +5,7 @@ from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.dashboards import router as dashboards_router
 from app.api.routes.data_layer import data_router, forecast_router
+from app.api.routes.dictionary import router as dictionary_router
 from app.api.routes.history import router as history_router
 from app.api.routes.health import router as health_router
 from app.api.routes.meta import router as meta_router
@@ -21,6 +22,7 @@ api_router.include_router(analytics_router)
 api_router.include_router(data_router)
 api_router.include_router(forecast_router)
 api_router.include_router(meta_router)
+api_router.include_router(dictionary_router)
 api_router.include_router(admin_corrections_router)
 api_router.include_router(reports_router)
 api_router.include_router(templates_api_router)

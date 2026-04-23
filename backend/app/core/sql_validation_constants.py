@@ -14,6 +14,10 @@ BLOCKED_SQL_VERBS: FrozenSet[str] = frozenset(
         "alter",
         "truncate",
         "create",
+        "merge",
+        "replace",
+        "grant",
+        "revoke",
     }
 )
 
@@ -130,8 +134,6 @@ ROLE_COLUMN_ALLOWLIST: Dict[str, Optional[Dict[str, FrozenSet[str]]]] = {
                 "offset_hours",
                 "order_id",
                 "tender_id",
-                "user_id",
-                "driver_id",
                 "status_order",
                 "status_tender",
                 "order_timestamp",
@@ -149,6 +151,7 @@ ROLE_COLUMN_ALLOWLIST: Dict[str, Optional[Dict[str, FrozenSet[str]]]] = {
                 "price_order_local",
                 "price_tender_local",
                 "price_start_local",
+                "order_channel",
             }
         ),
     },

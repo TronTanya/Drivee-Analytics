@@ -50,3 +50,12 @@ class SavedReportRepository(BaseRepository):
             .limit(1)
         )
         return self.session.execute(stmt).scalar_one_or_none()
+
+    def delete(self, report_id: uuid.UUID) -> bool:
+        row = self.get(report_id)
+        if not row:
+            return False
+        self.delete_schedules_for_report(report_id)
+        self.session.delete(row)
+        self.session.flush()
+        return True

@@ -23,12 +23,13 @@ class IntentResult:
 class IntentService:
     """Keyword + pattern rules. Replace `classify` body with LLM adapter when ready."""
 
+    # «топ городов» содержит и «топ», и «город» — сначала ranking/share/trend, иначе «город» уйдёт в geo.
     _INTENT_RULES: list[tuple[Intent, tuple[str, ...]]] = [
         ("forecast", ("прогноз", "forecast", "предсказ", "extrapol")),
-        ("geo", ("карта", "map", "гео", "geo", "регион", "город", "област")),
-        ("share", ("дол", "share", "процент", "%", "структур")),
         ("ranking", ("топ", "top", "рейтинг", "rank", "лучш", "худш")),
         ("comparison", ("сравни", "compare", "vs", "против", "разниц")),
+        ("share", ("дол", "share", "процент", "%", "структур")),
+        ("geo", ("карта", "map", "гео", "geo", "регион", "город", "област")),
         ("trend", ("тренд", "trend", "динамик", "динамика", "по недел", "по дн", "временн", "over time")),
         ("summary", ("свод", "summary", "итого", "агрег", "всего", "общ")),
     ]
@@ -156,4 +157,13 @@ class IntentService:
         if interpretation.ambiguities:
             entities["llm_ambiguities"] = interpretation.ambiguities
         entities["llm_confidence"] = interpretation.confidence
+        if interpretation.comparison:
+            entities.setdefault("compare_baseline", str(interpretation.comparison).strip().lower())
+        if interpretation.sort:
+            entities["sort_hint"] = str(interpretation.sort).strip().lower()
+        if interpretation.limit is not None:
+            try:
+                entities.setdefault("top_n", max(1, min(500, int(interpretation.limit))))
+            except (TypeError, ValueError):
+                pass
         return entities

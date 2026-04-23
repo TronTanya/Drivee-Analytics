@@ -40,5 +40,9 @@ class UserMeResponse(BaseModel):
     role: RoleKey
     is_active: bool
     is_demo_user: bool
+    default_workspace_id: UUID | None = Field(
+        default=None,
+        description="Первый workspace пользователя (membership с is_default или любой доступный).",
+    )
 
     model_config = {"from_attributes": True}

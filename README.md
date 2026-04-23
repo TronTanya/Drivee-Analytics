@@ -1,241 +1,227 @@
 # Drivee Analytics Notebook
 
-AI-first analytics workspace в формате notebook: от вопроса на естественном языке до SQL, таблиц, графиков, прогноза и explainability trace.
+AI-first analytics workspace в формате notebook: от вопроса на естественном языке до SQL, таблиц, графиков, прогноза и explainability trace. Репозиторий упакован как **demo-ready MVP** с реалистичным демо-датасетом и прозрачным описанием границ продукта.
+
+**Документация:** [Архитектура](docs/architecture.md) · [Демо-скрипт](docs/demo-script.md) · [Демо-датасет](docs/demo-analytics-dataset.md) · [Защита / режимы](docs/demo-defense.md) · [Roadmap улучшений](docs/improvement-roadmap.md) · [Docker](DOCKER.md)
 
 ---
 
 ## 1) Название проекта
 
-**Drivee Analytics Notebook** — demo-ready платформа self-service аналитики с role-based интерфейсом и прозрачным NL→SQL pipeline.
+**Drivee Analytics Notebook** — платформа self-service аналитики с role-based интерфейсом, NL→SQL pipeline, guardrails и семантическим слоем.
 
 ## 2) Проблема
 
 Команды бизнеса, продукта и маркетинга часто упираются в:
 
 - долгий цикл «вопрос → аналитик → SQL → график → объяснение»;
-- слабую прозрачность AI-ответов;
+- слабую прозрачность ответов AI;
 - несогласованные метрики и словари;
-- сложности с follow-up вопросами и контекстом диалога;
-- разрыв между ad-hoc анализом и production-артефактами (report/schedule/history).
+- сложности с follow-up и контекстом диалога;
+- разрыв между ad-hoc анализом и артефактами (отчёты, шаблоны, история).
 
 ## 3) Решение
 
 Drivee объединяет:
 
 - **Notebook UX** для аналитического workflow;
-- **orchestration backend** (intent, semantics, SQL generation/validation/execution);
-- **trace/explainability layer**;
-- **role dashboards** и системные разделы (reports/history/templates/dictionary/data upload);
+- **orchestration backend** (intent, semantics, SQL generation / validation / execution);
+- **trace / explainability**;
+- **role dashboards** и системные разделы (reports, history, templates, dictionary, data upload);
 - **learning loop** через corrections.
 
-## 4) Почему notebook format сильнее обычного chat UI
+## 4) Почему notebook сильнее chat-only
 
-Notebook лучше chat-only интерфейса для аналитики, потому что:
+- Сохраняется **структура шагов** (prompt → SQL → table → chart → insight → forecast).
+- Результат **воспроизводим** и пригоден для аудита.
+- Можно **перезапускать** отдельные ячейки без потери контекста.
+- Естественно ложатся **trace, guardrails, validation**.
+- Упрощён переход к **отчётам и шаблонам**.
 
-- сохраняет **структуру шагов** (prompt → SQL → table → chart → insight → forecast);
-- делает результат **воспроизводимым** и пригодным для аудита;
-- позволяет **добавлять/перезапускать** отдельные ячейки, а не терять поток в длинном чате;
-- естественно поддерживает **trace + guardrails + validation** рядом с результатом;
-- проще переводится в report/schedule/history артефакты.
+## 5) Что умеет MVP
 
-## 5) Основные функции
+| Область | Возможности |
+|---------|-------------|
+| **Аналитика в notebook** | Промпт на русском (и др.) → интерпретация intent → семантика → SQL → валидация → выполнение в PostgreSQL → таблица → рекомендация графика → инсайт; опционально forecast sidecar. |
+| **Данные** | Каноническая таблица `public.anonymized_incity_orders` (в т.ч. `order_channel`, города, окна по датам); CSV upload → staging; DS-метрики и прогноз по рядам. |
+| **Демо-объём** | После `make seed` — тысячи синтетических строк `DEMO-*` (~9 недель, несколько городов и каналов); см. [demo-analytics-dataset.md](docs/demo-analytics-dataset.md). |
+| **Роли** | Admin / Manager / Marketer / Executive — разные дашборды и ограничения SQL по роли (см. guardrails). |
+| **Артефакты** | Ноутбуки и ячейки в БД; сохранённые отчёты (`saved_reports`), расписания у отчёта (`report_schedules`), каталог шаблонов (`query_templates`), история NL→SQL (`nl_queries_history`). |
+| **Качество ответа** | Clarification при неоднозначности; числовой **confidence** в trace; follow-up с наследованием контекста. |
+| **Защита** | SQL whitelist таблиц/колонок, лимиты, таймауты, запрет опасных паттернов; опционально mock-исполнение и клиентский fallback. |
 
-- NL→SQL orchestration с explainability trace;
-- smart chart recommendation;
-- clarification flow при неоднозначности;
-- follow-up context inheritance;
-- correction learning loop;
-- forecast sidecar;
-- CSV upload + schema inference + import;
-- role-based dashboards и template-driven старты.
+**Метрики и сценарии (после выравнивания схемы):** `orders_count`, `tenders_count`, `client_cancellations`, `driver_cancellations`, `done_rides`, `avg_order_price`, `sum_order_price`, средние дистанция/длительность, конверсия, отмены до принятия, срезы по `city_id`, по дням, по `order_channel`, сравнение недель (шаблоны в seed).
 
-### Supported metrics/scenarios after schema alignment
+## 6) Рабочие сценарии
 
-- Метрики: `orders_count`, `tenders_count`, `client_cancellations`, `driver_cancellations`, `done_rides`, `avg_order_price`, `sum_order_price`, `avg_duration_seconds`, `avg_distance_meters`, `done_conversion`, `time_to_accept_seconds`, `time_to_arrive_seconds`, `cancel_before_accept_count`.
-- Сценарии: отмены по `city_id`, завершенные поездки по дням, средняя стоимость по `city_id`, топ городов по отменам, динамика заказов 7d, отмены до принятия.
+| Сценарий | Где в UI | Что проверяется |
+|----------|-----------|-----------------|
+| Быстрый вопрос по операциям | `/demo-router` → `/notebooks/ops-health` | NL→SQL, таблица, график, trace, live или fallback. |
+| Уточнение (clarification) | `/notebooks/clarification-demo` или явно двусмысленный промпт | Вопрос пользователю, опции, без «угадайки» SQL. |
+| Follow-up в диалоге | `/notebooks/follow-up-demo` | Переписанный запрос, наследование фильтров/окна. |
+| Сохранение отчёта и PDF | Ячейка ноутбука → `/reports` | `saved_reports`, скачивание PDF (в т.ч. локальные снимки при ограничениях). |
+| Шаблоны | `/templates` | Каталог `query_templates`, запуск по шаблону (при совпадении контракта с backend). |
+| История запросов | `/history` | Чтение истории (при live API — `GET /api/v1/history`; иначе возможен mock). |
+| Роли и дашборды | `/dashboard/*` | Навигация и KPI-карточки (часть данных — демо-уровень). |
+| Словарь | `/dictionary` | Чтение терминов (backend: минимальный `meta/dictionary` или мок — см. ограничения). |
+| Загрузка данных | `/data-upload` | Цепочка upload → import → staging. |
+| Защита (четыре опорных кейса) | `/demo-router` + промпты из `frontend/lib/demo/defense-scenarios.ts` | Маркеры в истории `defense_scenario_id`. |
 
-## 6) Роли пользователей
+Пошаговый сценарий экрана: **[docs/demo-script.md](docs/demo-script.md)**. Режимы Live/mock: **[docs/demo-defense.md](docs/demo-defense.md)**.
 
-- **Admin**: governance, dictionary, corrections, platform controls.
-- **Manager**: ops/KPI мониторинг, гео и SLA сценарии.
-- **Marketer**: качество заказов, отмены, завершения, ценовые метрики по `city_id`.
-- **Executive**: KPI обзор, сценарии и прогнозные диапазоны.
+## 7) Роли пользователей
 
-## 7) Архитектура
+- **Admin** — governance, словарь/corrections, платформенные сценарии.
+- **Manager** — ops / KPI, гео и SLA-вопросы.
+- **Marketer** — заказы, отмены, завершения, цены по `city_id` / каналам.
+- **Executive** — обзор KPI; SQL ограничен набором колонок для роли (см. `sql_validation_constants.py`).
 
-```text
-frontend (Next.js 14, App Router, TS, Tailwind)
-        |
-        v
-backend (FastAPI + SQLAlchemy + Pydantic services)
-        |
-        v
-PostgreSQL (product tables + notebook artifacts + ds/forecast metadata)
+## 8) Архитектура
+
+```mermaid
+flowchart TB
+  subgraph fe["Frontend"]
+    NB[Notebook и системные страницы]
+  end
+  subgraph api["FastAPI"]
+    R["/api/v1/*"]
+    ORC[QueryOrchestrator]
+    VAL[SQLValidator]
+    EXE[SQLExecution → PostgreSQL]
+  end
+  subgraph db["PostgreSQL"]
+    ORD[(anonymized_incity_orders)]
+    ART[(notebooks · reports · templates · history)]
+  end
+  NB --> R
+  R --> ORC
+  ORC --> VAL
+  VAL --> EXE
+  EXE --> ORD
+  R --> ART
 ```
 
-- `frontend/` — UI shell, notebook canvas, dashboards, system pages.
-- `backend/` — API, orchestration services, validation, persistence.
-- `backend/sql/` — bootstrap + demo seed.
+Подробная схема этапов NL→SQL и ссылки на модули: **[docs/architecture.md](docs/architecture.md)**.
 
-## 8) Backend pipeline
+- `frontend/` — UI, notebook canvas, dashboards.
+- `backend/` — API, оркестрация, валидация, персистентность.
+- `backend/sql/` — bootstrap и вспомогательные SQL seed.
 
-Упрощенный execution flow:
+## 9) Как устроен NL → SQL pipeline
 
-1. preprocess query;
-2. dialogue context resolution (follow-up detection + rewrite);
-3. intent classification + entity extraction;
-4. semantic term resolution;
-5. clarification evaluation + confidence scoring;
-6. SQL generation (+ optional learned correction);
-7. SQL validation (guardrails);
-8. SQL execution;
-9. visualization recommendation;
-10. insight + optional forecast;
-11. trace payload build + persistence.
+Упорядоченный поток (см. `QueryOrchestrator`, `docs/architecture.md`):
 
-## 9) PostgreSQL schema overview
+1. **Preprocessor** — нормализация строки.
+2. **Dialogue** — определение follow-up, наследование контекста (`DialogueContextEngine`), при необходимости rewrite текста запроса.
+3. **Intent** — классификация намерения и извлечение сущностей (окна времени, `city_id`, метрики и т.д.).
+4. **Semantic resolution** — сопоставление с каноническими метриками и SQL-фрагментами (`SemanticService` + статический словарь + при seed — термины workspace в БД для продукта/админки).
+5. **Clarification** — если запрос неоднозначен, ветка уточнения **до** генерации финального SQL (`ClarificationEngine`).
+6. **SQL generation** — сборка SELECT по intent, `source_table`, метрикам (`SQLGenerationService`).
+7. **Corrections** — при наличии подходящего исправления в `query_corrections` возможна подмена SQL с пометкой в trace.
+8. **Validation** — policy: whitelist таблиц/схем/колонок, запреты (в т.ч. `SELECT *` при настройке), обязательный LIMIT для части intent, проверка JOIN/рисков (`SQLValidatorService`).
+9. **Execution** — PostgreSQL с таймаутом и лимитом строк либо mock (`SQLExecutionService`, `MOCK_MODE`).
+10. **Chart recommendation** — эвристики по форме результата и intent (`ChartRecommendationService`).
+11. **Insight + forecast** — LLM-инсайт с fallback; при необходимости sidecar прогноза по рядам.
+12. **Trace** — единый payload для UI: SQL, validation, confidence, clarification, used tables/columns, forecast mode.
 
-Ключевые таблицы (группами):
+## 10) Как устроены guardrails
 
-- **Core auth/workspace**: `users`, `roles`, `workspaces`, `workspace_memberships`
-- **Notebook runtime**: `notebooks`, `notebook_cells`, `cell_runs`
-- **Knowledge & learning**: `query_corrections`, semantic/dictionary tables, NL/SQL logs
-- **Templates & reports**: `query_templates`, `saved_reports`, `report_schedules`
-- **Dashboards**: `dashboards`, `dashboard_widgets`
-- **Data/DS**: `uploaded_files`, `data_import_jobs`, `inferred_schemas`, `forecast_runs`, `forecast_results`
-- **Canonical business source**: `anonymized_incity_orders` (единый источник для runtime и demo)
+- **Whitelist** физических таблиц (`anonymized_incity_orders`, staging `user_staging.t_*`) и **колонок** в SQL (глобальный список + ужатие для executive): конфиг `app/core/config.py`, константы `sql_validation_constants.py`.
+- **Роль** передаётся в валидатор: разные профили доступа к колонкам/таблицам.
+- **Лимиты** — `sql_default_limit`, обязательный LIMIT для ряда intent (`ranking`, `comparison`, …).
+- **Таймаут** выполнения SQL в БД (`sql_timeout_seconds`).
+- **Инъекции и риски** — парсинг и эвристики в `sql_trust` / validator (запрет DDL/DML, контроль опасных конструкций).
+- **Rate limiting** промптов (guardrails в настройках).
+- **Fallback** — `mock_sql_execution_fallback` и клиентский mock при ошибке API (демо не «падает» молча).
 
-### Canonical in-city schema (confirmed)
+При критической ошибке валидации выполнение не стартует; статус и предупреждения уходят в **trace**.
 
-- **IDs**: `city_id`, `order_id`, `tender_id`, `user_id`, `driver_id`
-- **Statuses**: `status_order`, `status_tender`
-- **Timestamps**: `order_timestamp`, `tender_timestamp`, `driveraccept_timestamp`, `driverarrived_timestamp`, `driverstarttheride_timestamp`, `driverdone_timestamp`, `clientcancel_timestamp`, `drivercancel_timestamp`, `order_modified_local`, `cancel_before_accept_local`
-- **Trip metrics**: `distance_in_meters`, `duration_in_seconds`, `price_order_local`, `price_tender_local`, `price_start_local`, `offset_hours`
+## 11) Как работает semantic layer
 
-## 10) Frontend routes
+Два связанных контура:
 
-Основные роуты:
+1. **Runtime NL→SQL** — `SemanticService` сопоставляет текст запроса с известными метриками и отдаёт SQL-фрагменты для SELECT (расширяется паттернами и тестами). Используется внутри оркестратора до генерации SQL.
+2. **Продуктовый словарь** — файл **`backend/app/data/semantic_dictionary.json`**: домены, метрики, синонимы, ограничения, примеры; используется семантическим слоем и документацией. UI `/dictionary` читает термины через API (в MVP возможны заглушка или мок — см. [ограничения](#24-ограничения-mvp)).
+
+В БД при seed создаются **`semantic_terms` / синонимы** для demo-workspace (согласованность с onboarding и админскими сценариями).
+
+Ограничения отображения словаря в UI см. в разделе **«Ограничения MVP»** ниже.
+
+## 12) Как работают clarification и confidence
+
+- **Clarification:** если извлечённые сущности и intent не позволяют однозначно выбрать метрику или измерение, pipeline возвращает **вопрос и варианты ответа**, флаг `clarification_requested=true`, SQL не выполняется до ответа пользователя.
+- **Confidence:** числовая оценка (0–1) агрегирует уверенность по шагам (семантика, противоречия сущностей, полнота контекста); отображается в trace и ячейке. Низкая confidence **не заменяет** валидацию SQL, но сигнализирует риск.
+
+## 13) Как сохраняются отчёты и шаблоны
+
+| Сущность | Таблицы / API | Назначение |
+|----------|----------------|------------|
+| **Шаблоны** | `query_templates`, `GET/POST /api/v1/templates`, запуск `POST /api/v1/templates/{template_id}/run` | Типовые NL+SQL для роли и workspace; seed добавляет набор (в т.ч. `weekly_cancellations_by_city`, `wow_done_rides_by_city`, `conversion_by_channel`, …). |
+| **Отчёты** | `saved_reports` (`report_payload_json`: SQL, тип графика и др.), `GET/POST/PATCH/DELETE /api/v1/reports` | Сохранённый снимок анализа, переиспользование и rerun. |
+| **Расписание** | `report_schedules`, вложенные маршруты под **`/api/v1/reports/{id}/schedule`** | Периодическая отправка (MVP: доставка может быть упрощена/stub). |
+| **История** | `nl_queries_history`, `GET /api/v1/history?workspace_id=` | Аудит запросов и промежуточных результатов. |
+
+Ноутбук: `notebooks`, `notebook_cells`, `cell_runs` — полный след выполнения ячеек.
+
+## 14) Smart visualization
+
+После успешного выполнения SQL backend рекомендует тип графика (intent, форма данных, ключевые слова). Результат в trace (`chart_recommendation`) и в UI.
+
+## 15) Context-aware dialogue и corrections
+
+- **Follow-up:** движок определяет продолжение диалога, наследует фильтры и переписывает запрос для исполнения; в trace фиксируется `follow_up_context_used`.
+- **Corrections:** админ фиксирует пару «было SQL → стало SQL»; при совпадении паттерна подстановка с меткой в trace.
+
+## 16) Data Science layer, CSV, forecast
+
+- **DS:** профилирование загрузок, агрегаты, прогноз, текстовые инсайты; связь с notebook workflow.
+- **Правила честности рядов (forecast):** `orders_count` как `COUNT(DISTINCT order_id)` по дням; `done_rides` по `driverdone_timestamp`; `cancellations_total` без двойного счёта при двух timestamp; caps и winsorization — см. метаданные trace / `DS_METRIC_CAPS`.
+- **CSV ingestion:** upload → preview → inferred schema → import job → staging → привязка к контексту notebook.
+- **Forecast:** horizon, baseline/low/high; в trace `forecast_mode`.
+
+## 17) PostgreSQL: ключевые группы таблиц
+
+- **Auth / workspace:** `users`, `roles`, `workspaces`, `workspace_memberships`
+- **Notebook:** `notebooks`, `notebook_cells`, `cell_runs`
+- **Обучение / аудит:** `query_corrections`, `generated_sql_logs`, `nl_queries_history`
+- **Шаблоны и отчёты:** `query_templates`, `saved_reports`, `report_schedules`
+- **Дашборды:** `dashboards`, `dashboard_widgets`
+- **DS:** `uploaded_files`, `data_import_jobs`, `inferred_schemas`, `forecast_runs`, `forecast_results`
+- **Канонический источник аналитики:** `anonymized_incity_orders` (+ `order_channel`, см. bootstrap и [demo-analytics-dataset.md](docs/demo-analytics-dataset.md))
+
+## 18) Маршруты frontend
 
 - Auth: `/login`, `/register`
 - Demo hub: `/demo-router`
-- Dashboards:
-  - `/dashboard/admin`
-  - `/dashboard/manager`
-  - `/dashboard/marketer`
-  - `/dashboard/executive`
-- Notebook:
-  - `/notebooks`
-  - `/notebooks/[id]`
-- System:
-  - `/reports`
-  - `/history`
-  - `/templates`
-  - `/dictionary`
-  - `/data-upload`
-  - `/settings`
+- Dashboards: `/dashboard/admin|manager|marketer|executive`
+- Notebook: `/notebooks`, `/notebooks/[id]`
+- Система: `/reports`, `/history`, `/templates`, `/dictionary`, `/data-upload`, `/settings`, `/forecast-lab`
 
-## 11) Smart visualization
+## 19) Как запускать локально
 
-После успешного SQL execution backend выбирает рекомендованный тип графика на основе:
+### Вариант A — Docker (рекомендуется)
 
-- intent;
-- формы результата (columns/row patterns);
-- сигнала из запроса пользователя.
+1. Скопировать env: `cp .env.example .env`, `cp backend/.env.example backend/.env` (см. **[DOCKER.md](DOCKER.md)**).
+2. `docker compose up --build` — поднимутся frontend (**http://localhost:3000**), backend (**http://localhost:8000**), Postgres.
+3. В типичном compose backend после ожидания Postgres выполняет **Alembic** и **idempotent seed** (см. entrypoint образа); при необходимости вручную: `make migrate`, **`make seed`**.
+4. Frontend по умолчанию ходит на `http://localhost:8000`. Для демо с живым analytics не включайте принудительный мок аналитики (см. `docs/demo-defense.md`).
 
-Результат возвращается в trace (`chart_recommendation`) и отображается в UI.
+### Вариант B — без Docker
 
-## 12) Clarification flow
-
-Если запрос неоднозначен:
-
-- pipeline не запускает SQL;
-- формирует вопрос-уточнение и варианты;
-- выставляет `clarification_requested=true`;
-- сохраняет статус в trace + ячейке.
-
-Это снижает риск «уверенно неверных» ответов.
-
-## 13) Context-aware dialogue
-
-Dialogue engine поддерживает follow-up:
-
-- определяет, что запрос является продолжением;
-- наследует релевантный контекст из notebook state;
-- формирует rewritten query для исполнения;
-- пишет inheritance trace для explainability.
-
-## 14) Learning from corrections
-
-Admin/аналитик может зафиксировать correction:
-
-- исходный SQL;
-- corrected SQL;
-- причина исправления.
-
-При совпадении паттерна correction применяется автоматически (с trace-метками), формируя feedback loop.
-
-## 15) Data Science layer
-
-DS слой покрывает:
-
-- профилирование загруженных данных;
-- базовые агрегаты и метрики;
-- forecasting;
-- генерацию текстовых инсайтов;
-- связывание DS-контекста с notebook workflow.
-
-### Data sanity rules (forecast preprocessing)
-
-Чтобы избежать ложных прогнозов и деградации backtest при «грязных» схемах:
-
-- `orders_count` считается как `COUNT DISTINCT(order_id)` по дням, а не сумма `order_id`.
-- `done_rides` считается как количество non-null `driverdone_timestamp` по дням.
-- `cancellations_total` в дневном ряду: число заказов с отменой (non-null `clientcancel_timestamp` **или** `drivercancel_timestamp`); строка с обоими timestamp считается один раз.
-- `sum_order_price` считается как дневная сумма `price_order_local`.
-- Для рядов включен robust preprocessing: winsorization + optional log-transform + metric caps (`DS_METRIC_CAPS`).
-- В backtest/trace возвращаются `configured_cap`, `cap_hit_ratio` и `clipped_points` для контроля качества данных.
-
-## 16) CSV ingestion
-
-Flow:
-
-- upload файла;
-- валидация и preview;
-- schema inference;
-- создание import job;
-- импорт в staging;
-- связывание с notebook контекстом.
-
-## 17) Forecasting
-
-Forecast sidecar активируется по intent/запросу:
-
-- рассчитываются horizon points;
-- формируются baseline/low/high диапазоны;
-- trace фиксирует `forecast_mode.active` и `forecast_mode.method`.
-
-## 18) SQL guardrails
-
-Перед выполнением SQL проходит validation layer:
-
-- ограничения по policy/роли;
-- проверка небезопасных паттернов;
-- предупреждения и статус валидации;
-- блокировка выполнения при критических ошибках.
-
-## 19) Запуск frontend/backend
-
-### Backend
+**Backend:**
 
 ```bash
 cd backend
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+# PostgreSQL доступен локально; задать DATABASE_URL в backend/.env
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend
+Применить `backend/sql/bootstrap_drivee.sql`, миграции `alembic upgrade head`, затем **`python scripts/seed_demo_data.py`**.
+
+**Frontend:**
 
 ```bash
 cd frontend
@@ -243,143 +229,103 @@ npm install
 npm run dev
 ```
 
-По умолчанию frontend ожидает backend на `http://localhost:8000`.
-
-### Quality checks
+### Проверки качества
 
 ```bash
-# backend tests (pytest)
 make ds-quality
-
-# frontend lint (non-interactive)
-cd frontend
-npm run lint
+# или: docker compose run --rm --no-deps backend python -m pytest tests -q
+cd frontend && npm run lint
 ```
 
-## 20) Настройка PostgreSQL
+Структура тестов: `tests/unit/`, `tests/integration/`, `tests/smoke/`; фикстуры рядов — `tests/fixtures/demo_orders.py`.
 
-1. Поднимите PostgreSQL (локально или в Docker).
-2. Создайте БД и пользователя.
-3. Укажите переменные окружения backend (`DATABASE_URL` и related settings).
-4. Примените bootstrap SQL и migrations (если используются в вашей ветке).
+## 20) Настройка PostgreSQL вручную
+
+1. Поднять PostgreSQL, создать БД и пользователя.
+2. Прописать `DATABASE_URL` и связанные переменные в `backend/.env`.
+3. Выполнить bootstrap и миграции (как в вашей ветке принято для деплоя).
 
 ## 21) Seed data
 
-Для demo-данных используйте:
+- `backend/sql/bootstrap_drivee.sql`, при необходимости `backend/sql/seed_demo.sql`.
+- **`make seed`** или `docker compose run --rm backend python scripts/seed_demo_data.py` — роли, пользователи, workspace, семантика, **шаблоны**, ноутбук, отчёт, история защиты, **массовые заказы `DEMO-*`** ([demo-analytics-dataset.md](docs/demo-analytics-dataset.md)).
+- Только бизнес-ряды: `python -m app.demo_data.seed_analytics_orders`.
 
-- `backend/sql/bootstrap_drivee.sql`
-- `backend/sql/seed_demo.sql`
+## 22) Демо-сценарии
 
-Seed создает реалистичные сценарии по подтвержденной in-city схеме: notebooks, cells, templates, reports, forecast runs, corrections.
+Краткий чеклист: **[docs/demo-script.md](docs/demo-script.md)**. Полная памятка для комиссии: **[docs/demo-defense.md](docs/demo-defense.md)**.
 
-## 22) Demo scenarios
+## 23) Ограничения MVP
 
-Рекомендуемый demo-script:
+Честный список для ревью и дорожной карты:
 
-1. Login → `/demo-router`
-2. Manager dashboard → `ops-health` notebook
-3. Показать clarification + follow-up + trace panel
-4. Marketer dashboard → cancellations/done rides/avg price scenarios
-5. Executive dashboard → orders forecast narrative
-6. Reports/history/templates/dictionary/data-upload
-7. Admin dashboard → corrections queue + suggestions
+- **Контракты UI ↔ API:** часть системных страниц изначально ожидала другие пути (`/history/*`, варианты templates/dictionary); часть сценариев опирается на **mock / fallback** — детализация и план сшивки в **[docs/improvement-roadmap.md](docs/improvement-roadmap.md)**.
+- **Дашборды:** часть KPI остаётся демонстрационного уровня до подключения агрегатов из БД.
+- **LLM:** качество и стабильность NL→SQL зависят от провайдера и ключа; для повторяемости демо используйте seed + фиксированные промпты.
+- **Словарь в UI:** не полноценный CRUD над JSON-словарём через API в MVP.
+- **Расписания:** в продукте привязаны к отчёту, а не глобальный список `/schedules` (если такой ожидался на клиенте).
+- **Multi-tenant / enterprise RBAC** за рамками текущего MVP.
+- **Ad-hoc SQL** в notebook не наследует автоматически все caps DS-слоя.
 
-## 23) Соответствие критериям оценки
+## 24) Соответствие критериям оценки
 
-Ниже — как текущий MVP закрывает judging-критерии (что уже сделано и почему это важно для бизнеса).
+Ниже — как текущий MVP закрывает типовые judging-критерии после упаковки (включая объёмный демо-датасет и шаблоны WoW / конверсия по каналу).
 
-### 1. Ценность решения для бизнеса (0–15)
+### 1. Ценность для бизнеса (0–15)
 
-- Проблема “долгого пути от вопроса до ответа” закрывается через notebook-flow: `prompt → SQL → table → chart → insight`.
-- Бизнес-пользователь получает ответ без ручного SQL в большинстве сценариев.
-- Снижена зависимость от узких технических специалистов за счет role-based UX, шаблонов и словаря терминов.
+Notebook сокращает путь от вопроса до ответа; шаблоны и словарь снижают порог входа; демо-данные позволяют показать **сравнение городов, динамику по дням, недели, конверсию, топы** на реальном SQL.
 
-### 2. Качество MVP и реализуемость (0–20)
+### 2. Качество и реализуемость MVP (0–20)
 
-- Рабочий end-to-end прототип реализован:
-  - текстовый запрос (`/notebooks/[id]`)
-  - SQL generation/validation/execution (backend orchestration)
-  - визуализация и insight в notebook cells
-- MVP демонстрирует реалистичный пользовательский путь, а не “статичные моки одного экрана”.
+End-to-end: промпт в `/notebooks/[id]` → валидация → Postgres → таблица и график; fallback не оставляет «пустой экран».
 
-### 3. Точность NL → SQL интерпретации (0–20)
+### 3. Точность NL → SQL (0–20)
 
-- В pipeline есть этапы: intent classification, entity extraction, semantic resolution.
-- Поддерживаются метрики, фильтры, сравнения, follow-up контекст, chart recommendation.
-- Есть confidence score и trace-пояснение, чтобы видеть, как именно система интерпретировала запрос.
+Intent, сущности, семантика, follow-up; trace показывает, как система интерпретировала запрос.
 
-### 4. Корректность SQL и работы с данными (0–15)
+### 4. Корректность SQL и данных (0–15)
 
-- SQL проходит валидацию до выполнения.
-- В trace выводятся `generated_sql`, `validation_status`, `warnings`, `tables_used`.
-- При невалидном/рискованном запросе выполнение блокируется или помечается как проблемное, что повышает устойчивость.
+Валидация до выполнения; в trace — `generated_sql`, `validation_status`, warnings, использованные таблицы/колонки.
 
 ### 5. Безопасность и guardrails (0–15)
 
-- Реализован SQL validation слой и status signaling в trace.
-- Есть role-aware навигация и модель доступа по ролям (admin/manager/marketer/executive).
-- Есть база для policy-based ограничений и governance (roadmap: production RBAC + query governance).
+Whitelist, роли, лимиты, таймауты; блокировка опасных запросов; основа для query governance в roadmap.
 
-### 6. UX / explainability / визуализация (0–10)
+### 6. UX, explainability, визуализация (0–10)
 
-- Полноценный Trace Panel с explainability: intent, entities, semantic terms, SQL, validation, confidence, forecast mode.
-- Унифицированные chart containers и notebook UX с polished состояниями.
-- Доступны routes для report/history/templates/dictionary, что упрощает путь к “сохранить и переиспользовать”.
+Trace panel: intent, entities, semantic terms, SQL, validation, confidence, forecast; рекомендация графика.
 
-### 7. Качество демо и ответы на вопросы (0–5)
+### 7. Качество демо (0–5)
 
-- Подготовлен demo-router и сценарный путь по ролям.
-- Демо показывает не только happy path, но и clarification, warnings, corrections.
-- Понятный путь масштабирования зафиксирован в roadmap.
+`/demo-router`, сценарии защиты, честное описание live vs mock в `demo-defense.md` и §24 настоящего README.
 
-### 8. Сохранение отчета и расписание рассылки (0–5)
+### 8. Отчёты и расписания (0–5)
 
-- Реализованы сущности и UI-поток для reports/scenarios/schedules.
-- На frontend доступны экраны `/reports` и связанные действия (save/rerun/edit schedule в MVP-режиме).
-- В backend присутствуют модели `saved_reports`, `report_schedules`.
+Модели и API отчётов и вложенного расписания; UI сохранения и списка отчётов.
 
-### 9. Семантический слой / словарь бизнес-терминов (0–5)
+### 9. Семантический слой (0–5)
 
-- Есть dictionary flow (`/dictionary`) и seed для semantic terms/synonyms.
-- Семантический слой участвует в NL→SQL и повышает бизнес-корректность интерпретации.
-- Это уменьшает расхождения в трактовке KPI между командами.
+Словарь JSON + runtime `SemanticService` + seed терминов workspace; страница `/dictionary` (режим зависит от контракта API).
 
-### 10. Обработка неоднозначных запросов / confidence score (0–5)
+### 10. Неоднозначность и confidence (0–5)
 
-- Clarification engine задает уточняющие вопросы при неоднозначности.
-- Confidence score и предупреждения доступны в trace.
-- Система явно показывает, когда нужен follow-up пользователя вместо “выдуманного” ответа.
+Clarification engine и числовой confidence в trace.
 
-### 11. Шаблоны типовых вопросов / переиспользуемые сценарии (0–5)
+### 11. Шаблоны (0–5)
 
-- Реализованы templates (`/templates`) и reusable notebook scenarios.
-- Role-specific quick prompts ускоряют старт анализа.
-- Это снижает порог входа и повышает повторяемость аналитических процессов.
+Таблица `query_templates`, экран `/templates`, расширенный набор SQL-шаблонов в seed (недели, каналы, отмены, конверсия).
 
-## 24) Примеры кода, данных и графиков по критериям
+---
 
-Ниже — примеры на **подтвержденной схеме in-city заказов**.
+## 25) Примеры кода, данных и графиков по критериям
 
-### A. End-to-end: текстовый запрос → SQL → таблица → график  
+### A. End-to-end: текстовый запрос → SQL → таблица → график
+
 **Критерии:** 1, 2, 3, 4, 6
 
-**NL запрос (пример):**
+**NL (пример):** `Покажи количество отмен по city_id за прошлую неделю.`
 
-```text
-Покажи количество отмен по city_id за прошлую неделю.
-```
-
-**Интерпретация (упрощенно):**
-
-```json
-{
-  "interpreted_intent": "comparison · client_cancellations",
-  "extracted_entities": { "window_days": 7, "dimension": "city_id" },
-  "semantic_terms": ["client_cancellations"]
-}
-```
-
-**Сгенерированный SQL (пример):**
+**SQL (пример):**
 
 ```sql
 SELECT
@@ -394,22 +340,12 @@ GROUP BY 1
 ORDER BY 2 DESC;
 ```
 
-### B. Guardrails и корректность SQL  
-**Критерии:** 4, 5
+### B. Guardrails
 
-```sql
-SELECT * FROM semantic_terms st JOIN anonymized_incity_orders o ON TRUE;
-```
+Пример заведомо рискованного SQL отклоняется валидатором; в trace — `validation_status: failed`, выполнение не стартует.
 
-```json
-{
-  "validation_status": "failed",
-  "warnings": ["Cartesian join risk detected"],
-  "execution_status": "not_started"
-}
-```
+### C. Explainability trace
 
-### C. Explainability trace  
 **Критерии:** 6, 10
 
 ```json
@@ -427,7 +363,8 @@ SELECT * FROM semantic_terms st JOIN anonymized_incity_orders o ON TRUE;
 }
 ```
 
-### D. Clarification flow  
+### D. Clarification
+
 **Критерии:** 3, 10
 
 ```json
@@ -444,7 +381,8 @@ SELECT * FROM semantic_terms st JOIN anonymized_incity_orders o ON TRUE;
 }
 ```
 
-### E. Follow-up контекст и corrections  
+### E. Follow-up
+
 **Критерии:** 3, 4, 10
 
 ```text
@@ -459,54 +397,50 @@ Q2: "а теперь только по city_id=101"
 }
 ```
 
-### F. Семантический слой  
-**Критерии:** 9
+### F. Семантика (фрагмент)
 
-| term_key                  | synonyms                                  | metric_formula_sql |
-|--------------------------|-------------------------------------------|--------------------|
-| orders_count             | заказы, orders                            | `COUNT(*)` |
-| done_rides               | завершенные поездки, done rides           | `COUNT(CASE WHEN driverdone_timestamp IS NOT NULL THEN 1 END)` |
-| client_cancellations     | отмены клиентом, client cancellations     | `COUNT(CASE WHEN clientcancel_timestamp IS NOT NULL THEN 1 END)` |
-| avg_order_price          | средняя стоимость заказа, avg order price | `AVG(price_order_local)` |
+| term_key | Пример SQL-агрегата |
+|----------|---------------------|
+| orders_count | `COUNT(*)` |
+| done_rides | `COUNT(CASE WHEN driverdone_timestamp IS NOT NULL THEN 1 END)` |
+| client_cancellations | по `clientcancel_timestamp` |
+| avg_order_price | `AVG(price_order_local)` |
 
-### G. Reports и templates  
-**Критерии:** 8, 11
+### G. Отчёты и шаблоны (примеры ключей после seed)
 
-| report_name                      | source_notebook                        | schedule | format |
-|----------------------------------|----------------------------------------|----------|--------|
-| Weekly cancellations by city_id  | Ops — cancellations by city_id         | active   | PDF    |
-| Forecast pack — orders           | Executive forecast — orders 8w         | active   | PDF    |
+| template_key | Назначение |
+|--------------|------------|
+| `weekly_cancellations_by_city` | Отмены по городам за неделю |
+| `daily_done_rides` | Завершённые поездки по дням (14d) |
+| `wow_done_rides_by_city` | Завершённые: текущая vs прошлая неделя |
+| `conversion_by_channel` | Конверсия по `order_channel` (28d) |
+| `weekly_conversion` | Доля завершённых по неделям |
+| `cancel_rate_by_city`, `avg_price_by_city`, `orders_dynamics`, … | См. `ensure_query_templates` в `scripts/seed_demo_data.py` |
 
-| template_key               | role      | nl_prompt_template                                      |
-|---------------------------|-----------|---------------------------------------------------------|
-| weekly_cancellations_by_city | manager | Покажи количество отмен по city_id за прошлую неделю |
-| done_rides_daily          | marketer  | Сравни количество завершенных поездок по дням          |
-| top_city_cancellations    | executive | Топ-3 города по количеству отмененных заказов          |
+### H. Forecasting (DS)
 
-### H. Forecasting (MVP DS layer)  
-**Критерии:** 2, 6, 10
-
-Прогноз строится на реальных series:
-- `orders_count` от `order_timestamp`
-- `done_rides` от `driverdone_timestamp`
-- `cancellations_total` от `clientcancel_timestamp` + `drivercancel_timestamp`
-- `sum_order_price` от `price_order_local`
-
-## 25) Roadmap
-
-- v1 production auth + RBAC policies end-to-end
-- v1 query cost governance + workload controls
-- richer semantic layer (taxonomy, lineage, quality rules)
-- advanced forecasting models + backtesting UI
-- collaborative notebooks (comments, approvals, share links)
-- observability suite (traces/metrics/errors) for AI pipeline
-- stronger CI/CD + test coverage for orchestration logic
+Ряды: `orders_count`, `done_rides`, `cancellations_total`, `sum_order_price` с caps и метаданными качества в trace.
 
 ---
 
-## Tech stack (коротко)
+## 26) Roadmap после MVP
 
-- **Frontend**: Next.js 14, TypeScript, Tailwind, React Query, Recharts
-- **Backend**: FastAPI, SQLAlchemy, Pydantic
-- **DB**: PostgreSQL
-- **UX**: role-based dashboards + notebook-native analytics flow
+**Инженерия и контракты (ближайшие итерации)** — см. фазы в [docs/improvement-roadmap.md](docs/improvement-roadmap.md): выравнивание History/Templates/Dictionary клиента с FastAPI, индикаторы live/mock, golden-тесты NL→SQL.
+
+**Продукт и платформа (средний горизонт)**
+
+- Production auth, политики RBAC end-to-end, аудит действий.
+- Query cost governance, приоритеты очередей, квоты на тяжёлые SQL.
+- Расширенный semantic layer: таксономия метрик, lineage, правила качества данных.
+- Прогнозные модели и UI backtesting; наблюдаемость AI-pipeline (метрики, трейсы, стоимость LLM).
+- Collaborative notebooks: комментарии, версии, шаринг по ссылке.
+- CI/CD, нагрузочные и security-тесты оркестрации.
+
+---
+
+## Tech stack
+
+- **Frontend:** Next.js 14, TypeScript, Tailwind, React Query, Recharts  
+- **Backend:** FastAPI, SQLAlchemy 2, Pydantic  
+- **DB:** PostgreSQL  
+- **UX:** role-based dashboards + notebook-native analytics flow

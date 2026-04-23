@@ -1,0 +1,313 @@
+[
+  {
+    "id": "orders_count",
+    "domain": "orders_rides",
+    "business_term": "Заказы (количество)",
+    "business_terms": ["Заказы", "Количество заказов", "Число заказов"],
+    "canonical_metric_key": "orders_count",
+    "synonyms": ["заказ", "orders", "количество заказов", "число заказов", "order count"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": null,
+    "aggregation_type": "count",
+    "sql_expression": "COUNT(*)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "notes": "Строки датасета = заказы; для прогноза DS использует COUNT DISTINCT(order_id) по дням.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Сколько заказов было за прошлую неделю по городам?",
+      "Покажи динамику заказов по дням за последний месяц"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": true,
+    "confidence": 0.9
+  },
+  {
+    "id": "tenders_count",
+    "domain": "orders_rides",
+    "business_term": "Тендеры",
+    "business_terms": ["Тендеры", "Количество тендеров"],
+    "canonical_metric_key": "tenders_count",
+    "synonyms": ["тендер", "tender", "тендеры"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "tender_id",
+    "aggregation_type": "count_distinct",
+    "sql_expression": "COUNT(DISTINCT a.tender_id)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "notes": "Требует непустой tender_id в источнике.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Сколько уникальных тендеров за квартал?"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
+  },
+  {
+    "id": "done_rides",
+    "domain": "orders_rides",
+    "business_term": "Завершённые поездки",
+    "business_terms": ["Завершенные поездки", "Completed rides", "Выполненные заказы"],
+    "canonical_metric_key": "done_rides",
+    "synonyms": ["заверш", "done", "выполн", "completed rides", "driver done"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "driverdone_timestamp",
+    "aggregation_type": "case_count",
+    "sql_expression": "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "notes": "Non-null driverdone_timestamp = завершённая поездка.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Сколько поездок завершилось вчера по Алматы?",
+      "Динамика completed rides по неделям"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "done_conversion",
+    "domain": "orders_rides",
+    "business_term": "Конверсия в завершение",
+    "business_terms": ["Конверсия в завершённую поездку"],
+    "canonical_metric_key": "done_conversion",
+    "synonyms": ["конверсия в заверш", "done conversion", "completion rate"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "sql_expression": "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)::float / NULLIF(COUNT(*), 0)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "notes": "Доля завершённых к числу заказов; не смешивать с выручкой без явного запроса.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Какая конверсия заказ → завершение по городам за месяц?"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.86
+  },
+  {
+    "id": "client_cancellations",
+    "domain": "cancellations_revenue",
+    "business_term": "Отмены клиентом",
+    "business_terms": ["Отмена клиентом"],
+    "canonical_metric_key": "client_cancellations",
+    "synonyms": ["отмен клиент", "client cancel", "клиент отмен", "отмена клиентом"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "clientcancel_timestamp",
+    "aggregation_type": "case_count",
+    "sql_expression": "COUNT(CASE WHEN a.clientcancel_timestamp IS NOT NULL THEN 1 END)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "cancellation_family": true,
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Сколько отмен инициировал клиент за неделю?"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "driver_cancellations",
+    "domain": "cancellations_revenue",
+    "business_term": "Отмены водителем",
+    "business_terms": ["Отмена водителем"],
+    "canonical_metric_key": "driver_cancellations",
+    "synonyms": ["отмен водител", "driver cancel", "водитель отмен"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "drivercancel_timestamp",
+    "aggregation_type": "case_count",
+    "sql_expression": "COUNT(CASE WHEN a.drivercancel_timestamp IS NOT NULL THEN 1 END)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "cancellation_family": true,
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Топ городов по отменам со стороны водителя"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "cancellations_total",
+    "domain": "cancellations_revenue",
+    "business_term": "Отмены всего",
+    "business_terms": ["Общее число отмен заказов"],
+    "canonical_metric_key": "cancellations_total",
+    "synonyms": [
+      "количество отмен",
+      "отмененных заказ",
+      "отменённых заказ",
+      "отмененные заказы",
+      "отменённые заказы",
+      "cancelled orders",
+      "total cancellations",
+      "число отмен"
+    ],
+    "source_table": "anonymized_incity_orders",
+    "source_column": null,
+    "aggregation_type": "case_count",
+    "sql_expression": "COUNT(CASE WHEN a.clientcancel_timestamp IS NOT NULL OR a.drivercancel_timestamp IS NOT NULL THEN 1 END)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "notes": "Заказ с любой отменой считается один раз (OR по timestamp).",
+      "cancellation_family": true,
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Покажи топ городов по количеству отменённых заказов",
+      "Сколько всего отмен за месяц по дням?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.92
+  },
+  {
+    "id": "sum_order_price",
+    "domain": "cancellations_revenue",
+    "business_term": "Выручка по заказам",
+    "business_terms": ["Суммарная стоимость заказов", "Сумма чеков"],
+    "canonical_metric_key": "sum_order_price",
+    "synonyms": ["суммарн стоимость", "сумма заказ", "total price", "выручка", "revenue orders"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "price_order_local",
+    "aggregation_type": "sum",
+    "sql_expression": "SUM(a.price_order_local)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "unit": "local_currency",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Какая суммарная выручка по городам за квартал?"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "avg_order_price",
+    "domain": "cancellations_revenue",
+    "business_term": "Средний чек",
+    "business_terms": ["Средняя стоимость заказа"],
+    "canonical_metric_key": "avg_order_price",
+    "synonyms": ["средн стоимость", "средний чек", "average price", "aov"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "price_order_local",
+    "aggregation_type": "avg",
+    "sql_expression": "AVG(a.price_order_local)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "unit": "local_currency",
+      "notes": "Чувствительно к выбросам; см. caps в DS_METRIC_CAPS.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Средний чек по городам за последние 30 дней"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "avg_duration_seconds",
+    "domain": "orders_rides",
+    "business_term": "Средняя длительность (сек)",
+    "business_terms": ["Средняя длительность заказа"],
+    "canonical_metric_key": "avg_duration_seconds",
+    "synonyms": ["средн длитель", "average duration", "длительность заказа"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "duration_in_seconds",
+    "aggregation_type": "avg",
+    "sql_expression": "AVG(a.duration_in_seconds)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Средняя длительность поездки в секундах по дням"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.85
+  },
+  {
+    "id": "avg_distance_meters",
+    "domain": "orders_rides",
+    "business_term": "Средняя дистанция (м)",
+    "business_terms": ["Средняя дистанция заказа"],
+    "canonical_metric_key": "avg_distance_meters",
+    "synonyms": ["средн дистанц", "average distance", "расстояние"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "distance_in_meters",
+    "aggregation_type": "avg",
+    "sql_expression": "AVG(a.distance_in_meters)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Средняя дистанция поездки в метрах"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.85
+  },
+  {
+    "id": "time_to_accept_seconds",
+    "domain": "orders_rides",
+    "business_term": "Время до принятия (сек)",
+    "business_terms": ["Среднее время до принятия водителем"],
+    "canonical_metric_key": "time_to_accept_seconds",
+    "synonyms": ["время до принят", "time to accept", "accept time"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": null,
+    "aggregation_type": "avg_expression",
+    "sql_expression": "AVG(EXTRACT(EPOCH FROM (a.driveraccept_timestamp::timestamp - a.order_timestamp::timestamp)))",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "notes": "Требуются валидные order_timestamp и driveraccept_timestamp.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Среднее время от создания заказа до принятия"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.82
+  },
+  {
+    "id": "time_to_arrive_seconds",
+    "domain": "orders_rides",
+    "business_term": "Время до прибытия (сек)",
+    "business_terms": ["Среднее время от принятия до прибытия"],
+    "canonical_metric_key": "time_to_arrive_seconds",
+    "synonyms": ["время до прибыт", "time to arrive"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": null,
+    "aggregation_type": "avg_expression",
+    "sql_expression": "AVG(EXTRACT(EPOCH FROM (a.driverarrived_timestamp::timestamp - a.driveraccept_timestamp::timestamp)))",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Сколько секунд в среднем от accept до arrived?"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.82
+  },
+  {
+    "id": "cancel_before_accept_count",
+    "domain": "cancellations_revenue",
+    "business_term": "Отмены до принятия",
+    "business_terms": ["Отмена до принятия заказа"],
+    "canonical_metric_key": "cancel_before_accept_count",
+    "synonyms": ["до принят", "before accept", "cancel before accept"],
+    "source_table": "anonymized_incity_orders",
+    "source_column": "cancel_before_accept_local",
+    "aggregation_type": "case_count",
+    "sql_expression": "COUNT(CASE WHEN a.cancel_before_accept_local IS NOT NULL THEN 1 END)",
+    "constraints": {
+      "intents_allowed": ["summary", "trend", "ranking"],
+      "cancellation_family": true,
+      "time_column": "order_timestamp"
+    },
+    "example_queries": ["Сколько отмен произошло до принятия водителем?"],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.84
+  }
+]

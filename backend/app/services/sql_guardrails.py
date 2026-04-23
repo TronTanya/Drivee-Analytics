@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from app.schemas.sql_validation import SQLValidationResult
 from app.services.sql_validation import get_sql_validator
@@ -12,8 +12,8 @@ class SQLGuardrailError(ValueError):
     pass
 
 
-def validate_sql_structured(sql: str, role_key: Optional[str] = None) -> SQLValidationResult:
-    return get_sql_validator().validate(sql, role_key=role_key)
+def validate_sql_structured(sql: str, role_key: Optional[str] = None, **kwargs: Any) -> SQLValidationResult:
+    return get_sql_validator().validate(sql, role_key=role_key, **kwargs)
 
 
 def prepare_validated_sql(sql: str, role_key: Optional[str] = None) -> Tuple[str, str, SQLValidationResult]:

@@ -5,13 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Any, Optional
-import re
 
 import numpy as np
 from sqlalchemy.orm import Session
 import pandas as pd
 
 from app.schemas.clarification import ClarificationResponse
+from app.schemas.nl_interpretation import NLQueryInterpretation
 from app.schemas.orchestration import (
     AmbiguityPayload,
     ChartRecommendation,
@@ -21,6 +21,12 @@ from app.schemas.orchestration import (
 )
 from app.schemas.visualization import VisualizationRecommendation
 from app.core.config import settings
+from app.services.guardrails.audit import log_query_audit_event
+from app.services.guardrails.policy_engine import (
+    check_prompt_abuse,
+    check_rate_limit,
+    evaluate_canonical_metric_for_role,
+)
 from app.services.orchestration.chart_recommendation_service import ChartRecommendationService
 from app.services.orchestration.clarification_engine import ClarificationContext, ClarificationEngine
 from app.services.orchestration.dialogue_context_engine import DialogueContextEngine
@@ -28,7 +34,14 @@ from app.services.orchestration.explainability_service import ExplainabilityServ
 from app.services.orchestration.insight_generation_service import InsightGenerationService
 from app.services.orchestration.intent_service import IntentService
 from app.services.orchestration.persistence import PersistenceCallable
+from app.services.orchestration.semantic_parser import SemanticParser
 from app.services.orchestration.semantic_service import SemanticService
+from app.services.cache.query_result_cache import (
+    CachedSqlResult,
+    make_nl_sql_cache_key,
+    store_cached_sql_result,
+    try_get_cached_sql_result,
+)
 from app.services.correction_learning_service import AppliedCorrectionMatch, CorrectionLearningService
 from app.services.orchestration.sql_execution_service import ExecutionResult, SQLExecutionService
 from app.services.orchestration.sql_generation_service import SQLGenerationService
@@ -51,6 +64,44 @@ def _ambiguity_from_clarification(clar: ClarificationResponse) -> AmbiguityPaylo
         question=clar.clarification_question,
         options=[o.value for o in clar.clarification_options],
         reason=clar.clarification_reason,
+    )
+
+
+def _audit_emit(inp: OrchestrationInput, out: OrchestrationOutput) -> None:
+    tp = dict(out.trace_payload or {})
+    gv = tp.get("guardrails")
+    blocked = isinstance(gv, dict) and bool(gv.get("blocked"))
+    if out.execution_status == "clarification_required":
+        evt = "nl_query_clarification"
+    elif blocked:
+        evt = "nl_query_guardrails_block"
+    elif out.execution_status == "failed":
+        evt = "nl_query_failed"
+    elif out.execution_status == "succeeded":
+        evt = "nl_query_succeeded"
+    else:
+        evt = "nl_query_completed"
+    sv = out.sql_validation
+    canon = str((out.entities or {}).get("canonical_metric_key") or "").strip() or None
+    br: Optional[str] = None
+    if blocked and isinstance(gv, dict):
+        msgs = gv.get("messages_ru")
+        if isinstance(msgs, list) and msgs:
+            br = "; ".join(str(m) for m in msgs)[:500]
+    log_query_audit_event(
+        event=evt,
+        user_id=inp.user_id,
+        role_key=inp.role_key,
+        workspace_id=inp.workspace_id,
+        prompt_excerpt=inp.raw_query,
+        intent=str(out.intent),
+        canonical_metric=canon,
+        generated_sql_excerpt=out.generated_sql or out.validated_sql or "",
+        validation_ok=sv.is_valid if sv else None,
+        validation_errors=list(sv.errors) if sv else None,
+        execution_status=out.execution_status,
+        warnings=list(out.validation_warnings),
+        blocked_reason=br,
     )
 
 
@@ -111,31 +162,6 @@ def _resolve_forecast_horizon(entities: dict[str, Any]) -> int:
     return max(1, min(90, value))
 
 
-def _normalize_dimension_labels(rows: list[dict[str, Any]], columns: list[str]) -> list[dict[str, Any]]:
-    """Normalize low-level identifiers into user-facing dimension labels."""
-    if not rows:
-        return rows
-    target_keys = [k for k in ("dim", "city_id") if k in columns]
-    if not target_keys:
-        return rows
-
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        current = dict(row)
-        for key in target_keys:
-            raw = current.get(key)
-            if raw is None:
-                continue
-            text = str(raw).strip()
-            if not text:
-                continue
-            # Canonical dataset may store city as numeric id; make it explicit in UI.
-            if re.fullmatch(r"\d+", text):
-                current[key] = settings.city_id_label_map.get(text, f"Город #{text}")
-        out.append(current)
-    return out
-
-
 class QueryOrchestrator:
     def __init__(
         self,
@@ -165,6 +191,89 @@ class QueryOrchestrator:
         self._insight_service = insight_service or InsightGenerationService(llm_service=llm_service)
         self._llm_provider_name = llm_service.provider_name
         self._llm_enabled = llm_service.is_enabled
+        self._nl_parser = SemanticParser()
+
+    @staticmethod
+    def _interpretation_trace_fields(interp: NLQueryInterpretation) -> dict[str, Any]:
+        notes: list[str] = []
+        if interp.confidence_band == "medium":
+            notes.append("Средняя уверенность интерпретации — проверьте резюме ниже.")
+            notes.append(interp.human_summary_ru())
+        return {
+            "structured_interpretation": interp.model_dump(mode="json"),
+            "interpretation_summary_ru": interp.human_summary_ru(),
+            "interpretation_band": interp.confidence_band,
+            "interpretation_notes": notes,
+        }
+
+    def _policy_guard_output(
+        self,
+        inp: OrchestrationInput,
+        persistence_context: Any,
+        *,
+        started: datetime,
+        raw: str,
+        effective: str,
+        is_follow_up: bool,
+        intent: Any,
+        entities: dict[str, Any],
+        resolutions: list[Any],
+        steps: list[PipelineStepTrace],
+        messages: list[str],
+        codes: list[str],
+        interp: NLQueryInterpretation,
+        dialogue_res: Any,
+        clar: Optional[ClarificationResponse] = None,
+        conf: float = 0.25,
+    ) -> OrchestrationOutput:
+        clar_f = clar or ClarificationResponse()
+        ambiguity = _ambiguity_from_clarification(clar_f)
+        guardrails = {"blocked": True, "codes": codes, "messages_ru": messages}
+        insight = "Запрос заблокирован политикой безопасности: " + " ".join(messages)
+        explainability_text = self._explainability.generate(
+            query=effective,
+            intent=intent,
+            entities=entities,
+            clarification_required=False,
+        )
+        out = OrchestrationOutput(
+            preprocessed_query=raw,
+            effective_query=effective,
+            is_follow_up=is_follow_up,
+            intent=intent,
+            entities=dict(entities),
+            semantic_resolutions=list(resolutions),
+            ambiguity=ambiguity,
+            confidence_score=conf,
+            generated_sql="",
+            validated_sql="",
+            validation_warnings=list(messages),
+            execution_status="failed",
+            insight_text=insight,
+            trace_payload={
+                "intent": intent,
+                "pipeline_steps": [s.model_dump() for s in steps],
+                "explainability_text": explainability_text,
+                "guardrails": guardrails,
+                "clarification": {**clar_f.model_dump(), "confidence_score": conf},
+                "dialogue": dialogue_res.to_api_dict(),
+                "inheritance_trace": dialogue_res.inheritance_trace,
+                "effective_query": effective,
+                "entities": dict(entities),
+                "semantic_terms": [r.model_dump() for r in resolutions],
+                "forecast_mode": {"active": False, "method": None},
+                "forecast_selection": {},
+                "quality_gate": {"status": "failed", "reasons": ["guardrails"]},
+                **self._interpretation_trace_fields(interp),
+            },
+            pipeline_steps=steps,
+            started_at=started,
+            finished_at=datetime.utcnow(),
+            clarification=clar_f,
+            dialogue=dialogue_res,
+        )
+        self._call_persistence(out, persistence_context)
+        return out
 
     def run(
         self,
@@ -174,6 +283,10 @@ class QueryOrchestrator:
     ) -> OrchestrationOutput:
         steps: list[PipelineStepTrace] = []
         started = datetime.utcnow()
+
+        def finish(local: OrchestrationOutput) -> OrchestrationOutput:
+            _audit_emit(inp, local)
+            return local
 
         raw = self._intent.preprocess_query(inp.raw_query)
         steps.append(_step("preprocess_query", True, length=len(raw)))
@@ -210,7 +323,59 @@ class QueryOrchestrator:
         )
         steps.append(_step("extract_entities", True, entities=entities))
 
-        resolutions = self._semantic.resolve(effective)
+        interp, entity_patch = self._nl_parser.build(
+            effective_query=effective,
+            intent=intent_res.intent,
+            intent_signals=intent_res.signals,
+            entities=dict(entities),
+        )
+        for k, v in entity_patch.items():
+            if v is not None and v != "":
+                entities[k] = v
+        interp = interp.model_copy(update={"entities": dict(entities)})
+        steps.append(
+            _step(
+                "semantic_parse",
+                True,
+                interpretation=interp.model_dump(mode="json"),
+                summary_ru=interp.human_summary_ru(),
+            )
+        )
+
+        abuse_errs = check_prompt_abuse(effective, settings)
+        rate_errs = check_rate_limit(settings=settings, user_id=inp.user_id, role_key=inp.role_key)
+        policy_prompt = abuse_errs + rate_errs
+        if policy_prompt:
+            codes: list[str] = []
+            if abuse_errs:
+                codes.append("prompt_abuse")
+            if rate_errs:
+                codes.append("rate_limit")
+            steps.append(_step("guardrails_policy", False, codes=codes, messages=policy_prompt))
+            return finish(
+                self._policy_guard_output(
+                    inp,
+                    persistence_context,
+                    started=started,
+                    raw=raw,
+                    effective=effective,
+                    is_follow_up=is_follow_up,
+                    intent=intent_res.intent,
+                    entities=dict(entities),
+                    resolutions=[],
+                    steps=steps,
+                    messages=policy_prompt,
+                    codes=codes,
+                    interp=interp,
+                    dialogue_res=dialogue_res,
+                    conf=0.2,
+                )
+            )
+
+        resolutions = self._semantic.resolve_with_hint(effective, str(entities.get("metric_hint") or ""))
+        if resolutions:
+            # Канонический ключ первой резолюции = то, что уходит в SQL через semantic mapping.
+            entities["canonical_metric_key"] = resolutions[0].term_key
         steps.append(
             _step(
                 "resolve_semantic_terms",
@@ -218,6 +383,39 @@ class QueryOrchestrator:
                 terms=[r.model_dump() for r in resolutions],
             )
         )
+
+        metric_policy = evaluate_canonical_metric_for_role(
+            role_key=inp.role_key,
+            canonical_metric_key=str(entities.get("canonical_metric_key") or "").strip() or None,
+        )
+        if metric_policy:
+            steps.append(
+                _step(
+                    "guardrails_policy",
+                    False,
+                    codes=["metric_policy"],
+                    messages=metric_policy,
+                )
+            )
+            return finish(
+                self._policy_guard_output(
+                    inp,
+                    persistence_context,
+                    started=started,
+                    raw=raw,
+                    effective=effective,
+                    is_follow_up=is_follow_up,
+                    intent=intent_res.intent,
+                    entities=dict(entities),
+                    resolutions=list(resolutions),
+                    steps=steps,
+                    messages=metric_policy,
+                    codes=["metric_policy"],
+                    interp=interp,
+                    dialogue_res=dialogue_res,
+                    conf=0.3,
+                )
+            )
 
         nd_semantic = _nondefault_semantic_count(resolutions)
         clar = self._clarification.evaluate(
@@ -228,6 +426,7 @@ class QueryOrchestrator:
                 resolutions=resolutions,
                 nondefault_semantic_count=nd_semantic,
                 intent_signals=intent_res.signals,
+                interpretation=interp,
             )
         )
         ambiguity = _ambiguity_from_clarification(clar)
@@ -240,7 +439,9 @@ class QueryOrchestrator:
             )
         )
 
-        conf = self._clarification.score_confidence(resolutions, intent_res.signals, clar)
+        conf = self._clarification.score_confidence(
+            resolutions, intent_res.signals, clar, interpretation=interp
+        )
         steps.append(_step("compute_confidence_score", True, score=conf))
 
         if clar.clarification_required:
@@ -281,6 +482,7 @@ class QueryOrchestrator:
                     "forecast_mode": {"active": False, "method": None},
                     "forecast_selection": {},
                     "quality_gate": {"status": "warning", "reasons": ["clarification_required"]},
+                    **self._interpretation_trace_fields(interp),
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -289,7 +491,7 @@ class QueryOrchestrator:
                 dialogue=dialogue_res,
             )
             self._call_persistence(out, persistence_context)
-            return out
+            return finish(out)
 
         metric_sql = self._semantic.primary_metric_sql(resolutions)
         use_campaigns = self._semantic.needs_marketing_join(effective)
@@ -346,7 +548,12 @@ class QueryOrchestrator:
         )
         steps.append(_step("generate_sql", True, sql_preview=draft_sql[:500]))
 
-        vres = self._sql_exec.validate(draft_sql, role_key=inp.role_key)
+        vres = self._sql_exec.validate(
+            draft_sql,
+            role_key=inp.role_key,
+            intent=intent_res.intent,
+            entities=dict(entities),
+        )
         validation_warnings = list(vres.warnings)
         steps.append(_step("validate_sql", vres.is_valid, validation=vres.model_dump()))
         if not vres.is_valid:
@@ -390,6 +597,7 @@ class QueryOrchestrator:
                     "forecast_mode": {"active": False, "method": None},
                     "forecast_selection": {},
                     "quality_gate": {"status": "failed", "reasons": ["sql_validation_failed"]},
+                    **self._interpretation_trace_fields(interp),
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -399,9 +607,41 @@ class QueryOrchestrator:
                 dialogue=dialogue_res,
             )
             self._call_persistence(out, persistence_context)
-            return out
+            return finish(out)
 
-        exec_res: ExecutionResult = self._sql_exec.execute(validation=vres)
+        cache_key = make_nl_sql_cache_key(
+            workspace_id=inp.workspace_id,
+            user_id=inp.user_id,
+            role_key=inp.role_key,
+            final_sql=vres.final_sql,
+        )
+        cached = try_get_cached_sql_result(cache_key)
+        if cached is not None:
+            steps.append(_step("execute_sql", True, rows=cached.rowcount, cache_hit=True))
+            exec_res = ExecutionResult(
+                ok=True,
+                rows=list(cached.rows),
+                columns=list(cached.columns),
+                rowcount=cached.rowcount,
+                error=None,
+                normalized_sql=vres.normalized_sql,
+                final_sql=cached.final_sql,
+                validation_warnings=list(validation_warnings)
+                + ["Результаты получены из кэша типового запроса (ускорение повторных запросов)."],
+                sql_validation=vres,
+            )
+        else:
+            exec_res = self._sql_exec.execute(validation=vres)
+            if exec_res.ok and exec_res.rows is not None:
+                store_cached_sql_result(
+                    cache_key,
+                    CachedSqlResult(
+                        rows=list(exec_res.rows),
+                        columns=list(exec_res.columns),
+                        rowcount=exec_res.rowcount,
+                        final_sql=exec_res.final_sql,
+                    ),
+                )
 
         if not exec_res.ok:
             steps.append(_step("execute_sql", False, error=exec_res.error))
@@ -444,6 +684,7 @@ class QueryOrchestrator:
                     "forecast_mode": {"active": False, "method": None},
                     "forecast_selection": {},
                     "quality_gate": {"status": "failed", "reasons": ["sql_execution_failed"]},
+                    **self._interpretation_trace_fields(interp),
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -453,24 +694,38 @@ class QueryOrchestrator:
                 dialogue=dialogue_res,
             )
             self._call_persistence(out, persistence_context)
-            return out
+            return finish(out)
 
         steps.append(_step("execute_sql", True, rows=exec_res.rowcount))
 
-        normalized_rows = _normalize_dimension_labels(exec_res.rows, exec_res.columns)
-        if normalized_rows is not exec_res.rows:
-            exec_res = ExecutionResult(
-                ok=exec_res.ok,
-                rows=normalized_rows,
-                columns=exec_res.columns,
-                rowcount=exec_res.rowcount,
-                error=exec_res.error,
-                normalized_sql=exec_res.normalized_sql,
-                final_sql=exec_res.final_sql,
-                validation_warnings=exec_res.validation_warnings,
-                sql_validation=exec_res.sql_validation,
+        combined_validation_warnings = list(dict.fromkeys([*validation_warnings, *list(exec_res.validation_warnings)]))
+        if exec_res.rowcount == 0:
+            empty_msg = (
+                "Запрос вернул 0 строк — проверьте фильтры, период и наличие данных в выбранной таблице-источнике."
             )
-            steps.append(_step("normalize_dimensions", True, keys=["dim", "city_id"]))
+            combined_validation_warnings.append(empty_msg)
+            vres = vres.model_copy(
+                update={
+                    "warnings": list(dict.fromkeys([*vres.warnings, empty_msg])),
+                    "data_correctness": {
+                        **vres.data_correctness,
+                        "empty_result": True,
+                        "empty_result_note_ru": empty_msg,
+                    },
+                }
+            )
+
+        exec_res = ExecutionResult(
+            ok=exec_res.ok,
+            rows=exec_res.rows,
+            columns=exec_res.columns,
+            rowcount=exec_res.rowcount,
+            error=exec_res.error,
+            normalized_sql=exec_res.normalized_sql,
+            final_sql=exec_res.final_sql,
+            validation_warnings=combined_validation_warnings,
+            sql_validation=vres,
+        )
 
         viz = self._charts.recommend(
             intent_res.intent,
@@ -509,6 +764,13 @@ class QueryOrchestrator:
             clarification_required=False,
         )
 
+        qg_reasons: list[str] = []
+        if combined_validation_warnings:
+            qg_reasons.append("validation_warnings_present")
+        if exec_res.rowcount == 0:
+            qg_reasons.append("empty_result")
+        qg_status = "warning" if qg_reasons else "passed"
+
         trace_payload = {
             "intent": intent_res.intent,
             "entities": entities,
@@ -522,6 +784,10 @@ class QueryOrchestrator:
             "pipeline_steps": [s.model_dump() for s in steps],
             "rules_engine_version": "mvp-1",
             "sql_validation": vres.model_dump(),
+            "query_explanation": vres.query_explanation,
+            "sql_preview": vres.preview_assessment,
+            "sql_performance": dict(vres.performance or {}),
+            "explain_warnings_ru": list((vres.preview_assessment or {}).get("explain_warnings_ru") or []),
             "explainability_text": explainability_text,
             "clarification": {**clar.model_dump(), "confidence_score": conf},
             "dialogue": dialogue_res.to_api_dict(),
@@ -529,10 +795,8 @@ class QueryOrchestrator:
             "effective_query": effective,
             "forecast_mode": {"active": forecast_active, "method": forecast_method},
             "forecast_selection": {},
-            "quality_gate": {
-                "status": "warning" if validation_warnings else "passed",
-                "reasons": ["validation_warnings_present"] if validation_warnings else [],
-            },
+            "quality_gate": {"status": qg_status, "reasons": qg_reasons},
+            **self._interpretation_trace_fields(interp),
         }
 
         out = OrchestrationOutput(
@@ -568,7 +832,7 @@ class QueryOrchestrator:
             visualization=viz,
         )
         self._call_persistence(out, persistence_context)
-        return out
+        return finish(out)
 
     def _call_persistence(self, output: OrchestrationOutput, ctx: Any) -> None:
         if self._persistence is None or ctx is None:

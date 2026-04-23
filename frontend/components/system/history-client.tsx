@@ -9,6 +9,7 @@ import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
 import { useCreateReport } from "@/hooks/api/use-reports";
 import { useNotebookRuns, useQueryHistory, useRerunNotebookRun, useSaveRunAsReport } from "@/hooks/api/use-history";
+import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { runAnalyticsPipeline } from "@/lib/api";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
 import type { NotebookRunRow, QueryHistoryRow } from "@/lib/system/mock-data";
@@ -53,14 +54,30 @@ function mapQueryDtoToRow(query: QueryHistoryDto): QueryHistoryRow {
     validationOk: query.validation_ok,
     validationHint: query.validation_hint,
     durationMs: query.duration_ms,
-    notebookHref: (`/notebooks/${notebookId}` as Route)
+    notebookHref: (`/notebooks/${notebookId}` as Route),
+    interpretedSummary: query.interpreted_summary,
+    chartType: query.chart_type,
+    ownerUserId: query.owner_user_id,
+    saveAsReportBodyHint: query.save_as_report_body_hint
   };
 }
 
 export function HistoryClient() {
   const [search, setSearch] = useState("");
+  const workspaceQuery = useWorkspaceId();
+  const [histQ, setHistQ] = useState("");
+  const [histFrom, setHistFrom] = useState("");
+  const [histTo, setHistTo] = useState("");
+  const [histType, setHistType] = useState("all");
+  const [histScope, setHistScope] = useState<"mine" | "workspace">("mine");
   const notebookRunsQuery = useNotebookRuns();
-  const queryHistoryQuery = useQueryHistory();
+  const queryHistoryQuery = useQueryHistory(workspaceQuery.data, {
+    q: histQ.trim() || undefined,
+    date_from: histFrom ? `${histFrom}T00:00:00Z` : undefined,
+    date_to: histTo ? `${histTo}T23:59:59Z` : undefined,
+    query_type: histType === "all" ? undefined : histType,
+    scope: histScope
+  });
   const [runsState, setRunsState] = useState<NotebookRunRow[]>(MOCK_NOTEBOOK_RUNS);
   const [queriesState, setQueriesState] = useState<QueryHistoryRow[]>(MOCK_QUERY_HISTORY);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -85,8 +102,8 @@ export function HistoryClient() {
   }, [notebookRunsQuery.data, expanded]);
 
   useEffect(() => {
-    const incoming = (queryHistoryQuery.data ?? []).map(mapQueryDtoToRow);
-    if (incoming.length) setQueriesState(incoming);
+    if (queryHistoryQuery.data === undefined) return;
+    setQueriesState(queryHistoryQuery.data.map(mapQueryDtoToRow));
   }, [queryHistoryQuery.data]);
 
   const onRerunScenario = async (row: NotebookRunRow) => {
@@ -144,15 +161,26 @@ export function HistoryClient() {
     setActionMsg(null);
     setBusyQueryId(row.id);
     const notebookId = row.notebookId;
+    const ws = workspaceQuery.data;
+    const hint = row.saveAsReportBodyHint as Record<string, string> | undefined;
     try {
       const created = await createReport.mutateAsync({
-        name: `Отчет: ${row.label}`,
-        format: "pdf",
-        ...(notebookId ? { notebook_id: notebookId } : {})
+        workspace_id: (hint?.workspace_id ?? ws) as string,
+        title: (hint?.title ?? `Отчет: ${row.label}`).slice(0, 500),
+        notebook_id: hint?.notebook_id ?? notebookId,
+        source_cell_id: hint?.source_cell_id,
+        payload: {
+          prompt: row.label,
+          generated_sql: row.sqlPreview,
+          interpreted_query: row.interpretedSummary,
+          chart_type: row.chartType,
+          result_metadata: { source: "history", validation: row.validationHint },
+          captured_at: new Date().toISOString()
+        }
       });
       upsertReportSnapshot({
         report_id: created.id,
-        report_name: created.name,
+        report_name: created.title,
         notebook_id: notebookId,
         prompt: row.label,
         sql: row.sqlPreview,
@@ -218,17 +246,89 @@ export function HistoryClient() {
         </div>
       ) : null}
 
-      <div className="surface-section p-4">
-        <label htmlFor="hist-search" className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
-          Фильтр
-        </label>
-        <input
-          id="hist-search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Название сценария, trace, SQL…"
-          className="interactive-focus mt-1 w-full max-w-md rounded-control border border-border-subtle bg-surface-page px-3 py-2 text-sm focus:border-brand-400"
-        />
+      <div className="surface-section space-y-3 p-4">
+        <div>
+          <label htmlFor="hist-search" className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+            Фильтр (сценарии)
+          </label>
+          <input
+            id="hist-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Название сценария, trace, SQL…"
+            className="interactive-focus mt-1 w-full max-w-md rounded-control border border-border-subtle bg-surface-page px-3 py-2 text-sm focus:border-brand-400"
+          />
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Поиск по промпту</label>
+            <input
+              value={histQ}
+              onChange={(e) => setHistQ(e.target.value)}
+              placeholder="Текст запроса…"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle bg-surface-page px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Дата с</label>
+            <input
+              type="date"
+              value={histFrom}
+              onChange={(e) => setHistFrom(e.target.value)}
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle bg-surface-page px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Дата по</label>
+            <input
+              type="date"
+              value={histTo}
+              onChange={(e) => setHistTo(e.target.value)}
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle bg-surface-page px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Тип запроса</label>
+            <select
+              value={histType}
+              onChange={(e) => setHistType(e.target.value)}
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle bg-surface-page px-3 py-2 text-sm"
+            >
+              <option value="all">Все</option>
+              <option value="trips_by_city">Поездки по городам</option>
+              <option value="cancellations">Отмены</option>
+              <option value="conversion">Конверсия / доли</option>
+              <option value="avg_check">Средний чек</option>
+              <option value="orders_trend">Динамика заказов</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Область</span>
+          <div className="flex rounded-control border border-border-subtle bg-surface-muted p-0.5">
+            {(
+              [
+                ["mine", "Мои"],
+                ["workspace", "Workspace (admin)"]
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setHistScope(key)}
+                aria-pressed={histScope === key}
+                className={`rounded-[6px] px-2.5 py-1 text-xs font-semibold ${
+                  histScope === key ? "bg-surface-card text-brand-800 shadow-xs" : "text-foreground-secondary"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {!workspaceQuery.data ? (
+            <span className="text-xs text-amber-800">Задайте NEXT_PUBLIC_DEFAULT_WORKSPACE_ID или войдите — нужен workspace для истории API.</span>
+          ) : null}
+        </div>
       </div>
 
       <SectionCard title="История запусков сценариев">

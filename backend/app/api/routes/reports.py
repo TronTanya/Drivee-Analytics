@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -8,7 +9,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user, get_db_session
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.saved_report import SavedReport
 from app.models.user import User
 from app.repositories.saved_report_repository import SavedReportRepository
@@ -21,6 +22,7 @@ from app.schemas.reporting import (
     SchedulePatch,
     ScheduleResponse,
 )
+from app.services.report_delivery import record_schedule_delivery_stub
 from app.services.report_service import (
     _require_workspace,
     build_schedule_row,
@@ -42,12 +44,14 @@ def create_report(
 ) -> SavedReportDetail:
     _require_workspace(session, user.id, body.workspace_id)
     payload, nb_id = resolve_report_payload(session, user, body)
+    payload = dict(payload or {})
+    payload.setdefault("saved_at", datetime.now(timezone.utc).replace(microsecond=0).isoformat())
     row = SavedReport(
         workspace_id=body.workspace_id,
         notebook_id=nb_id or body.notebook_id,
         title=body.title,
         description=body.description,
-        report_payload_json=payload,
+        report_payload_json=dict(payload),
         created_by=user.id,
         is_shared=False,
     )
@@ -133,6 +137,8 @@ def create_schedule(
     repo.delete_schedules_for_report(report_id)
     sched = build_schedule_row(report_id, body)
     repo.add_schedule(sched)
+    session.flush()
+    record_schedule_delivery_stub(sched, report_title=report.title)
     session.commit()
     session.refresh(sched)
     return schedule_to_response(sched)
@@ -157,6 +163,24 @@ def patch_schedule(
     session.commit()
     session.refresh(row)
     return schedule_to_response(row)
+
+
+@router.delete("/{report_id}", status_code=204, response_class=Response)
+def delete_report(
+    report_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    repo = SavedReportRepository(session)
+    row = repo.get(report_id)
+    if not row:
+        raise NotFoundException("Report not found")
+    _require_workspace(session, user.id, row.workspace_id)
+    if row.created_by and row.created_by != user.id:
+        raise ForbiddenException("Нельзя удалить чужой отчёт")
+    repo.delete(report_id)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.delete("/{report_id}/schedule", status_code=204, response_class=Response)

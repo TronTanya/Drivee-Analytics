@@ -7,6 +7,10 @@ export type QueryTemplateDto = {
   role: UserRole;
   sql: string;
   default_notebook_id?: string;
+  template_key?: string;
+  nl_prompt_template?: string;
+  sql_template?: string | null;
+  default_chart_type?: string;
 };
 
 export type NotebookTemplateDto = {

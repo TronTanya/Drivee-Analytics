@@ -39,6 +39,26 @@ class QualityGateTrace(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+ExecutionPhaseStatusLiteral = Literal["pending", "running", "done", "failed", "skipped"]
+
+
+class ExecutionPhaseTrace(BaseModel):
+    """Стабильные пользовательские фазы MVP (маппинг из pipeline_steps оркестратора)."""
+
+    phase_id: str
+    label: str
+    status: ExecutionPhaseStatusLiteral = "pending"
+    detail: str = ""
+
+
+class GuardrailsTrace(BaseModel):
+    """Блокировки и политики NL→SQL (оркестратор + SQL-валидатор)."""
+
+    blocked: bool = False
+    codes: list[str] = Field(default_factory=list)
+    messages_ru: list[str] = Field(default_factory=list)
+
+
 class AnalyticsExplainabilityTraceV1(BaseModel):
     """Wire contract for TracePanel — versioned for forward-compatible clients."""
 
@@ -62,3 +82,8 @@ class AnalyticsExplainabilityTraceV1(BaseModel):
     forecast_mode: ForecastModeTrace = Field(default_factory=ForecastModeTrace)
     forecast_selection: ForecastSelectionTrace = Field(default_factory=ForecastSelectionTrace)
     quality_gate: QualityGateTrace = Field(default_factory=QualityGateTrace)
+    execution_phases: list[ExecutionPhaseTrace] = Field(
+        default_factory=list,
+        description="Порядок: parsing → generating_sql → validating → executing → visualizing → done.",
+    )
+    guardrails: GuardrailsTrace = Field(default_factory=GuardrailsTrace)

@@ -15,6 +15,9 @@ class LLMQueryInterpretation(BaseModel):
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] = Field(default_factory=list)
     time_period: Optional[str] = None
+    comparison: Optional[str] = None
+    sort: Optional[str] = None
+    limit: Optional[int] = None
     ambiguities: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 

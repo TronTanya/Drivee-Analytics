@@ -36,6 +36,7 @@ class OrchestrationInput(BaseModel):
     notebook_context: dict[str, Any] = Field(default_factory=dict)
     workspace_id: Optional[str] = None
     role_key: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 class PipelineStepTrace(BaseModel):

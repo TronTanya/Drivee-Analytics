@@ -155,3 +155,66 @@ GROUP BY city_id
 ORDER BY cancelled_orders DESC
 LIMIT ${safeLimit};`;
 }
+
+/** Доля завершённых заказов по двум городам (детерминированный fallback для сравнительного сценария). */
+export type ComparativeCityShareRow = {
+  city_id: string;
+  done_orders: number;
+  total_orders: number;
+  done_share: number;
+};
+
+export function comparativeDoneShareAlmatyAstana(): ComparativeCityShareRow[] {
+  const cities = ["Алматы", "Астана"];
+  return cities.map((city_id) => {
+    const orders = SEEDED_ORDERS.filter((o) => o.city_id === city_id);
+    const total = orders.length;
+    const done = orders.filter((o) => o.status_order === "done").length;
+    const done_share = total ? done / total : 0;
+    return {
+      city_id,
+      done_orders: done,
+      total_orders: total,
+      done_share: Math.round(done_share * 1000) / 1000
+    };
+  });
+}
+
+export function deterministicSqlComparativeDoneShare(): string {
+  return `SELECT city_id,
+  COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL) AS done_orders,
+  COUNT(DISTINCT order_id) AS total_orders,
+  (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric
+    / NULLIF(COUNT(DISTINCT order_id), 0) AS done_share
+FROM public.anonymized_incity_orders
+WHERE city_id IN ('Алматы','Астана')
+  AND order_timestamp >= CURRENT_DATE - INTERVAL '14 day'
+GROUP BY city_id
+ORDER BY city_id;`;
+}
+
+/** Агрегат отмен по календарным дням из демо-датасета (fallback «регулярной отчётности»). */
+export type DailyCancellationRow = { day: string; cancellations: number };
+
+export function dailyCancelledOrdersByDay(): DailyCancellationRow[] {
+  const map = new Map<string, number>();
+  for (const row of SEEDED_ORDERS) {
+    if (row.status_order !== "cancelled") continue;
+    const day = row.order_timestamp.slice(0, 10);
+    map.set(day, (map.get(day) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, cancellations]) => ({ day, cancellations }));
+}
+
+export function deterministicSqlDailyCancellations(): string {
+  return `SELECT date_trunc('day', order_timestamp)::date AS day,
+  COUNT(*) FILTER (
+    WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL
+  )::bigint AS cancellations
+FROM public.anonymized_incity_orders
+WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day'
+GROUP BY 1
+ORDER BY 1;`;
+}

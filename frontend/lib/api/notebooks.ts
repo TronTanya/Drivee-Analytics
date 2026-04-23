@@ -5,6 +5,8 @@ import type {
   CreateNotebookRequestDto,
   NotebookDetailDto,
   NotebookListItemDto,
+  SaveNotebookResponseDto,
+  SaveNotebookScenarioRequestDto,
   UpdateNotebookRequestDto
 } from "@/types/api/notebooks";
 
@@ -65,5 +67,21 @@ export async function deleteNotebook(id: string): Promise<void> {
     path: `/api/v1/notebooks/${encodeURIComponent(id)}`,
     init: { method: "DELETE" },
     mock: async () => ({})
+  });
+}
+
+export async function saveNotebookScenario(
+  id: string,
+  body: SaveNotebookScenarioRequestDto
+): Promise<SaveNotebookResponseDto> {
+  return requestJson({
+    path: `/api/v1/notebooks/${encodeURIComponent(id)}/save`,
+    init: { method: "POST", body: JSON.stringify(body) },
+    mock: async () => ({
+      notebook_id: id,
+      context_chain_json: {
+        scenario: { title: body.scenario_title, description: body.scenario_description ?? null }
+      }
+    })
   });
 }

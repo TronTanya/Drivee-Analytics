@@ -2,8 +2,23 @@ import { getAccessToken } from "@/lib/api/token";
 
 const DEFAULT_BASE = "http://localhost:8000";
 
+/**
+ * База для fetch:
+ * - `NEXT_PUBLIC_API_URL` задан явно (не same-origin) → прямой вызов бэкенда.
+ * - `same-origin` или пусто → в браузере пустая строка (пути `/api/...` идут в Next rewrites).
+ * - На сервере (RSC и т.п.) → INTERNAL_API_URL или дефолт localhost:8000.
+ */
 export function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_BASE;
+  const raw = (process.env.NEXT_PUBLIC_API_URL ?? "").trim();
+  const useSameOrigin = !raw || raw.toLowerCase() === "same-origin";
+  if (useSameOrigin) {
+    if (typeof window !== "undefined") {
+      return "";
+    }
+    const internal = (process.env.INTERNAL_API_URL || DEFAULT_BASE).trim().replace(/\/$/, "");
+    return internal;
+  }
+  return raw.replace(/\/$/, "");
 }
 
 export class ApiError extends Error {
@@ -20,7 +35,13 @@ export class ApiError extends Error {
 
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const base = getApiBaseUrl().replace(/\/$/, "");
-  const url = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = path.startsWith("http")
+    ? path
+    : base
+      ? `${base}${path.startsWith("/") ? path : `/${path}`}`
+      : path.startsWith("/")
+        ? path
+        : `/${path}`;
 
   const headers = new Headers(init.headers);
   if (typeof window !== "undefined") {

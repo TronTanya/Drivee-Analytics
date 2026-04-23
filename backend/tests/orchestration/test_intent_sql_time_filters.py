@@ -7,6 +7,11 @@ from app.services.orchestration.sql_generation_service import SQLGenerationServi
 
 
 class IntentSqlTimeFilterTests(unittest.TestCase):
+    def test_top_cities_cancellations_is_ranking_not_geo(self) -> None:
+        svc = IntentService(llm_service=None)
+        res = svc.classify_intent("Покажи топ-10 города по количеству отменённых заказов")
+        self.assertEqual(res.intent, "ranking")
+
     def test_extract_entities_supports_top_dash_number(self) -> None:
         entities = IntentService().extract_entities(
             "Покажи топ-1 города по количеству отменённых заказов на этой месяц."

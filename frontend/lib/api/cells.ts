@@ -1,6 +1,6 @@
 import { requestJson } from "@/lib/api/request";
 import { mockListCells, mockRunAnalytics } from "@/lib/api/mocks";
-import { shouldForceAnalyticsMock } from "@/lib/api/config";
+import { isApiMockFallback, shouldForceAnalyticsMock } from "@/lib/api/config";
 import type {
   AppendCellRequestDto,
   NotebookCellDto,
@@ -84,7 +84,15 @@ export async function runNotebookCell(
           quality_gate: {
             status: "passed",
             reasons: []
-          }
+          },
+          execution_phases: [
+            { phase_id: "parsing", label: "Парсинг и интерпретация", status: "done", detail: "" },
+            { phase_id: "generating_sql", label: "Генерация SQL", status: "done", detail: "" },
+            { phase_id: "validating", label: "Проверка SQL", status: "done", detail: "" },
+            { phase_id: "executing", label: "Выполнение запроса", status: "done", detail: "" },
+            { phase_id: "visualizing", label: "Визуализация", status: "done", detail: "" },
+            { phase_id: "done", label: "Инсайт и финализация", status: "done", detail: "" }
+          ]
         }
       };
     }
@@ -101,7 +109,7 @@ export async function runNotebookAnalytics(
     path: "/api/v1/analytics/run",
     init: { method: "POST", body: JSON.stringify(body) },
     mock: () => mockRunAnalytics(body.notebook_id, body.prompt),
-    // Analytics must stay real-data only unless force-mock is explicitly enabled.
-    allowFallback: false
+    /** При профиле fallback (в т.ч. demo по умолчанию) — только после сетевой/5xx/401 ошибки, не вместо успешного live. */
+    allowFallback: isApiMockFallback()
   });
 }

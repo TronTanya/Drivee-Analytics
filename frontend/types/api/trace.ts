@@ -30,6 +30,19 @@ export type AnalyticsQualityGateDto = {
   reasons: string[];
 };
 
+export type AnalyticsExecutionPhaseDto = {
+  phase_id: string;
+  label: string;
+  status: "pending" | "running" | "done" | "failed" | "skipped";
+  detail?: string;
+};
+
+export type AnalyticsGuardrailsDto = {
+  blocked: boolean;
+  codes: string[];
+  messages_ru: string[];
+};
+
 export type AnalyticsExplainabilityTraceV1Dto = {
   schema_version: 1;
   interpreted_intent: string;
@@ -48,6 +61,8 @@ export type AnalyticsExplainabilityTraceV1Dto = {
   forecast_mode: AnalyticsForecastModeDto;
   forecast_selection: AnalyticsForecastSelectionDto;
   quality_gate: AnalyticsQualityGateDto;
+  execution_phases?: AnalyticsExecutionPhaseDto[];
+  guardrails?: AnalyticsGuardrailsDto;
 };
 
 /** Older analytics responses (pre explainability v1). */

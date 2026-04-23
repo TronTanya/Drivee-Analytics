@@ -9,9 +9,9 @@ from app.core.sql_validation_constants import ALIAS_STOPWORDS
 
 _WS_RE = re.compile(r"\s+")
 
-# FROM table [alias] | JOIN table [alias]
+# FROM [schema.]table [alias] | JOIN [schema.]table [alias]
 _FROM_JOIN_RE = re.compile(
-    r"\b(?:from|join)\s+([a-z_][a-z0-9_]*)(?:\s+(?:as\s+)?([a-z_][a-z0-9_]*))?",
+    r"\b(?:from|join)\s+(?:(?P<schema>[a-z_][a-z0-9_]*)\.)?(?P<table>[a-z_][a-z0-9_]*)(?:\s+(?:as\s+)?(?P<alias>[a-z_][a-z0-9_]*))?",
     re.IGNORECASE,
 )
 
@@ -44,21 +44,38 @@ def extract_cte_names(sql_lower: str) -> Set[str]:
     return {m.group(1).lower() for m in _CTE_NAMES_RE.finditer(sql_lower)}
 
 
-def extract_from_join_tables(sql_lower: str) -> Set[str]:
-    tables: Set[str] = set()
+def _skip_join_table_token(table: str) -> bool:
+    return table.lower() in {"select", "with", "lateral", "unnest", "values"}
+
+
+def extract_from_join_qualified(sql_lower: str, implicit_schema: str) -> list[tuple[str, str]]:
+    """Возвращает пары (schema, table) для каждого физического FROM/JOIN (без CTE — фильтруйте снаружи)."""
+    implicit = (implicit_schema or "public").strip().lower() or "public"
+    out: list[tuple[str, str]] = []
     for m in _FROM_JOIN_RE.finditer(sql_lower):
-        t = m.group(1).lower()
-        tables.add(t)
-    return tables
+        t = str(m.group("table")).lower()
+        if _skip_join_table_token(t):
+            continue
+        sch_raw = m.group("schema")
+        sch = str(sch_raw).lower() if sch_raw else implicit
+        out.append((sch, t))
+    return out
+
+
+def extract_from_join_tables(sql_lower: str, implicit_schema: str = "public") -> Set[str]:
+    """Имена таблиц без схемы (для обратной совместимости с проверками whitelist по basename)."""
+    return {t for _, t in extract_from_join_qualified(sql_lower, implicit_schema)}
 
 
 def build_alias_to_table_map(sql_lower: str) -> Dict[str, str]:
     mapping: Dict[str, str] = {}
     for m in _FROM_JOIN_RE.finditer(sql_lower):
-        table = m.group(1).lower()
-        alias_raw = m.group(2)
+        table = str(m.group("table")).lower()
+        if _skip_join_table_token(table):
+            continue
+        alias_raw = m.group("alias")
         if alias_raw:
-            alias = alias_raw.lower()
+            alias = str(alias_raw).lower()
             if alias in ALIAS_STOPWORDS:
                 mapping[table] = table
             else:

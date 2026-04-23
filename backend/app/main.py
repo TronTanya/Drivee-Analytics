@@ -1,6 +1,10 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -14,11 +18,28 @@ from app.services.llm.factory import log_llm_startup_summary
 def create_app() -> FastAPI:
     configure_logging()
     log_llm_startup_summary()
+    env = (settings.app_env or "").strip().lower()
+    if env in ("prod", "production"):
+        if settings.debug:
+            logger.warning("APP_ENV=prod при DEBUG=true — отключите debug в production.")
+    else:
+        if not (settings.jwt_secret or "").strip():
+            logger.warning(
+                "JWT_SECRET пустой (%s): токены подписываются dev-fallback (см. app.core.security).",
+                settings.app_env,
+            )
     app = FastAPI(title=settings.app_name, version=settings.app_version, debug=settings.debug)
+
+    cors_origins = list(settings.cors_origins)
+    if env in ("demo", "production", "prod") and cors_origins == ["http://localhost:3000"]:
+        logger.warning(
+            "CORS по умолчанию localhost для app_env=%s — задайте CORS_ORIGINS под реальные фронт-хосты.",
+            settings.app_env,
+        )
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

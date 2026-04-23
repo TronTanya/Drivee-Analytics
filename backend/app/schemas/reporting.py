@@ -16,6 +16,27 @@ class ReportPayload(BaseModel):
     prompt: str = Field(..., min_length=1)
     notebook_context: dict[str, Any] = Field(default_factory=dict)
     role_key: Optional[str] = None
+    interpreted_query: Optional[str] = Field(
+        default=None,
+        description="Человекочитаемая интерпретация / intent summary на момент сохранения.",
+    )
+    generated_sql: Optional[str] = Field(default=None, description="SQL на момент сохранения.")
+    result_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Метаданные результата: колонки, число строк, preview hash, validation и т.д.",
+    )
+    chart_type: Optional[str] = Field(default=None, description="Выбранный или рекомендованный тип графика.")
+    trace_summary: Optional[str] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    warnings: list[str] = Field(default_factory=list)
+    captured_at: Optional[str] = Field(
+        default=None,
+        description="ISO-8601: когда снят снимок аналитики (клиент или сервер).",
+    )
+    saved_at: Optional[str] = Field(
+        default=None,
+        description="ISO-8601: когда отчёт записан в каталог (обычно серверное now).",
+    )
 
 
 class SavedReportCreate(BaseModel):
@@ -142,9 +163,13 @@ class TemplateQuickRunResponse(BaseModel):
 class HistoryItemResponse(BaseModel):
     id: uuid.UUID
     notebook_id: uuid.UUID
+    owner_user_id: Optional[uuid.UUID] = None
     original_query: str
     interpreted_intent: dict[str, Any]
+    interpreted_summary: Optional[str] = None
     generated_sql_preview: str
+    chart_type: Optional[str] = None
+    table_row_count: Optional[int] = None
     validation_status: str
     execution_status: str
     created_at: datetime
