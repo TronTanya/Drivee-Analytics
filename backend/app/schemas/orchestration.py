@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional
 
+ForecastSidecarOverride = Literal["auto", "on", "off"]
+
 from pydantic import BaseModel, Field
 
 from app.schemas.clarification import ClarificationResponse
@@ -37,6 +39,13 @@ class OrchestrationInput(BaseModel):
     workspace_id: Optional[str] = None
     role_key: Optional[str] = None
     user_id: Optional[str] = None
+    force_fresh_dialogue: bool = False
+    skip_learned_corrections: bool = False
+    forecast_sidecar: ForecastSidecarOverride = "auto"
+    chart_type_override: Optional[str] = Field(
+        None,
+        description="Подмена типа графика в trace/cells после рекомендации (bar, line, table, …).",
+    )
 
 
 class PipelineStepTrace(BaseModel):

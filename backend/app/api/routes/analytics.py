@@ -13,4 +13,8 @@ def run_analytics(payload: RunAnalyticsRequest) -> RunAnalyticsResponse:
         prompt=payload.prompt,
         result_limit=payload.result_limit,
         result_offset=payload.result_offset,
+        force_fresh_dialogue=payload.force_fresh_dialogue,
+        skip_learned_corrections=payload.skip_learned_corrections,
+        forecast_sidecar=payload.forecast_sidecar,
+        chart_type_override=payload.chart_type_override,
     )

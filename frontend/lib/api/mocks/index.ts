@@ -2,6 +2,7 @@ import type { AuthSessionDto, LoginRequestDto, RegisterRequestDto, TokenPairDto,
 import type {
   AnalyticsTraceDto,
   NotebookCellDto,
+  RunNotebookAnalyticsRequestDto,
   RunNotebookAnalyticsResponseDto
 } from "@/types/api/cells";
 import { isExplainabilityTraceV1 } from "@/types/api/trace";
@@ -24,6 +25,60 @@ import {
   topCityCancellations,
   topCityLimitFromPrompt
 } from "@/lib/demo/seeded-data";
+
+function applyMockNotebookAnalyticsOptions(
+  body: RunNotebookAnalyticsRequestDto,
+  response: RunNotebookAnalyticsResponseDto
+): RunNotebookAnalyticsResponseDto {
+  const { force_fresh_dialogue, skip_learned_corrections, forecast_sidecar, chart_type_override, prompt } = body;
+  const looksLikeFollowUp = /\bа теперь\b|теперь только/i.test(prompt);
+
+  if (!isExplainabilityTraceV1(response.trace)) {
+    return response;
+  }
+
+  const trace = { ...response.trace };
+
+  if (force_fresh_dialogue) {
+    trace.follow_up_context_used = false;
+  } else if (looksLikeFollowUp) {
+    trace.follow_up_context_used = true;
+  }
+
+  if (skip_learned_corrections) {
+    trace.learned_correction_used = false;
+  }
+
+  if (forecast_sidecar === "on") {
+    trace.forecast_mode = { active: true, method: "linear_trend_ols" };
+  } else if (forecast_sidecar === "off") {
+    trace.forecast_mode = { active: false, method: null };
+  }
+
+  const ct = chart_type_override?.trim();
+  if (ct && trace.chart_recommendation) {
+    trace.chart_recommendation = {
+      ...trace.chart_recommendation,
+      chart_type: ct,
+      rationale: `${trace.chart_recommendation.rationale || ""} (mock: тип=${ct})`.trim()
+    };
+  }
+
+  const cells =
+    ct && ct.length > 0
+      ? response.cells.map((c) => {
+          if (c.type !== "chart") return c;
+          try {
+            const p = JSON.parse(c.content) as Record<string, unknown>;
+            return { ...c, content: JSON.stringify({ ...p, chartType: ct, recommendedChartType: ct }) };
+          } catch {
+            return c;
+          }
+        })
+      : response.cells;
+
+  return { ...response, trace, cells };
+}
 
 const trace: AnalyticsTraceDto = {
   schema_version: 1,
@@ -157,7 +212,9 @@ export async function mockListCells(notebookId: string): Promise<NotebookCellDto
   return [];
 }
 
-export async function mockRunAnalytics(notebookId: string, prompt: string): Promise<RunNotebookAnalyticsResponseDto> {
+export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Promise<RunNotebookAnalyticsResponseDto> {
+  const notebookId = body.notebook_id;
+  const prompt = body.prompt;
   const normalizedPrompt = prompt.toLowerCase();
   const isComparative =
     /сравни/.test(normalizedPrompt) &&
@@ -332,7 +389,7 @@ export async function mockRunAnalytics(notebookId: string, prompt: string): Prom
   const sqlContent =
     isComparative ? deterministicSqlComparativeDoneShare() : isReporting ? deterministicSqlDailyCancellations() : deterministicSqlTopCancelledCities(topLimit);
 
-  return {
+  const rawResponse: RunNotebookAnalyticsResponseDto = {
     notebook_id: notebookId,
     cells: [
       {
@@ -387,6 +444,8 @@ export async function mockRunAnalytics(notebookId: string, prompt: string): Prom
     ],
     trace: traceModel
   };
+
+  return applyMockNotebookAnalyticsOptions(body, rawResponse);
 }
 
 export async function mockListReports(): Promise<SavedReportListApiDto[]> {

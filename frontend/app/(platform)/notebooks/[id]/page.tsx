@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { AddCellComposer } from "@/components/notebook/add-cell-composer";
 import { RunAllButton } from "@/components/notebook/run-all-button";
@@ -37,6 +37,7 @@ import {
   shouldForceAnalyticsMock
 } from "@/lib/api";
 import type { ChartKind, NotebookBlock, PromptBlock, TracePanelModel } from "@/lib/notebook/block-types";
+import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
 import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
@@ -337,6 +338,7 @@ export default function NotebookDetailsPage() {
   const [promptHistory, setPromptHistory] = useState<NotebookHistoryItem[]>([]);
   const [downloadingPdfMode, setDownloadingPdfMode] = useState<ReportPdfMode | null>(null);
   const [clarificationRunVersion, setClarificationRunVersion] = useState(0);
+  const pendingAnalyticsOptsRef = useRef<NotebookAnalyticsRunOptions>({});
   const [backendHealth, setBackendHealth] = useState<"checking" | "up" | "down">("checking");
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
   const createReport = useCreateReport();
@@ -425,6 +427,12 @@ export default function NotebookDetailsPage() {
     const p = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim());
     return p && p.type === "prompt" ? p.text.trim() : "";
   }, [blocks]);
+
+  const popPendingAnalyticsOpts = useCallback((): NotebookAnalyticsRunOptions => {
+    const next = { ...pendingAnalyticsOptsRef.current };
+    pendingAnalyticsOptsRef.current = {};
+    return next;
+  }, []);
 
   const emptyAnalyticTable = useMemo(
     () =>
@@ -642,7 +650,7 @@ export default function NotebookDetailsPage() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
-        runAnalyticsPipeline(notebookId, clarificationPrompt),
+        runAnalyticsPipeline(notebookId, clarificationPrompt, popPendingAnalyticsOpts()),
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
         })
@@ -723,7 +731,7 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [blocks, notebookId, useDeterministicFallback]);
+  }, [blocks, notebookId, popPendingAnalyticsOpts, useDeterministicFallback]);
 
   const runSingleCell = useCallback(async (id: string) => {
     setBlocks((prev) =>
@@ -776,7 +784,7 @@ export default function NotebookDetailsPage() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
-        runAnalyticsPipeline(notebookId, text),
+        runAnalyticsPipeline(notebookId, text, popPendingAnalyticsOpts()),
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
         })
@@ -825,7 +833,7 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [composer, notebookId, useDeterministicFallback]);
+  }, [composer, notebookId, popPendingAnalyticsOpts, useDeterministicFallback]);
 
   const handlePromptSubmit = useCallback(async (id: string, rawText: string) => {
     const text = rawText.trim();
@@ -838,7 +846,7 @@ export default function NotebookDetailsPage() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
-        runAnalyticsPipeline(notebookId, text),
+        runAnalyticsPipeline(notebookId, text, popPendingAnalyticsOpts()),
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
         })
@@ -885,7 +893,19 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [notebookId, useDeterministicFallback]);
+  }, [notebookId, popPendingAnalyticsOpts, useDeterministicFallback]);
+
+  const handleTracePanelRerun = useCallback(
+    async (opts: NotebookAnalyticsRunOptions) => {
+      const t = lastPromptForHistory;
+      if (!t || composerBusy) return;
+      const block = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim() === t);
+      if (!block || block.type !== "prompt") return;
+      pendingAnalyticsOptsRef.current = opts;
+      await handlePromptSubmit(block.id, t);
+    },
+    [blocks, composerBusy, handlePromptSubmit, lastPromptForHistory]
+  );
 
   const handlePickHistoryPrompt = useCallback((text: string) => {
     setComposer(text);
@@ -966,7 +986,21 @@ export default function NotebookDetailsPage() {
       </div>
       <NotebookCanvas
         traceOpen={traceOpen}
-        trace={<TracePanel model={traceModel} onClose={() => setTraceOpen(false)} />}
+        trace={
+          <TracePanel
+            model={traceModel}
+            onClose={() => setTraceOpen(false)}
+            lastPromptText={lastPromptForHistory}
+            traceActionBusy={composerBusy}
+            onTraceRerun={handleTracePanelRerun}
+            onScrollToClarification={() =>
+              document.getElementById("notebook-clarification-cell")?.scrollIntoView({
+                behavior: "smooth",
+                block: "nearest"
+              })
+            }
+          />
+        }
       >
         <div className="space-y-6">
         <NotebookHeader

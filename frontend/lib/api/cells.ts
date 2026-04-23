@@ -103,12 +103,12 @@ export async function runNotebookAnalytics(
   body: RunNotebookAnalyticsRequestDto
 ): Promise<RunNotebookAnalyticsResponseDto> {
   if (shouldForceAnalyticsMock()) {
-    return mockRunAnalytics(body.notebook_id, body.prompt);
+    return mockRunAnalytics(body);
   }
   return requestJson({
     path: "/api/v1/analytics/run",
     init: { method: "POST", body: JSON.stringify(body) },
-    mock: () => mockRunAnalytics(body.notebook_id, body.prompt),
+    mock: () => mockRunAnalytics(body),
     /** При профиле fallback (в т.ч. demo по умолчанию) — только после сетевой/5xx/401 ошибки, не вместо успешного live. */
     allowFallback: isApiMockFallback()
   });

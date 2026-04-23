@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import json
 import math
 import re
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 import logging
@@ -392,6 +392,10 @@ def analyze_natural_language(
     role_key: Optional[str] = None,
     user_id: Optional[str] = None,
     db_session: Optional[Session] = None,
+    force_fresh_dialogue: bool = False,
+    skip_learned_corrections: bool = False,
+    forecast_sidecar: Literal["auto", "on", "off"] = "auto",
+    chart_type_override: Optional[str] = None,
 ) -> NaturalLanguageAnalysisResult:
     ctx = enrich_notebook_context_for_orchestration(notebook_context)
     inp = OrchestrationInput(
@@ -400,6 +404,10 @@ def analyze_natural_language(
         workspace_id=workspace_id,
         role_key=role_key,
         user_id=user_id,
+        force_fresh_dialogue=force_fresh_dialogue,
+        skip_learned_corrections=skip_learned_corrections,
+        forecast_sidecar=forecast_sidecar,
+        chart_type_override=chart_type_override,
     )
     try:
         out = _resolve_orchestrator(db_session).run(inp)
@@ -838,10 +846,18 @@ def run_pipeline(
     *,
     result_limit: int | None = None,
     result_offset: int | None = None,
+    force_fresh_dialogue: bool = False,
+    skip_learned_corrections: bool = False,
+    forecast_sidecar: Literal["auto", "on", "off"] = "auto",
+    chart_type_override: str | None = None,
 ) -> RunAnalyticsResponse:
     result = analyze_natural_language(
         prompt,
         notebook_context=_build_notebook_context_from_cells(notebook_id),
+        force_fresh_dialogue=force_fresh_dialogue,
+        skip_learned_corrections=skip_learned_corrections,
+        forecast_sidecar=forecast_sidecar,
+        chart_type_override=chart_type_override,
     )
     if result_limit is not None:
         rows = list(result.table_records)

@@ -1,10 +1,15 @@
 import { runNotebookAnalytics } from "@/lib/api/cells";
-import type { RunNotebookAnalyticsResponseDto } from "@/types/api/cells";
+import type { NotebookAnalyticsRunOptions, RunNotebookAnalyticsResponseDto } from "@/types/api/cells";
 
-/** Back-compat: `(notebookId, prompt)` signature used by notebook UI */
+/** Запуск analytics с опциональными флагами оркестратора (trace-панель, пагинация). */
 export async function runAnalyticsPipeline(
   notebookId: string,
-  prompt: string
+  prompt: string,
+  options?: NotebookAnalyticsRunOptions
 ): Promise<RunNotebookAnalyticsResponseDto> {
-  return runNotebookAnalytics({ notebook_id: notebookId, prompt });
+  return runNotebookAnalytics({
+    notebook_id: notebookId,
+    prompt,
+    ...options
+  });
 }

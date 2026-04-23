@@ -2,11 +2,18 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useId, useState } from "react";
-import type { TracePanelModel } from "@/lib/notebook/block-types";
+import type { ChartKind, TracePanelModel } from "@/lib/notebook/block-types";
 import type { TracePanelProps } from "@/lib/notebook/block-types";
 import { ConfidenceBadge } from "@/components/notebook/confidence-badge";
 import { ValidationBadge } from "@/components/notebook/validation-badge";
-import { TraceContextBadges } from "@/components/notebook/trace-context-badges";
+
+const CHART_QUICK_CYCLE: ChartKind[] = ["line", "bar", "table", "horizontal_bar", "area"];
+
+function nextQuickChartKind(current: string): ChartKind {
+  const cur = (current || "table") as ChartKind;
+  const i = CHART_QUICK_CYCLE.indexOf(cur);
+  return CHART_QUICK_CYCLE[(i < 0 ? 0 : i + 1) % CHART_QUICK_CYCLE.length];
+}
 
 const stepDot: Record<string, string> = {
   pending: "bg-foreground-muted",
@@ -114,7 +121,15 @@ function traceToExportJson(model: TracePanelModel): string {
   return JSON.stringify(payload, null, 2);
 }
 
-export function TracePanel({ model, onClose, className = "" }: TracePanelProps) {
+export function TracePanel({
+  model,
+  onClose,
+  className = "",
+  lastPromptText = null,
+  traceActionBusy = false,
+  onTraceRerun,
+  onScrollToClarification
+}: TracePanelProps) {
   const [expandEpoch, setExpandEpoch] = useState(0);
   const [expandAll, setExpandAll] = useState(true);
   const [copyHint, setCopyHint] = useState<string | null>(null);
@@ -172,6 +187,11 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
       model.clarificationRequested ||
       qualityAttention
   );
+
+  const canRerun = Boolean((lastPromptText ?? "").trim() && onTraceRerun && !traceActionBusy);
+  const nextChartKind = nextQuickChartKind(model.chartRecommendation.chartType);
+  const actionBtn =
+    "rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-45";
 
   const open = expandAll;
 
@@ -245,16 +265,81 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
       </div>
 
       <div className="border-b border-border-subtle px-4 py-2">
-        <TraceContextBadges
-          clarificationRequested={model.clarificationRequested}
-          followUpContextUsed={model.followUpContextUsed}
-          learnedCorrectionUsed={model.learnedCorrectionUsed}
-          forecastModeActive={model.forecastModeActive}
-        />
-        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-foreground-secondary">
-          <span className="rounded-md border border-border-subtle bg-surface-muted px-2 py-0.5 font-mono">
-            График: {model.chartRecommendation.chartType}
-          </span>
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+          Запуск и контекст
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {model.clarificationRequested ? (
+            onScrollToClarification ? (
+              <button
+                type="button"
+                className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:border-amber-400`}
+                onClick={() => onScrollToClarification()}
+              >
+                К уточнению
+              </button>
+            ) : (
+              <span
+                className={`${actionBtn} border-amber-200 bg-amber-50/80 text-amber-950`}
+                title="Требуется уточнение"
+              >
+                Нужно уточнение
+              </span>
+            )
+          ) : (
+            <span
+              className={`${actionBtn} border-border-subtle bg-surface-muted text-foreground-secondary`}
+              title="Статус последнего запуска"
+            >
+              Без уточнения
+            </span>
+          )}
+          <button
+            type="button"
+            disabled={!canRerun}
+            title="Перезапуск того же промпта без follow-up памяти ноутбука"
+            className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}
+            onClick={() => void onTraceRerun?.({ force_fresh_dialogue: true })}
+          >
+            Сбросить контекст
+          </button>
+          <button
+            type="button"
+            disabled={!canRerun || !model.learnedCorrectionUsed}
+            title={
+              model.learnedCorrectionUsed
+                ? "Перезапуск без learned SQL из workspace"
+                : "В этом запуске не использовался learned fix"
+            }
+            className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}
+            onClick={() => void onTraceRerun?.({ skip_learned_corrections: true })}
+          >
+            Без learned SQL
+          </button>
+          <button
+            type="button"
+            disabled={!canRerun}
+            title="Принудительно включить или выключить числовой прогноз по ряду"
+            className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}
+            onClick={() =>
+              void onTraceRerun?.({
+                forecast_sidecar: model.forecastModeActive ? "off" : "on"
+              })
+            }
+          >
+            {model.forecastModeActive ? "Прогноз: выкл" : "Прогноз: вкл"}
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-foreground-secondary">
+          <button
+            type="button"
+            disabled={!canRerun}
+            title="Перезапуск с подменой типа графика в pipeline"
+            className="rounded-md border border-border-subtle bg-surface-muted px-2 py-0.5 font-mono hover:border-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={() => void onTraceRerun?.({ chart_type_override: nextChartKind })}
+          >
+            График: {model.chartRecommendation.chartType} → {nextChartKind}
+          </button>
           {model.forecastModeActive ? (
             <span className="rounded-md border border-border-subtle bg-surface-muted px-2 py-0.5 font-mono">
               Прогноз: {model.forecastMethod ?? "—"}
@@ -272,10 +357,19 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
                   ? "border-amber-200 bg-amber-50 text-amber-900"
                   : "border-emerald-200 bg-emerald-50 text-emerald-900"
             }`}
+            title="Итог проверки качества на стороне pipeline"
           >
             Quality gate: {model.qualityGate.status}
           </span>
         </div>
+        {onTraceRerun && !canRerun && !traceActionBusy ? (
+          <p className="mt-2 text-[11px] text-foreground-muted">
+            Выполните промпт в ячейке или в композере — здесь можно будет перезапустить его с этими настройками.
+          </p>
+        ) : null}
+        {traceActionBusy ? (
+          <p className="mt-2 text-[11px] text-foreground-secondary">Запуск pipeline…</p>
+        ) : null}
       </div>
 
       <div className="border-b border-border-subtle px-4 py-2">

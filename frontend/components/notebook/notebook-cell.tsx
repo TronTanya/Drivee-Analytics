@@ -98,7 +98,10 @@ export function NotebookCell({
   const failed = block.status === "error";
 
   return (
-    <article className="surface-content group p-4 transition hover:border-brand-200/70 hover:shadow-soft">
+    <article
+      id={block.type === "clarification" ? "notebook-clarification-cell" : undefined}
+      className="surface-content group p-4 transition hover:border-brand-200/70 hover:shadow-soft"
+    >
       <div className="flex gap-3 sm:gap-4">
         <div className="flex w-8 shrink-0 flex-col items-center pt-0.5 sm:w-9">
           <span className="rounded-full border border-border-subtle bg-surface-muted px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground-muted">

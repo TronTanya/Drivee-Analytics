@@ -292,7 +292,18 @@ class QueryOrchestrator:
         steps.append(_step("preprocess_query", True, length=len(raw)))
         steps.append(_step("llm_intelligence_layer", True, enabled=self._llm_enabled, provider=self._llm_provider_name))
 
-        dialogue_res = self._dialogue.resolve(raw, inp.notebook_context)
+        nb_ctx = dict(inp.notebook_context)
+        if inp.force_fresh_dialogue:
+            for k in (
+                "last_user_query",
+                "last_rewritten_query",
+                "dialogue_turn",
+                "base_metric",
+                "last_intent_kind",
+                "status_filters",
+            ):
+                nb_ctx.pop(k, None)
+        dialogue_res = self._dialogue.resolve(raw, nb_ctx)
         effective = dialogue_res.rewritten_query_for_execution
         is_follow_up = dialogue_res.is_followup
         steps.append(
@@ -517,7 +528,7 @@ class QueryOrchestrator:
         correction_match_kind: Optional[str] = None
         correction_match: Optional[AppliedCorrectionMatch] = None
 
-        if self._correction_learning and inp.workspace_id:
+        if self._correction_learning and inp.workspace_id and not inp.skip_learned_corrections:
             try:
                 ws_uuid = uuid.UUID(str(inp.workspace_id))
             except ValueError:
@@ -734,12 +745,23 @@ class QueryOrchestrator:
             effective_query=effective,
         )
         chart = _chart_from_visualization(viz)
+        ov_chart = (inp.chart_type_override or "").strip()
+        if ov_chart:
+            chart = chart.model_copy(
+                update={
+                    "chart_type": ov_chart,
+                    "rationale": (chart.rationale or "").strip()
+                    + (" · " if chart.rationale else "")
+                    + "Тип графика задан параметром запуска.",
+                }
+            )
         steps.append(
             _step(
                 "recommend_chart_type",
                 True,
                 chart=viz.recommended_chart_type,
                 visualization_confidence=viz.visualization_confidence,
+                chart_override=bool(ov_chart),
             )
         )
 
@@ -747,12 +769,20 @@ class QueryOrchestrator:
         steps.append(_step("generate_insight", True))
 
         forecast_records: list[dict[str, Any]] = []
-        if intent_res.intent == "forecast" or "прогноз" in effective.lower():
+        if inp.forecast_sidecar == "off":
+            want_forecast = False
+        elif inp.forecast_sidecar == "on":
+            want_forecast = True
+        else:
+            want_forecast = intent_res.intent == "forecast" or "прогноз" in effective.lower()
+        if want_forecast:
             horizon_steps = _resolve_forecast_horizon(entities)
             forecast_records = _forecast_from_rows(exec_res.rows, horizon_steps=horizon_steps)
             steps.append(_step("forecast_sidecar", True, points=len(forecast_records)))
 
-        forecast_active = bool(forecast_records) or intent_res.intent == "forecast"
+        forecast_active = bool(forecast_records) or (
+            intent_res.intent == "forecast" and inp.forecast_sidecar != "off"
+        )
         forecast_method: Optional[str] = "linear_trend_ols" if forecast_records else None
 
         steps.append(_step("build_trace_payload", True))

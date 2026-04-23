@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 
 /** Runtime state for a block in the canvas */
 export type CellRunStatus = "idle" | "running" | "success" | "error";
@@ -257,6 +258,11 @@ export interface TracePanelProps {
   model: TracePanelModel;
   onClose?: () => void;
   className?: string;
+  /** Текст последнего промпта в канве — для перезапуска из trace с опциями. */
+  lastPromptText?: string | null;
+  traceActionBusy?: boolean;
+  onTraceRerun?: (opts: NotebookAnalyticsRunOptions) => void | Promise<void>;
+  onScrollToClarification?: () => void;
 }
 
 export interface ConfidenceBadgeProps {
