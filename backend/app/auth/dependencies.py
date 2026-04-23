@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Annotated, Optional
 
 from fastapi import Depends, Header
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -40,6 +41,10 @@ def _resolve_demo_user(users: UserRepository) -> User:
             "admin@drivee.demo",
             "marketer@drivee.demo",
             "executive@drivee.demo",
+            "manager@drivee.local",
+            "admin@drivee.local",
+            "marketer@drivee.local",
+            "executive@drivee.local",
         ]
     )
     seen: set[str] = set()
@@ -50,12 +55,22 @@ def _resolve_demo_user(users: UserRepository) -> User:
         user = users.get_by_email(email)
         if user and user.is_active:
             return user
+    # Safety net for custom seeds: берем любого активного пользователя, предпочитая demo-флаг.
+    stmt = (
+        select(User)
+        .where(User.is_active.is_(True))
+        .order_by(desc(User.is_demo_user), User.email.asc())
+        .limit(1)
+    )
+    any_active = users.session.execute(stmt).scalar_one_or_none()
+    if any_active:
+        return any_active
     raise UnauthorizedException("Demo auth bypass enabled, but no active demo user found")
 
 
 def get_current_active_user(
-    authorization: Annotated[Optional[str], Header(default=None)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
+    authorization: Optional[str] = Header(default=None),
 ) -> User:
     token: Optional[str] = None
     if authorization and authorization.lower().startswith("bearer "):
