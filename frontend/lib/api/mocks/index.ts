@@ -68,6 +68,7 @@ const trace: AnalyticsTraceDto = {
     status: "passed",
     reasons: []
   },
+  guardrails: { blocked: false, codes: [], messages_ru: [] },
   execution_phases: [
     { phase_id: "parsing", label: "Парсинг и интерпретация", status: "done", detail: "" },
     { phase_id: "generating_sql", label: "Генерация SQL", status: "done", detail: "" },

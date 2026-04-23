@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import type { TracePanelModel } from "@/lib/notebook/block-types";
 import type { TracePanelProps } from "@/lib/notebook/block-types";
 import { ConfidenceBadge } from "@/components/notebook/confidence-badge";
 import { ValidationBadge } from "@/components/notebook/validation-badge";
@@ -17,14 +18,19 @@ const stepDot: Record<string, string> = {
 
 function CollapsibleSection(props: {
   title: string;
-  defaultOpen?: boolean;
+  defaultOpen: boolean;
   children: ReactNode;
   muted?: boolean;
 }) {
-  const { title, defaultOpen = false, children, muted } = props;
+  const { title, defaultOpen, children, muted } = props;
   const [open, setOpen] = useState(defaultOpen);
   const id = useId();
   const panelId = `${id}-panel`;
+
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [defaultOpen]);
+
   return (
     <div
       className={`overflow-hidden rounded-control border border-border-subtle ${muted ? "bg-surface-muted/40" : "bg-surface-card"}`}
@@ -41,11 +47,14 @@ function CollapsibleSection(props: {
         </span>
         <span className="uppercase tracking-wide">{title}</span>
       </button>
-      {open ? (
-        <div id={panelId} className="border-t border-border-subtle px-3 py-2.5 text-sm text-foreground-secondary">
-          {children}
-        </div>
-      ) : null}
+      <div
+        id={panelId}
+        role="region"
+        aria-hidden={!open}
+        className={open ? "border-t border-border-subtle px-3 py-2.5 text-sm text-foreground-secondary" : "hidden"}
+      >
+        {open ? children : null}
+      </div>
     </div>
   );
 }
@@ -60,8 +69,80 @@ function validationDerived(validationStatus: TracePanelProps["model"]["validatio
   return { ok: true, hint: "Не запускалось" };
 }
 
+function traceToExportJson(model: TracePanelModel): string {
+  const payload = {
+    schema_version: model.schemaVersion,
+    interpreted_intent: model.interpretedIntent,
+    extracted_entities: model.extractedEntities,
+    semantic_terms: model.semanticTerms.map((t) => ({
+      term_key: t.termKey,
+      surface_form: t.surfaceForm,
+      sql_fragment: t.sqlFragment,
+      confidence: t.confidence
+    })),
+    tables_used: model.tablesUsed,
+    result_columns: model.resultColumns,
+    generated_sql: model.generatedSql,
+    validation_status: model.validationStatus,
+    warnings: model.warnings,
+    confidence: model.confidence,
+    clarification_requested: model.clarificationRequested,
+    follow_up_context_used: model.followUpContextUsed,
+    learned_correction_used: model.learnedCorrectionUsed,
+    chart_recommendation: {
+      chart_type: model.chartRecommendation.chartType,
+      rationale: model.chartRecommendation.rationale,
+      alternatives: model.chartRecommendation.alternatives
+    },
+    forecast_mode: { active: model.forecastModeActive, method: model.forecastMethod },
+    forecast_selection: {
+      metric_key: model.forecastSelection.metricKey,
+      selected_strategy: model.forecastSelection.selectedStrategy,
+      data_quality: model.forecastSelection.dataQuality,
+      backtest_summary: model.forecastSelection.backtestSummary
+    },
+    quality_gate: model.qualityGate,
+    guardrails: model.guardrails,
+    execution_phases: model.steps.map((s) => ({
+      phase_id: s.id,
+      label: s.label,
+      status: s.status,
+      detail: s.detail ?? ""
+    })),
+    logs: model.logs
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
 export function TracePanel({ model, onClose, className = "" }: TracePanelProps) {
-  const [compactMode, setCompactMode] = useState(false);
+  const [expandEpoch, setExpandEpoch] = useState(0);
+  const [expandAll, setExpandAll] = useState(true);
+  const [copyHint, setCopyHint] = useState<string | null>(null);
+
+  const bumpLayout = useCallback((next: boolean) => {
+    setExpandAll(next);
+    setExpandEpoch((e) => e + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!copyHint) return;
+    const t = window.setTimeout(() => setCopyHint(null), 2200);
+    return () => window.clearTimeout(t);
+  }, [copyHint]);
+
+  const copyToClipboard = useCallback(async (label: string, text: string) => {
+    if (!text.trim()) {
+      setCopyHint("Нечего копировать");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyHint(`${label} скопирован`);
+    } catch {
+      setCopyHint("Копирование не удалось (разрешения браузера)");
+    }
+  }, []);
+
   const qualityAttention = model.qualityGate.status !== "passed";
   const { ok, hint } = validationDerived(model.validationStatus);
   const hasSql = model.generatedSql.trim().length > 0;
@@ -92,16 +173,10 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
       qualityAttention
   );
 
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1023px)");
-    const apply = () => setCompactMode(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
+  const open = expandAll;
 
   const qualityGateSection = (
-    <CollapsibleSection title="Quality gate" defaultOpen={qualityAttention}>
+    <CollapsibleSection key={`qg-${expandEpoch}`} title="Quality gate" defaultOpen={open && qualityAttention}>
       <p className="text-sm">
         <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
         <span className="font-medium capitalize text-foreground">{model.qualityGate.status}</span>
@@ -119,7 +194,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
   );
 
   const validationSection = (
-    <CollapsibleSection title="Валидация и предупреждения" defaultOpen>
+    <CollapsibleSection key={`val-${expandEpoch}`} title="Валидация и предупреждения" defaultOpen={open}>
       <p className="mb-2 text-xs">
         <span className="font-semibold text-foreground-muted">Статус:</span>{" "}
         <span className="font-medium capitalize text-foreground">{model.validationStatus}</span>
@@ -203,6 +278,47 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
         </div>
       </div>
 
+      <div className="border-b border-border-subtle px-4 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Секции</span>
+          <button
+            type="button"
+            className="rounded-control border border-border-subtle bg-surface-card px-2 py-1 text-[11px] font-semibold text-foreground-secondary hover:border-brand-200 hover:text-brand-900"
+            onClick={() => bumpLayout(true)}
+          >
+            Развернуть всё
+          </button>
+          <button
+            type="button"
+            className="rounded-control border border-border-subtle bg-surface-card px-2 py-1 text-[11px] font-semibold text-foreground-secondary hover:border-brand-200 hover:text-brand-900"
+            onClick={() => bumpLayout(false)}
+          >
+            Свернуть всё
+          </button>
+          <button
+            type="button"
+            disabled={!hasSql}
+            className="rounded-control border border-border-subtle bg-surface-card px-2 py-1 text-[11px] font-semibold text-foreground-secondary hover:border-brand-200 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => void copyToClipboard("SQL", model.generatedSql)}
+          >
+            Копировать SQL
+          </button>
+          <button
+            type="button"
+            disabled={!hasBody}
+            className="rounded-control border border-border-subtle bg-surface-card px-2 py-1 text-[11px] font-semibold text-foreground-secondary hover:border-brand-200 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => void copyToClipboard("Trace JSON", traceToExportJson(model))}
+          >
+            Копировать JSON
+          </button>
+        </div>
+        {copyHint ? (
+          <p className="mt-1.5 text-[11px] text-emerald-800" role="status" aria-live="polite">
+            {copyHint}
+          </p>
+        ) : null}
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {!hasBody ? (
           <p className="text-sm text-foreground-secondary">Запустите ячейку, чтобы заполнить explainability trace.</p>
@@ -226,7 +342,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
                 </ul>
               </div>
             ) : null}
-            <CollapsibleSection title="Интерпретированное намерение" defaultOpen>
+            <CollapsibleSection key={`intent-${expandEpoch}`} title="Интерпретированное намерение" defaultOpen={open}>
               <p className="text-foreground">{model.interpretedIntent || "—"}</p>
             </CollapsibleSection>
 
@@ -237,7 +353,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               </>
             ) : null}
 
-            <CollapsibleSection title="Извлеченные сущности" defaultOpen={!compactMode && hasEntities}>
+            <CollapsibleSection key={`ent-${expandEpoch}`} title="Извлеченные сущности" defaultOpen={open}>
               {hasEntities ? (
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-control border border-border-subtle bg-surface-muted/50 p-2 font-mono text-[11px] leading-relaxed text-foreground">
                   {JSON.stringify(model.extractedEntities, null, 2)}
@@ -247,7 +363,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               )}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Семантические термины" defaultOpen={!compactMode && hasTerms}>
+            <CollapsibleSection key={`sem-${expandEpoch}`} title="Семантические термины" defaultOpen={open}>
               {hasTerms ? (
                 <ul className="space-y-2 text-xs">
                   {model.semanticTerms.map((t, i) => (
@@ -268,7 +384,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               )}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Таблицы и колонки" defaultOpen={hasTables || hasCols}>
+            <CollapsibleSection key={`tbl-${expandEpoch}`} title="Таблицы и колонки" defaultOpen={open}>
               {hasTables ? (
                 <p>
                   <span className="text-xs font-semibold text-foreground-muted">Таблицы</span>
@@ -285,11 +401,20 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               ) : null}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Сгенерированный SQL" defaultOpen={!compactMode && hasSql}>
+            <CollapsibleSection key={`sql-${expandEpoch}`} title="Сгенерированный SQL" defaultOpen={open}>
               {hasSql ? (
-                <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-700/70 bg-[linear-gradient(180deg,#0f172a_0%,#111827_100%)] p-2 font-mono text-[11px] leading-relaxed text-slate-100">
-                  {model.generatedSql}
-                </pre>
+                <div className="space-y-2">
+                  <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-700/70 bg-[linear-gradient(180deg,#0f172a_0%,#111827_100%)] p-2 font-mono text-[11px] leading-relaxed text-slate-100">
+                    {model.generatedSql}
+                  </pre>
+                  <button
+                    type="button"
+                    className="rounded-control border border-border-subtle bg-surface-card px-2 py-1 text-[11px] font-semibold text-foreground-secondary hover:border-brand-200"
+                    onClick={() => void copyToClipboard("SQL", model.generatedSql)}
+                  >
+                    Копировать этот SQL
+                  </button>
+                </div>
               ) : (
                 <p className="text-foreground-muted">SQL отсутствует (например, ожидается уточнение).</p>
               )}
@@ -297,7 +422,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
 
             {qualityAttention ? null : validationSection}
 
-            <CollapsibleSection title="Рекомендация графика" defaultOpen={!compactMode && hasChartText}>
+            <CollapsibleSection key={`chart-${expandEpoch}`} title="Рекомендация графика" defaultOpen={open}>
               <p className="text-xs font-semibold text-foreground">{model.chartRecommendation.chartType}</p>
               {model.chartRecommendation.rationale ? (
                 <p className="mt-1 text-sm text-foreground-secondary">{model.chartRecommendation.rationale}</p>
@@ -312,7 +437,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
               ) : null}
             </CollapsibleSection>
 
-            <CollapsibleSection title="Прогноз" defaultOpen={!compactMode && model.forecastModeActive}>
+            <CollapsibleSection key={`fc-${expandEpoch}`} title="Прогноз" defaultOpen={open}>
               <p className="text-sm">
                 <span className="font-semibold text-foreground-muted">Активен:</span>{" "}
                 {model.forecastModeActive ? "Да" : "Нет"}
@@ -335,7 +460,7 @@ export function TracePanel({ model, onClose, className = "" }: TracePanelProps) 
             {qualityAttention ? null : qualityGateSection}
 
             {hasPipeline ? (
-              <CollapsibleSection title="Этапы выполнения" muted defaultOpen={!compactMode}>
+              <CollapsibleSection key={`pipe-${expandEpoch}`} title="Этапы выполнения" muted defaultOpen={open}>
                 {model.steps.length > 0 ? (
                   <ul className="mb-3 space-y-2">
                     {model.steps.map((s) => (
