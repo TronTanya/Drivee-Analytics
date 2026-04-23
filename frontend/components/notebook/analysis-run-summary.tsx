@@ -94,11 +94,11 @@ export function AnalysisRunSummary({
   return (
     <section className="overflow-hidden rounded-card border border-border-subtle bg-surface-card shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_40px_-18px_rgba(15,23,42,0.12)]">
       <header className="flex flex-col gap-3 border-b border-border-subtle/80 bg-gradient-to-r from-surface-muted/50 to-surface-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Результат запроса</p>
           <h2 className="mt-1 text-heading-3 text-foreground">Обзор ответа</h2>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
           {onRerunLast ? (
             <button
               type="button"
@@ -153,6 +153,11 @@ export function AnalysisRunSummary({
               ) : null}
               {traceModel.qualityGate.status !== "passed" ? (
                 <span
+                  title={
+                    traceModel.qualityGate.status === "failed"
+                      ? "Критично: pipeline или данные не прошли проверку (см. предупреждения ниже)."
+                      : "Предупреждение: результат доступен, но есть замечания (пустая выборка, валидация SQL и т.д.) — проверьте блок предупреждений."
+                  }
                   className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
                     traceModel.qualityGate.status === "failed"
                       ? "border-danger/30 bg-danger-soft text-danger-bold"

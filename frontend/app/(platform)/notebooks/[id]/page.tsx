@@ -441,6 +441,11 @@ export default function NotebookDetailsPage() {
     [blocks]
   );
 
+  const hasExportableTable = useMemo(() => {
+    const t = [...blocks].reverse().find((b) => b.type === "table");
+    return Boolean(t && t.type === "table" && t.columns.length > 0 && Array.isArray(t.rows) && t.rows.length > 0);
+  }, [blocks]);
+
   useEffect(() => {
     let cancelled = false;
     const checkHealth = async () => {
@@ -515,6 +520,35 @@ export default function NotebookDetailsPage() {
       setDownloadingPdfMode(null);
     }
   }, [lastReport]);
+
+  const handleDownloadResultCsv = useCallback(() => {
+    setPageError(null);
+    const table = [...blocks].reverse().find((b) => b.type === "table");
+    if (!table || table.type !== "table" || !table.columns.length || !table.rows.length) {
+      setPageError("Нет таблицы результата для экспорта в CSV.");
+      return;
+    }
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const lines = [
+      table.columns.map(esc).join(","),
+      ...table.rows.map((row) => table.columns.map((c) => esc(row[c])).join(","))
+    ];
+    const blob = new Blob(["\ufeff", lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeId = notebookId.replace(/[^\p{L}\p{N}\-_]/gu, "_").slice(0, 48) || "notebook";
+    link.href = url;
+    link.download = `${safeId}-result.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setPageNotice(`CSV сохранён (${table.rows.length} строк).`);
+  }, [blocks, notebookId]);
 
   const handleSaveAsReport = useCallback(async () => {
     setPageError(null);
@@ -767,74 +801,82 @@ export default function NotebookDetailsPage() {
     setRunAllLoading(false);
   }, [blocks, runSingleCell]);
 
+  const runNewAnalyticsPrompt = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text) return;
+      setPageError(null);
+      setComposerBusy(true);
+      setClarificationRunVersion(0);
+
+      const promptBlock: NotebookBlock = {
+        id: `prompt-${Date.now()}`,
+        type: "prompt",
+        text
+      };
+      setBlocks((prev) => [...prev, promptBlock]);
+
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      try {
+        const result = await Promise.race([
+          runAnalyticsPipeline(notebookId, text, popPendingAnalyticsOpts()),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
+          })
+        ]);
+        if (timeoutId) clearTimeout(timeoutId);
+        const mapped = cellDtosToBlocks(result.cells);
+        const clarificationRequested = traceClarificationRequested(result.trace);
+        const traceNext = traceFromAnalytics(result.trace);
+        setBlocks((prev) => {
+          const merged = mergeBlocksById(prev, mapped, { skipPromptText: text });
+          return finalizeScenarioBlocks(
+            merged,
+            notebookId,
+            text,
+            {
+              resetClarification: clarificationRequested,
+              hideClarification: !clarificationRequested,
+              useDeterministicFallback
+            },
+            traceNext
+          );
+        });
+        setTraceModel(traceNext);
+        setPromptHistory((h) => {
+          const next = appendNotebookHistory(notebookId, text, h);
+          saveNotebookHistory(notebookId, next);
+          return next;
+        });
+      } catch (error) {
+        const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
+        const detail = analyticsRunFailureMessage(error);
+        setPageError(
+          isTimeout
+            ? "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента."
+            : `Ошибка запроса к pipeline: ${detail}`
+        );
+        setBlocks((prev) =>
+          prev.map((b) =>
+            b.type === "prompt" && b.text.trim() === text
+              ? { ...b, status: "error" as const, errorMessage: isTimeout ? "Не удалось выполнить промпт." : detail }
+              : b
+          )
+        );
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+        setComposerBusy(false);
+      }
+    },
+    [notebookId, popPendingAnalyticsOpts, useDeterministicFallback]
+  );
+
   const handleComposerSubmit = useCallback(async () => {
     const text = composer.trim();
     if (!text) return;
-    setPageError(null);
-    setComposerBusy(true);
-    setClarificationRunVersion(0);
-
-    const promptBlock: NotebookBlock = {
-      id: `prompt-${Date.now()}`,
-      type: "prompt",
-      text
-    };
-    setBlocks((prev) => [...prev, promptBlock]);
     setComposer("");
-
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    try {
-      const result = await Promise.race([
-        runAnalyticsPipeline(notebookId, text, popPendingAnalyticsOpts()),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
-        })
-      ]);
-      if (timeoutId) clearTimeout(timeoutId);
-      const mapped = cellDtosToBlocks(result.cells);
-      const clarificationRequested = traceClarificationRequested(result.trace);
-      const traceNext = traceFromAnalytics(result.trace);
-      setBlocks((prev) => {
-        // Keep optimistic prompt block and skip exact prompt duplicate by text.
-        const merged = mergeBlocksById(prev, mapped, { skipPromptText: text });
-        return finalizeScenarioBlocks(
-          merged,
-          notebookId,
-          text,
-          {
-            resetClarification: clarificationRequested,
-            hideClarification: !clarificationRequested,
-            useDeterministicFallback
-          },
-          traceNext
-        );
-      });
-      setTraceModel(traceNext);
-      setPromptHistory((h) => {
-        const next = appendNotebookHistory(notebookId, text, h);
-        saveNotebookHistory(notebookId, next);
-        return next;
-      });
-    } catch (error) {
-      const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
-      const detail = analyticsRunFailureMessage(error);
-      setPageError(
-        isTimeout
-          ? "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента."
-          : `Ошибка запроса к pipeline: ${detail}`
-      );
-      setBlocks((prev) =>
-        prev.map((b) =>
-          b.type === "prompt" && b.text.trim() === text
-            ? { ...b, status: "error" as const, errorMessage: isTimeout ? "Не удалось выполнить промпт." : detail }
-            : b
-        )
-      );
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
-      setComposerBusy(false);
-    }
-  }, [composer, notebookId, popPendingAnalyticsOpts, useDeterministicFallback]);
+    await runNewAnalyticsPrompt(text);
+  }, [composer, runNewAnalyticsPrompt]);
 
   const handlePromptSubmit = useCallback(async (id: string, rawText: string) => {
     const text = rawText.trim();
@@ -1039,25 +1081,23 @@ export default function NotebookDetailsPage() {
                 type="button"
                 onClick={() => void handleDownloadPdf(getDefaultReportPdfMode())}
                 disabled={!lastReport || downloadingPdfMode !== null}
+                title="Режим PDF (compact/board) берётся из настроек отчёта в localStorage"
                 className="w-full rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary shadow-xs hover:border-brand-200 hover:text-brand-800 disabled:opacity-50 sm:w-auto"
               >
-                {downloadingPdfMode ? "Скачивание..." : "PDF по умолчанию"}
+                {downloadingPdfMode ? "Скачивание…" : "PDF"}
               </button>
               <button
                 type="button"
-                onClick={() => void handleDownloadPdf("compact")}
-                disabled={!lastReport || downloadingPdfMode !== null}
-                className="hidden w-full rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary shadow-xs hover:border-brand-200 hover:text-brand-800 disabled:opacity-50 sm:inline-flex sm:w-auto"
+                onClick={() => handleDownloadResultCsv()}
+                disabled={composerBusy || !hasExportableTable}
+                title={
+                  hasExportableTable
+                    ? "Экспорт последней таблицы результата в CSV (UTF-8 с BOM для Excel)"
+                    : "Сначала выполните запрос — появится таблица с данными"
+                }
+                className="w-full rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary shadow-xs hover:border-brand-200 hover:text-brand-800 disabled:opacity-50 sm:w-auto"
               >
-                {downloadingPdfMode === "compact" ? "Скачивание..." : "PDF compact"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDownloadPdf("board")}
-                disabled={!lastReport || downloadingPdfMode !== null}
-                className="hidden w-full rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary shadow-xs hover:border-brand-200 hover:text-brand-800 disabled:opacity-50 sm:inline-flex sm:w-auto"
-              >
-                {downloadingPdfMode === "board" ? "Скачивание..." : "PDF board"}
+                CSV
               </button>
             </>
           }
@@ -1185,7 +1225,8 @@ export default function NotebookDetailsPage() {
                 key={preset.id}
                 type="button"
                 disabled={composerBusy}
-                onClick={() => setComposer(preset.text)}
+                title={`Запустить демо-промпт: ${preset.text.slice(0, 80)}${preset.text.length > 80 ? "…" : ""}`}
+                onClick={() => void runNewAnalyticsPrompt(preset.text)}
                 className="rounded-control border border-border-subtle bg-surface-muted px-3 py-1.5 text-xs font-semibold text-foreground-secondary hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800 disabled:opacity-50"
               >
                 {preset.label}

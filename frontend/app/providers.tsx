@@ -25,7 +25,8 @@ function createQueryClient() {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [client] = useState(createQueryClient);
+  /** Явный lazy-init: иначе в части сборок функция может быть принята не как initializer. */
+  const [client] = useState(() => createQueryClient());
   return (
     <SessionProvider>
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
