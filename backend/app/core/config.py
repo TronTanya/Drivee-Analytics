@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     llm_failure_threshold: int = 3
     llm_cooldown_seconds: int = 45
 
+    # Demo auth bypass (dev/demo only): если нет/некорректен Bearer, использовать демо-пользователя.
+    demo_auth_bypass_enabled: bool = True
+    demo_auth_email: str = "manager@drivee.demo"
+
     # Guardrails / anti-abuse (NL→SQL до LLM и после семантики).
     guardrails_max_prompt_chars: int = 8000
     guardrails_max_prompt_newlines: int = 80

@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 from fastapi import Depends, Header
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import decode_access_token
 from app.db.session import get_db_session
@@ -24,25 +25,63 @@ def _bearer_token(authorization: Optional[str] = Header(default=None)) -> str:
     return authorization.split(" ", 1)[1].strip()
 
 
+def _demo_auth_enabled() -> bool:
+    env = (settings.app_env or "").strip().lower()
+    # Никогда не ослабляем auth в production.
+    return bool(settings.demo_auth_bypass_enabled) and env not in {"prod", "production"}
+
+
+def _resolve_demo_user(users: UserRepository) -> User:
+    preferred = (settings.demo_auth_email or "").strip().lower()
+    candidates: list[str] = [preferred] if preferred else []
+    candidates.extend(
+        [
+            "manager@drivee.demo",
+            "admin@drivee.demo",
+            "marketer@drivee.demo",
+            "executive@drivee.demo",
+        ]
+    )
+    seen: set[str] = set()
+    for email in candidates:
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        user = users.get_by_email(email)
+        if user and user.is_active:
+            return user
+    raise UnauthorizedException("Demo auth bypass enabled, but no active demo user found")
+
+
 def get_current_active_user(
-    token: Annotated[str, Depends(_bearer_token)],
+    authorization: Annotated[Optional[str], Header(default=None)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> User:
-    payload = decode_access_token(token)
-    sub = payload.get("sub")
-    if not sub:
-        raise UnauthorizedException("Invalid token payload")
-    try:
-        user_id = uuid.UUID(sub)
-    except ValueError as exc:
-        raise UnauthorizedException("Invalid user id in token") from exc
+    token: Optional[str] = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
 
-    user = users.get_by_id(user_id)
-    if not user:
-        raise UnauthorizedException("User not found")
-    if not user.is_active:
-        raise UnauthorizedException("Account is disabled")
-    return user
+    if token:
+        try:
+            payload = decode_access_token(token)
+            sub = payload.get("sub")
+            if not sub:
+                raise UnauthorizedException("Invalid token payload")
+            user_id = uuid.UUID(sub)
+            user = users.get_by_id(user_id)
+            if not user:
+                raise UnauthorizedException("User not found")
+            if not user.is_active:
+                raise UnauthorizedException("Account is disabled")
+            return user
+        except Exception:
+            # В демо-режиме даём мягкий fallback, чтобы UI работал без логина.
+            if not _demo_auth_enabled():
+                raise
+
+    if _demo_auth_enabled():
+        return _resolve_demo_user(users)
+    raise UnauthorizedException("Missing or invalid Authorization header")
 
 
 def require_roles(*allowed_role_keys: str) -> Callable[..., User]:
