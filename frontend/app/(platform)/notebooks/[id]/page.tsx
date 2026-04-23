@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AddCellComposer } from "@/components/notebook/add-cell-composer";
 import { RunAllButton } from "@/components/notebook/run-all-button";
@@ -68,6 +69,17 @@ function analyticsRunFailureMessage(error: unknown): string {
     return error.message.slice(0, 320);
   }
   return "Не удалось выполнить промпт.";
+}
+
+function isAuthError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.status === 401 || error.status === 403;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes("authorization") || msg.includes("unauthorized");
+  }
+  return false;
 }
 
 function mergeBlocksById(
@@ -332,6 +344,7 @@ export default function NotebookDetailsPage() {
   const [composer, setComposer] = useState("");
   const [composerBusy, setComposerBusy] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [runAllLoading, setRunAllLoading] = useState(false);
   const [savingReport, setSavingReport] = useState(false);
@@ -652,6 +665,7 @@ export default function NotebookDetailsPage() {
         scenario_title: scenarioTitle,
         scenario_description: promptPreview || undefined
       });
+      setAuthRequired(false);
       setPageNotice(
         autoCreated
           ? `Сценарий сохранён в БД. Создан notebook ${targetNotebookId}; открываю его URL…`
@@ -661,6 +675,9 @@ export default function NotebookDetailsPage() {
         router.push(`/notebooks/${targetNotebookId}`);
       }
     } catch (error) {
+      if (isAuthError(error)) {
+        setAuthRequired(true);
+      }
       const msg =
         error instanceof ApiError
           ? error.message
@@ -764,8 +781,12 @@ export default function NotebookDetailsPage() {
         saveNotebookHistory(notebookId, next);
         return next;
       });
+      setAuthRequired(false);
       setClarificationRunVersion((v) => v + 1);
     } catch (error) {
+      if (isAuthError(error)) {
+        setAuthRequired(true);
+      }
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
       const detail = analyticsRunFailureMessage(error);
       setPageError(
@@ -871,7 +892,11 @@ export default function NotebookDetailsPage() {
           saveNotebookHistory(notebookId, next);
           return next;
         });
+        setAuthRequired(false);
       } catch (error) {
+        if (isAuthError(error)) {
+          setAuthRequired(true);
+        }
         const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
         const detail = analyticsRunFailureMessage(error);
         setPageError(
@@ -942,7 +967,11 @@ export default function NotebookDetailsPage() {
         saveNotebookHistory(notebookId, next);
         return next;
       });
+      setAuthRequired(false);
     } catch (error) {
+      if (isAuthError(error)) {
+        setAuthRequired(true);
+      }
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
       const detail = analyticsRunFailureMessage(error);
       setPageError(
@@ -1086,11 +1115,11 @@ export default function NotebookDetailsPage() {
               >
                 {traceOpen ? "Скрыть trace" : "Показать trace"}
               </button>
-              <RunAllButton onClick={handleRunAll} loading={runAllLoading} disabled={runAllLoading} />
+              <RunAllButton onClick={handleRunAll} loading={runAllLoading} disabled={runAllLoading || authRequired} />
               <button
                 type="button"
                 onClick={() => void handleSaveNotebookScenario()}
-                disabled={savingScenario || composerBusy}
+                disabled={savingScenario || composerBusy || authRequired}
                 title={
                   canPersistNotebook
                     ? "POST /api/v1/notebooks/{id}/save — снимок в context_chain_json на сервере"
@@ -1126,6 +1155,20 @@ export default function NotebookDetailsPage() {
           }
         />
 
+        {authRequired ? (
+          <section className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p className="font-semibold">Нужна авторизация</p>
+            <p className="mt-1">Backend вернул 401/403. Войдите в систему, затем повторите действие.</p>
+            <div className="mt-2">
+              <Link
+                href="/login"
+                className="inline-flex rounded-control border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100"
+              >
+                Перейти ко входу
+              </Link>
+            </div>
+          </section>
+        ) : null}
         {pageError ? (
           <NotebookErrorBanner message={pageError} onRetry={() => setPageError(null)} />
         ) : null}
