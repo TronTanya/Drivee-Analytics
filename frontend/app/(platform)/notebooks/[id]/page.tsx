@@ -40,6 +40,7 @@ import type { ChartKind, NotebookBlock, PromptBlock, TracePanelModel } from "@/l
 import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
 import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
+import { saveNotebookScenarioLocal } from "@/lib/notebook/local-scenario-snapshot";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
 import { EMPTY_TRACE, traceFromAnalytics } from "@/lib/notebook/trace-model";
 import {
@@ -628,7 +629,7 @@ export default function NotebookDetailsPage() {
   ]);
 
   const handleSaveNotebookScenario = useCallback(async () => {
-    if (!canPersistNotebook) return;
+    if (composerBusy) return;
     setPageError(null);
     setPageNotice(null);
     setSavingScenario(true);
@@ -637,18 +638,42 @@ export default function NotebookDetailsPage() {
       lastPrompt && lastPrompt.type === "prompt" ? lastPrompt.text.trim().slice(0, 200) : "";
     const scenarioTitle = `Снимок · ${new Date().toLocaleString("ru-RU")}`;
     try {
-      await saveNotebookScenario(notebookId, {
-        scenario_title: scenarioTitle,
-        scenario_description: promptPreview || undefined
-      });
-      setPageNotice("Сценарий записан в context_chain ноутбука (сервер).");
+      if (canPersistNotebook) {
+        await saveNotebookScenario(notebookId, {
+          scenario_title: scenarioTitle,
+          scenario_description: promptPreview || undefined
+        });
+        setPageNotice("Сценарий записан в context_chain ноутбука (сервер).");
+      } else {
+        let serialised: unknown[];
+        try {
+          serialised = JSON.parse(JSON.stringify(blocks)) as unknown[];
+        } catch {
+          setPageError("Не удалось подготовить снимок блоков для локального сохранения.");
+          return;
+        }
+        saveNotebookScenarioLocal({
+          notebook_id: notebookId,
+          scenario_title: scenarioTitle,
+          scenario_description: promptPreview || null,
+          blocks: serialised
+        });
+        setPageNotice(
+          `Сценарий сохранён локально в этом браузере (ключ: ${notebookId}). Для записи на сервер откройте ноутбук с UUID в адресе.`
+        );
+      }
     } catch (error) {
-      const msg = error instanceof ApiError ? error.message : "Не удалось сохранить сценарий.";
+      const msg =
+        error instanceof ApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Не удалось сохранить сценарий.";
       setPageError(msg);
     } finally {
       setSavingScenario(false);
     }
-  }, [blocks, canPersistNotebook, notebookId]);
+  }, [blocks, canPersistNotebook, composerBusy, notebookId]);
 
   const handleChartTypeChange = useCallback((id: string, chartType: ChartKind) => {
     setBlocks((prev) =>
@@ -1067,11 +1092,11 @@ export default function NotebookDetailsPage() {
               <button
                 type="button"
                 onClick={() => void handleSaveNotebookScenario()}
-                disabled={!canPersistNotebook || savingScenario || composerBusy}
+                disabled={savingScenario || composerBusy}
                 title={
                   canPersistNotebook
-                    ? "POST /api/v1/notebooks/{id}/save — снимок в context_chain_json"
-                    : "Нужен UUID ноутбука в адресе страницы (демо-id вроде ops-health не сохраняются в API)."
+                    ? "POST /api/v1/notebooks/{id}/save — снимок в context_chain_json на сервере"
+                    : "Сохранить снимок блоков в localStorage браузера (демо-URL без UUID; на сервер не уходит)"
                 }
                 className="w-full rounded-control border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-950 shadow-xs hover:bg-sky-100 disabled:opacity-50 sm:w-auto"
               >
