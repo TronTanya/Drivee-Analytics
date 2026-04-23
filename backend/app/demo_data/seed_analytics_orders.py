@@ -11,9 +11,30 @@ import random
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 
 from app.models.business_demo import AnonymizedIncityOrder
+
+
+def ensure_order_channel_schema(session) -> None:
+    """Старые volume Postgres без bootstrap: колонка появляется до bulk-insert."""
+    session.execute(
+        text(
+            """
+            ALTER TABLE public.anonymized_incity_orders
+            ADD COLUMN IF NOT EXISTS order_channel TEXT NOT NULL DEFAULT 'unknown'
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_anonymized_incity_orders_channel
+            ON public.anonymized_incity_orders (order_channel)
+            """
+        )
+    )
+    session.flush()
 
 # (city_id, offset_hours, price_multiplier, cancel_bias) — cancel_bias увеличивает долю отмен
 DEMO_CITIES: tuple[tuple[str, int, float, float], ...] = (
@@ -226,6 +247,7 @@ def replace_demo_orders_dataset(session, *, anchor: date | None = None) -> int:
     Удаляет DEMO-* заказы и вставляет свежий набор. Возвращает число вставленных строк.
     """
     anchor = anchor or date.today()
+    ensure_order_channel_schema(session)
     session.execute(delete(AnonymizedIncityOrder).where(AnonymizedIncityOrder.order_id.like(f"{DEMO_ORDER_PREFIX}%")))
     rows = list(_iter_demo_rows(anchor))
     for part in chunked(rows, 250):
