@@ -22,10 +22,12 @@ cp frontend/.env.example frontend/.env
 docker compose up --build
 ```
 
-Services:
+Services (порты по умолчанию; см. `FRONTEND_PORT`, `POSTGRES_PORT` в корневом `.env`):
 - frontend: http://localhost:3000
 - backend: http://localhost:8000
 - postgres: localhost:5432
+
+**CORS:** если фронт открыт на другом порту (например `FRONTEND_PORT=3001` из‑за занятого `:3000`), в `BACKEND_CORS_ORIGINS` / `CORS_ORIGINS` должен быть тот же origin (`http://localhost:3001`). В репозитории по умолчанию разрешены и `:3000`, и `:3001` (см. `docker-compose.yml` и `backend/.env.example`).
 
 Backend startup sequence:
 1. wait for PostgreSQL

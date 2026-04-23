@@ -31,9 +31,10 @@ def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.app_version, debug=settings.debug)
 
     cors_origins = list(settings.cors_origins)
-    if env in ("demo", "production", "prod") and cors_origins == ["http://localhost:3000"]:
+    _localhost_dev_origins = {"http://localhost:3000", "http://localhost:3001"}
+    if env in ("demo", "production", "prod") and cors_origins and set(cors_origins) <= _localhost_dev_origins:
         logger.warning(
-            "CORS по умолчанию localhost для app_env=%s — задайте CORS_ORIGINS под реальные фронт-хосты.",
+            "CORS только localhost для app_env=%s — задайте CORS_ORIGINS под реальные фронт-хосты.",
             settings.app_env,
         )
 

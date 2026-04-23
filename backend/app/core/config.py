@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
     # В prod задайте через окружение; пустое значение в dev обрабатывается в app.core.security.
     jwt_secret: str = ""
