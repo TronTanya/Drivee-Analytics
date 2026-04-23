@@ -13,7 +13,6 @@ import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { runAnalyticsPipeline } from "@/lib/api";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
 import type { NotebookRunRow, QueryHistoryRow } from "@/lib/system/mock-data";
-import { MOCK_NOTEBOOK_RUNS, MOCK_QUERY_HISTORY } from "@/lib/system/mock-data";
 import type { NotebookRunDto, QueryHistoryDto } from "@/types/api/history";
 
 function StatusPill({ status }: { status: NotebookRunRow["status"] }) {
@@ -70,7 +69,7 @@ export function HistoryClient() {
   const [histTo, setHistTo] = useState("");
   const [histType, setHistType] = useState("all");
   const [histScope, setHistScope] = useState<"mine" | "workspace">("mine");
-  const notebookRunsQuery = useNotebookRuns();
+  const notebookRunsQuery = useNotebookRuns(workspaceQuery.data);
   const queryHistoryQuery = useQueryHistory(workspaceQuery.data, {
     q: histQ.trim() || undefined,
     date_from: histFrom ? `${histFrom}T00:00:00Z` : undefined,
@@ -78,8 +77,8 @@ export function HistoryClient() {
     query_type: histType === "all" ? undefined : histType,
     scope: histScope
   });
-  const [runsState, setRunsState] = useState<NotebookRunRow[]>(MOCK_NOTEBOOK_RUNS);
-  const [queriesState, setQueriesState] = useState<QueryHistoryRow[]>(MOCK_QUERY_HISTORY);
+  const [runsState, setRunsState] = useState<NotebookRunRow[]>([]);
+  const [queriesState, setQueriesState] = useState<QueryHistoryRow[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [busyQueryId, setBusyQueryId] = useState<string | null>(null);
@@ -94,11 +93,11 @@ export function HistoryClient() {
       : null;
 
   useEffect(() => {
+    if (notebookRunsQuery.data === undefined) return;
     const incoming = (notebookRunsQuery.data ?? []).map(mapRunDtoToRow);
-    if (incoming.length) {
-      setRunsState(incoming);
-      if (!expanded) setExpanded(incoming[0].id);
-    }
+    setRunsState(incoming);
+    if (!expanded && incoming.length) setExpanded(incoming[0].id);
+    if (expanded && !incoming.some((x) => x.id === expanded)) setExpanded(incoming[0]?.id ?? null);
   }, [notebookRunsQuery.data, expanded]);
 
   useEffect(() => {
@@ -332,6 +331,10 @@ export function HistoryClient() {
       </div>
 
       <SectionCard title="История запусков сценариев">
+        <p className="mb-3 text-xs text-foreground-muted">
+          Действия для этого блока временно работают в локальном режиме: backend-роуты для rerun/save из истории
+          ещё не добавлены.
+        </p>
         <div className="space-y-3">
           {runs.map((row) => (
             <div

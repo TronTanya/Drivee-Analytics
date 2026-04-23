@@ -1,6 +1,5 @@
 import { ApiError, apiFetchJson } from "@/lib/api/client";
 import { isApiMockFallback, isApiMockOnly } from "@/lib/api/config";
-import { requestJson } from "@/lib/api/request";
 import { mockListNotebookRuns, mockListQueryHistory } from "@/lib/api/mocks";
 import type { NotebookRunDto, QueryHistoryDto, QueryHistoryFilters } from "@/types/api/history";
 
@@ -52,12 +51,41 @@ function buildHistoryPath(workspaceId: string, filters: QueryHistoryFilters): st
   return `/api/v1/history?${qs.toString()}`;
 }
 
-export async function fetchNotebookRuns(): Promise<NotebookRunDto[]> {
-  return requestJson({
-    path: "/api/v1/history/notebook-runs",
-    init: { method: "GET", cache: "no-store" },
-    mock: () => mockListNotebookRuns()
-  });
+function mapHistoryItemToRun(row: HistoryApiItem): NotebookRunDto {
+  const execution = (row.execution_status || "").toLowerCase();
+  const validation = (row.validation_status || "").toLowerCase();
+  const status: NotebookRunDto["status"] =
+    execution === "failed" ? "failed" : validation === "passed" ? "success" : "partial";
+  const title =
+    row.interpreted_summary?.trim() ||
+    row.original_query?.trim() ||
+    `Сценарий ${row.notebook_id.slice(0, 8)}`;
+  return {
+    id: row.id,
+    ran_at: row.created_at,
+    notebook_id: row.notebook_id,
+    notebook_title: title.slice(0, 120),
+    status,
+    validation_ok: validation === "passed",
+    validation_hint: row.validation_status,
+    trace_summary: row.interpreted_summary || row.original_query || "",
+    duration_ms: 0
+  };
+}
+
+export async function fetchNotebookRuns(workspaceId: string): Promise<NotebookRunDto[]> {
+  if (!workspaceId?.trim()) return [];
+  if (isApiMockOnly()) return mockListNotebookRuns();
+  const path = buildHistoryPath(workspaceId, {});
+  try {
+    const rows = await apiFetchJson<HistoryApiItem[]>(path, { method: "GET", cache: "no-store" });
+    return Array.isArray(rows) ? rows.map(mapHistoryItemToRun) : [];
+  } catch (e) {
+    if (isApiMockFallback() && (e instanceof ApiError ? e.status >= 500 || e.status === 404 || e.status === 401 : true)) {
+      return mockListNotebookRuns();
+    }
+    throw e;
+  }
 }
 
 export async function fetchQueryHistory(
@@ -80,17 +108,14 @@ export async function fetchQueryHistory(
 }
 
 export async function rerunNotebookRun(runId: string): Promise<{ status: string }> {
-  return requestJson({
-    path: `/api/v1/history/notebook-runs/${encodeURIComponent(runId)}/rerun`,
-    init: { method: "POST" },
-    mock: async () => ({ status: "queued" })
-  });
+  void runId;
+  // Backend endpoint для rerun из истории пока не реализован.
+  return { status: "queued" };
 }
 
 export async function saveRunAsReport(runId: string, name: string): Promise<{ report_id: string }> {
-  return requestJson({
-    path: `/api/v1/history/notebook-runs/${encodeURIComponent(runId)}/save-report`,
-    init: { method: "POST", body: JSON.stringify({ name }) },
-    mock: async () => ({ report_id: `r-${Date.now()}` })
-  });
+  void runId;
+  void name;
+  // Backend endpoint для save-report из истории пока не реализован.
+  return { report_id: `r-${Date.now()}` };
 }

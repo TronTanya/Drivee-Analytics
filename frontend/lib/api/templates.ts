@@ -1,6 +1,7 @@
 import { ApiError, apiFetchJson } from "@/lib/api/client";
-import { isApiMockFallback, isApiMockOnly } from "@/lib/api/config";
+import { isApiMockFallback, isApiMockOnly, isDemoModeEnabled } from "@/lib/api/config";
 import { requestJson } from "@/lib/api/request";
+import { getAccessToken } from "@/lib/api/token";
 import { mockListNotebookTemplates, mockListQueryTemplates } from "@/lib/api/mocks";
 import type { NotebookTemplateDto, QueryTemplateDto } from "@/types/api/templates";
 
@@ -33,8 +34,12 @@ function mapQueryTemplate(r: BackendQueryTemplate): QueryTemplateDto {
   };
 }
 
+function shouldUseDemoLocalMock(): boolean {
+  return typeof window !== "undefined" && isDemoModeEnabled() && !getAccessToken();
+}
+
 export async function fetchQueryTemplates(workspaceId: string): Promise<QueryTemplateDto[]> {
-  if (isApiMockOnly()) {
+  if (isApiMockOnly() || shouldUseDemoLocalMock()) {
     return mockListQueryTemplates();
   }
   const path = `/api/v1/templates?workspace_id=${encodeURIComponent(workspaceId)}`;
@@ -50,6 +55,9 @@ export async function fetchQueryTemplates(workspaceId: string): Promise<QueryTem
 }
 
 export async function fetchNotebookTemplates(): Promise<NotebookTemplateDto[]> {
+  if (shouldUseDemoLocalMock()) {
+    return mockListNotebookTemplates();
+  }
   return requestJson({
     path: "/api/v1/templates/notebooks",
     init: { method: "GET", cache: "no-store" },

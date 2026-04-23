@@ -8,6 +8,7 @@ export type ScheduleState = "active" | "paused" | "none";
 export type SavedReportRow = {
   id: string;
   name: string;
+  notebookId?: string | null;
   owner: string;
   updatedAt: string;
   schedule: ScheduleState;

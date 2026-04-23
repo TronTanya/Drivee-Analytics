@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
+import { useCurrentUser } from "@/hooks/api/use-auth";
 import { useNotebookTemplates, useQueryTemplates, useQuickRunQueryTemplate } from "@/hooks/api/use-templates";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import type { UserRole } from "@/lib/types";
@@ -136,10 +137,12 @@ function NotebookTemplateCard({ row }: { row: NotebookTemplateRow }) {
 }
 
 export function TemplatesView() {
+  const meQuery = useCurrentUser();
   const workspaceQuery = useWorkspaceId();
   const workspaceId = workspaceQuery.data;
   const templatesQuery = useQueryTemplates(workspaceId);
   const nbTemplatesQuery = useNotebookTemplates();
+  const [roleView, setRoleView] = useState<"current" | "all">("current");
 
   const queryRowsLive = templatesQuery.data;
   const queryTemplatesForGroup = useMemo(() => {
@@ -172,6 +175,11 @@ export function TemplatesView() {
   }, [nbTemplatesQuery.data]);
 
   const byNb = groupByRole(notebookRows);
+  const currentRole = (meQuery.data?.role as UserRole | undefined) ?? null;
+  const visibleRoles = useMemo<UserRole[]>(
+    () => (roleView === "current" && currentRole ? [currentRole] : ROLE_ORDER),
+    [roleView, currentRole]
+  );
 
   return (
     <div className="space-y-8">
@@ -207,6 +215,35 @@ export function TemplatesView() {
         </div>
       ) : null}
 
+      <div className="rounded-card border border-border-subtle bg-surface-card p-2 shadow-xs">
+        <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+          Отображение ролей
+        </p>
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            onClick={() => setRoleView("current")}
+            aria-pressed={roleView === "current"}
+            disabled={!currentRole}
+            className={`rounded-control px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+              roleView === "current" ? "bg-brand-50 text-brand-900 shadow-xs" : "text-foreground-secondary hover:bg-surface-muted"
+            }`}
+          >
+            Только моя роль{currentRole ? ` (${ROLE_LABEL[currentRole]})` : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoleView("all")}
+            aria-pressed={roleView === "all"}
+            className={`rounded-control px-3 py-1.5 text-xs font-semibold ${
+              roleView === "all" ? "bg-brand-50 text-brand-900 shadow-xs" : "text-foreground-secondary hover:bg-surface-muted"
+            }`}
+          >
+            Все роли
+          </button>
+        </div>
+      </div>
+
       <SectionCard
         title="Шаблоны запросов"
         description={
@@ -216,7 +253,7 @@ export function TemplatesView() {
         }
       >
         <div className="space-y-8">
-          {ROLE_ORDER.map((role) => (
+          {visibleRoles.map((role) => (
             <div key={role}>
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-brand-800">
                 {ROLE_LABEL[role]}
@@ -240,7 +277,7 @@ export function TemplatesView() {
 
       <SectionCard title="Шаблоны сценариев" description="Готовые канвы под рабочие сценарии.">
         <div className="space-y-8">
-          {ROLE_ORDER.map((role) => (
+          {visibleRoles.map((role) => (
             <div key={`nb-${role}`}>
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-brand-800">
                 {ROLE_LABEL[role]}

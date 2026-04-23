@@ -19,6 +19,7 @@ from app.schemas.notebook import (
     NotebookCreateRequest,
     NotebookDetailResponse,
     NotebookListItemResponse,
+    NotebookPatchRequest,
     NotebookSaveScenarioRequest,
     RerunNotebookResponse,
     RunCellResponse,
@@ -112,6 +113,23 @@ class NotebookService:
             updated_at=notebook.updated_at,
             cells=[NotebookCellResponse.model_validate(c) for c in cells],
         )
+
+    def patch_notebook(self, user: User, notebook_id: uuid.UUID, body: NotebookPatchRequest) -> NotebookDetailResponse:
+        if not body.model_dump(exclude_unset=True):
+            raise ValidationException("Укажите хотя бы одно поле: title, description или notebook_status")
+        notebook = self._get_notebook_or_404(notebook_id)
+        if not self._can_access_notebook(user, notebook):
+            raise ForbiddenException("No access to this notebook")
+        if body.title is not None:
+            notebook.title = body.title.strip()
+        if body.description is not None:
+            notebook.description = body.description
+        if body.notebook_status is not None:
+            notebook.notebook_status = body.notebook_status.strip()
+        self._session().add(notebook)
+        self._session().commit()
+        self._session().refresh(notebook)
+        return self.get_notebook(user, notebook_id)
 
     def add_cell(self, user: User, notebook_id: uuid.UUID, body: NotebookCellCreateRequest) -> NotebookCellResponse:
         notebook = self._get_notebook_or_404(notebook_id)

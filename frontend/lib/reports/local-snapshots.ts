@@ -10,6 +10,10 @@ export type ReportSnapshot = {
   confidence?: number;
   warnings?: string[];
   table_preview?: Array<Record<string, string | number>>;
+  /** Тип графика в сценарии (line, bar, …) */
+  chart_type?: string;
+  /** Краткое описание шагов trace для PDF */
+  trace_summary?: string;
   created_at: string;
 };
 

@@ -22,6 +22,8 @@ export type NotebookDetailDto = NotebookListItemDto & {
 export type CreateNotebookRequestDto = {
   title: string;
   description?: string;
+  /** UUID workspace; на бэкенде подставится default workspace пользователя, если не передан */
+  workspace_id?: string;
   role_hint?: UserRole;
 };
 

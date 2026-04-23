@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/api/client";
-import { isApiMockFallback, isApiMockOnly } from "@/lib/api/config";
+import { isApiMockFallback, isApiMockOnly, isDemoModeEnabled } from "@/lib/api/config";
 import { requestJson } from "@/lib/api/request";
 import { clearTokens, getAccessToken, setTokenPair } from "@/lib/api/token";
 import { mockLogin, mockMe, mockRegister } from "@/lib/api/mocks";
@@ -26,12 +26,16 @@ export async function register(body: RegisterRequestDto): Promise<AuthSessionDto
 }
 
 export async function fetchCurrentUser(): Promise<UserDto> {
-  // Без JWT не вызываем сеть: иначе браузер сыплет 401 в консоль, а fallback всё равно подставит мок.
+  // В demo-режиме без JWT пробуем live /auth/me (backend вернёт demo-user через bypass),
+  // и только при неуспехе деградируем в mock.
   if (typeof window !== "undefined" && !getAccessToken()) {
-    if (isApiMockOnly() || isApiMockFallback()) {
+    if (isApiMockOnly()) {
       return mockMe();
     }
-    throw new ApiError("Требуется вход", 401);
+    if (!isDemoModeEnabled()) {
+      if (isApiMockFallback()) return mockMe();
+      throw new ApiError("Требуется вход", 401);
+    }
   }
   return requestJson({
     path: "/api/v1/auth/me",

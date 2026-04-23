@@ -10,10 +10,11 @@ import {
 import { queryKeys } from "@/hooks/api/query-keys";
 import type { QueryHistoryFilters } from "@/types/api/history";
 
-export function useNotebookRuns() {
+export function useNotebookRuns(workspaceId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.history.notebookRuns(),
-    queryFn: fetchNotebookRuns,
+    queryKey: [...queryKeys.history.notebookRuns(), workspaceId ?? "none"],
+    queryFn: () => fetchNotebookRuns(workspaceId!),
+    enabled: Boolean(workspaceId && workspaceId.length >= 8),
     staleTime: 20_000
   });
 }

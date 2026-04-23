@@ -36,6 +36,20 @@ from app.services.report_service import (
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+def _infer_report_format(payload: dict) -> str:
+    raw = (
+        payload.get("format")
+        or payload.get("export_format")
+        or (payload.get("result_metadata") or {}).get("format")
+        or (payload.get("result_metadata") or {}).get("export_format")
+        or "pdf"
+    )
+    value = str(raw).strip().lower()
+    if value in {"pdf", "csv", "slides", "notebook"}:
+        return value
+    return "pdf"
+
+
 @router.post("", response_model=SavedReportDetail)
 def create_report(
     body: SavedReportCreate,
@@ -82,6 +96,7 @@ def list_reports(
             created_at=r.created_at,
             updated_at=r.updated_at,
             has_schedule=bool(r.schedules),
+            report_format=_infer_report_format(dict(r.report_payload_json or {})),
         )
         for r in rows
     ]

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { AddCellComposer } from "@/components/notebook/add-cell-composer";
 import { RunAllButton } from "@/components/notebook/run-all-button";
 import { NotebookCanvas } from "@/components/notebook/notebook-canvas";
@@ -22,16 +23,24 @@ import {
 } from "@/components/notebook/notebook-states";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { useCreateReport } from "@/hooks/api/use-reports";
+import { useNotebook } from "@/hooks/api/use-notebooks";
+import { queryKeys } from "@/hooks/api/query-keys";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useAnalyticsBusyPhaseHint } from "@/hooks/use-analytics-busy-phase-hint";
 import { createNotebook, saveNotebookScenario } from "@/lib/api/notebooks";
-import { downloadReportPdf, type ReportPdfMode } from "@/lib/api/reports";
+import {
+  downloadNotebookScenarioPdf,
+  downloadReportPdf,
+  type ReportPdfMode,
+  type ScenarioPdfSnapshot
+} from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
 import { TracePanel } from "@/components/notebook/trace-panel";
 import {
   ApiError,
   getApiBaseUrl,
+  isDemoModeEnabled,
   isApiMockFallback,
   isApiMockOnly,
   runAnalyticsPipeline,
@@ -48,6 +57,7 @@ import {
   topCityCancellations,
   topCityLimitFromPrompt
 } from "@/lib/demo/seeded-data";
+import { mockRunAnalytics } from "@/lib/api/mocks";
 import { isUuidString } from "@/lib/utils/uuid";
 
 // DeepSeek flow may include several sequential LLM calls in one pipeline run.
@@ -335,6 +345,7 @@ function buildDemoBlocks(notebookId: string, promptOverride?: string): NotebookB
 export default function NotebookDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const notebookId = String(params.id ?? "");
 
   const [boot, setBoot] = useState<"loading" | "ready" | "error">("loading");
@@ -358,9 +369,11 @@ export default function NotebookDetailsPage() {
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
   const createReport = useCreateReport();
   const workspaceQuery = useWorkspaceId();
+  const isLocalDemoNotebook = useMemo(() => notebookId.startsWith("demo-"), [notebookId]);
+  const notebookMetaQuery = useNotebook(isUuidString(notebookId) ? notebookId : undefined);
   const useDeterministicFallback = useMemo(
-    () => isApiMockOnly() || shouldForceAnalyticsMock(),
-    []
+    () => isLocalDemoNotebook || isApiMockOnly() || shouldForceAnalyticsMock(),
+    [isLocalDemoNotebook]
   );
 
   useEffect(() => {
@@ -422,7 +435,11 @@ export default function NotebookDetailsPage() {
     };
   }, [notebookId, useDeterministicFallback]);
 
-  const title = useMemo(() => `Сценарий ${notebookId}`, [notebookId]);
+  const title = useMemo(() => {
+    const dbTitle = notebookMetaQuery.data?.title?.trim();
+    if (dbTitle) return dbTitle;
+    return `Сценарий ${notebookId}`;
+  }, [notebookId, notebookMetaQuery.data?.title]);
   const apiModeLabel = useMemo(() => {
     if (shouldForceAnalyticsMock()) return "Mock analytics";
     if (isApiMockOnly()) return "Mock only";
@@ -448,6 +465,20 @@ export default function NotebookDetailsPage() {
     pendingAnalyticsOptsRef.current = {};
     return next;
   }, []);
+
+  const runAnalyticsWithLocalFallback = useCallback(
+    async (prompt: string, options?: NotebookAnalyticsRunOptions) => {
+      if (isLocalDemoNotebook) {
+        return mockRunAnalytics({
+          notebook_id: notebookId,
+          prompt,
+          ...(options ?? {})
+        });
+      }
+      return runAnalyticsPipeline(notebookId, prompt, options);
+    },
+    [isLocalDemoNotebook, notebookId]
+  );
 
   const emptyAnalyticTable = useMemo(
     () =>
@@ -490,14 +521,13 @@ export default function NotebookDetailsPage() {
     };
   }, []);
 
-  const buildSnapshot = useCallback((reportId: string, reportName: string) => {
+  const collectScenarioPdfFields = useCallback((): ScenarioPdfSnapshot => {
     const prompt = [...blocks].reverse().find((b) => b.type === "prompt");
     const sql = [...blocks].reverse().find((b) => b.type === "sql");
     const insight = [...blocks].reverse().find((b) => b.type === "insight");
     const table = [...blocks].reverse().find((b) => b.type === "table");
-    upsertReportSnapshot({
-      report_id: reportId,
-      report_name: reportName,
+    const chart = [...blocks].reverse().find((b) => b.type === "chart");
+    return {
       notebook_id: notebookId,
       prompt: prompt && prompt.type === "prompt" ? prompt.text : undefined,
       sql: sql && sql.type === "sql" ? sql.sql : traceModel.generatedSql || undefined,
@@ -507,33 +537,82 @@ export default function NotebookDetailsPage() {
           : undefined,
       confidence: traceModel.confidence,
       warnings: traceModel.warnings,
-      table_preview: table && table.type === "table" ? table.rows.slice(0, 5) : undefined,
-      created_at: new Date().toISOString()
-    });
-  }, [blocks, notebookId, traceModel.confidence, traceModel.generatedSql, traceModel.warnings]);
+      table_preview:
+        table && table.type === "table" && table.rows.length
+          ? table.rows.slice(0, 40)
+          : undefined,
+      chart_type:
+        chart && chart.type === "chart"
+          ? chart.chartType
+          : traceModel.chartRecommendation.chartType,
+      trace_summary:
+        traceModel.steps.map((s) => `${s.label}: ${s.status}`).join(" · ") ||
+        traceModel.interpretedIntent ||
+        undefined
+    };
+  }, [
+    blocks,
+    notebookId,
+    traceModel.chartRecommendation.chartType,
+    traceModel.confidence,
+    traceModel.generatedSql,
+    traceModel.interpretedIntent,
+    traceModel.steps,
+    traceModel.warnings
+  ]);
 
-  const handleDownloadPdf = useCallback(async (mode: ReportPdfMode) => {
-    if (!lastReport) return;
-    setPageError(null);
-    setPageNotice(null);
-    setDownloadingPdfMode(mode);
-    try {
-      const blob = await downloadReportPdf(lastReport.id, lastReport.name, mode);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${lastReport.name.replace(/[^\p{L}\p{N}\-_ ]/gu, "").replace(/\s+/g, "_") || "report"}-${mode}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
-      setPageNotice(`PDF отчета "${lastReport.name}" скачан (${mode}).`);
-    } catch {
-      setPageError("Не удалось скачать PDF отчета.");
-    } finally {
-      setDownloadingPdfMode(null);
-    }
-  }, [lastReport]);
+  const buildSnapshot = useCallback(
+    (reportId: string, reportName: string) => {
+      upsertReportSnapshot({
+        report_id: reportId,
+        report_name: reportName,
+        created_at: new Date().toISOString(),
+        ...collectScenarioPdfFields()
+      });
+    },
+    [collectScenarioPdfFields]
+  );
+
+  const handleDownloadPdf = useCallback(
+    async (mode: ReportPdfMode) => {
+      setPageError(null);
+      setPageNotice(null);
+      setDownloadingPdfMode(mode);
+      const pdfFields = collectScenarioPdfFields();
+      const safeNameBase = lastReport?.name ?? title;
+      try {
+        let blob: Blob;
+        if (lastReport) {
+          buildSnapshot(lastReport.id, lastReport.name);
+          blob = await downloadReportPdf(lastReport.id, lastReport.name, mode, pdfFields);
+        } else {
+          blob = await downloadNotebookScenarioPdf(safeNameBase, mode, pdfFields);
+        }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        const downloadStem =
+          (lastReport?.name ?? safeNameBase)
+            .replace(/[^\p{L}\p{N}\-_ ]/gu, "")
+            .replace(/\s+/g, "_") || "scenario";
+        link.download = `${downloadStem}-${mode}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        setPageNotice(
+          lastReport
+            ? `PDF отчёта «${lastReport.name}» скачан (${mode}).`
+            : `PDF сценария скачан (${mode}); включены таблица, график (если есть числовые колонки), SQL и trace.`
+        );
+      } catch {
+        setPageError("Не удалось сформировать PDF.");
+      } finally {
+        setDownloadingPdfMode(null);
+      }
+    },
+    [lastReport, buildSnapshot, collectScenarioPdfFields, title]
+  );
 
   const handleDownloadResultCsv = useCallback(() => {
     setPageError(null);
@@ -569,7 +648,11 @@ export default function NotebookDetailsPage() {
     setPageNotice(null);
     const workspaceId = workspaceQuery.data;
     if (!workspaceId) {
-      setPageError("Нужен workspace: войдите в систему или задайте NEXT_PUBLIC_DEFAULT_WORKSPACE_ID.");
+      setPageError(
+        isDemoModeEnabled()
+          ? "Не удалось определить demo workspace. Обновите страницу или войдите в систему."
+          : "Нужен workspace: войдите в систему."
+      );
       return;
     }
     setSavingReport(true);
@@ -645,6 +728,10 @@ export default function NotebookDetailsPage() {
     if (composerBusy) return;
     setPageError(null);
     setPageNotice(null);
+    if (isLocalDemoNotebook) {
+      setPageNotice("Локальный demo-сценарий сохранён в браузере (без записи в БД).");
+      return;
+    }
     setSavingScenario(true);
     const lastPrompt = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim());
     const promptPreview =
@@ -654,9 +741,11 @@ export default function NotebookDetailsPage() {
       let targetNotebookId = notebookId;
       let autoCreated = false;
       if (!canPersistNotebook) {
+        const ws = workspaceQuery.data;
         const created = await createNotebook({
           title: `Сценарий ${notebookId}`,
-          description: "Автосоздано из slug-страницы для серверного сохранения."
+          description: "Автосоздано из slug-страницы для серверного сохранения.",
+          ...(ws ? { workspace_id: ws } : {})
         });
         targetNotebookId = created.id;
         autoCreated = true;
@@ -665,6 +754,7 @@ export default function NotebookDetailsPage() {
         scenario_title: scenarioTitle,
         scenario_description: promptPreview || undefined
       });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notebooks.list() });
       setAuthRequired(false);
       setPageNotice(
         autoCreated
@@ -675,7 +765,7 @@ export default function NotebookDetailsPage() {
         router.push(`/notebooks/${targetNotebookId}`);
       }
     } catch (error) {
-      if (isAuthError(error)) {
+      if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
       }
       const msg =
@@ -688,7 +778,7 @@ export default function NotebookDetailsPage() {
     } finally {
       setSavingScenario(false);
     }
-  }, [canPersistNotebook, composerBusy, notebookId, router, blocks]);
+  }, [canPersistNotebook, composerBusy, isLocalDemoNotebook, notebookId, queryClient, router, workspaceQuery.data, blocks]);
 
   const handleChartTypeChange = useCallback((id: string, chartType: ChartKind) => {
     setBlocks((prev) =>
@@ -725,7 +815,7 @@ export default function NotebookDetailsPage() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
-        runAnalyticsPipeline(notebookId, clarificationPrompt, popPendingAnalyticsOpts()),
+        runAnalyticsWithLocalFallback(clarificationPrompt, popPendingAnalyticsOpts()),
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
         })
@@ -784,7 +874,7 @@ export default function NotebookDetailsPage() {
       setAuthRequired(false);
       setClarificationRunVersion((v) => v + 1);
     } catch (error) {
-      if (isAuthError(error)) {
+      if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
       }
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
@@ -810,7 +900,7 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [blocks, notebookId, popPendingAnalyticsOpts, useDeterministicFallback]);
+  }, [blocks, isLocalDemoNotebook, notebookId, popPendingAnalyticsOpts, runAnalyticsWithLocalFallback, useDeterministicFallback]);
 
   const runSingleCell = useCallback(async (id: string) => {
     setBlocks((prev) =>
@@ -863,7 +953,7 @@ export default function NotebookDetailsPage() {
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       try {
         const result = await Promise.race([
-          runAnalyticsPipeline(notebookId, text, popPendingAnalyticsOpts()),
+          runAnalyticsWithLocalFallback(text, popPendingAnalyticsOpts()),
           new Promise<never>((_, reject) => {
             timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
           })
@@ -894,7 +984,7 @@ export default function NotebookDetailsPage() {
         });
         setAuthRequired(false);
       } catch (error) {
-        if (isAuthError(error)) {
+        if (isAuthError(error) && !isLocalDemoNotebook) {
           setAuthRequired(true);
         }
         const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
@@ -916,7 +1006,7 @@ export default function NotebookDetailsPage() {
         setComposerBusy(false);
       }
     },
-    [notebookId, popPendingAnalyticsOpts, useDeterministicFallback]
+    [isLocalDemoNotebook, notebookId, popPendingAnalyticsOpts, runAnalyticsWithLocalFallback, useDeterministicFallback]
   );
 
   const handleComposerSubmit = useCallback(async () => {
@@ -937,7 +1027,7 @@ export default function NotebookDetailsPage() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
-        runAnalyticsPipeline(notebookId, text, popPendingAnalyticsOpts()),
+        runAnalyticsWithLocalFallback(text, popPendingAnalyticsOpts()),
         new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error("ANALYTICS_TIMEOUT")), ANALYTICS_TIMEOUT_MS);
         })
@@ -969,7 +1059,7 @@ export default function NotebookDetailsPage() {
       });
       setAuthRequired(false);
     } catch (error) {
-      if (isAuthError(error)) {
+      if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
       }
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
@@ -988,7 +1078,7 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [notebookId, popPendingAnalyticsOpts, useDeterministicFallback]);
+  }, [isLocalDemoNotebook, notebookId, popPendingAnalyticsOpts, runAnalyticsWithLocalFallback, useDeterministicFallback]);
 
   const handleTracePanelRerun = useCallback(
     async (opts: NotebookAnalyticsRunOptions) => {
@@ -1132,8 +1222,8 @@ export default function NotebookDetailsPage() {
               <button
                 type="button"
                 onClick={() => void handleDownloadPdf(getDefaultReportPdfMode())}
-                disabled={!lastReport || downloadingPdfMode !== null}
-                title="Режим PDF (compact/board) берётся из настроек отчёта в localStorage"
+                disabled={downloadingPdfMode !== null}
+                title="Экспорт текущего сценария в PDF (таблица, график, SQL, trace). Режим compact/board — из настроек в localStorage. Сохранённый отчёт не обязателен."
                 className="w-full rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary shadow-xs hover:border-brand-200 hover:text-brand-800 disabled:opacity-50 sm:w-auto"
               >
                 {downloadingPdfMode ? "Скачивание…" : "PDF"}
@@ -1155,7 +1245,7 @@ export default function NotebookDetailsPage() {
           }
         />
 
-        {authRequired ? (
+        {authRequired && !isLocalDemoNotebook ? (
           <section className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <p className="font-semibold">Нужна авторизация</p>
             <p className="mt-1">Backend вернул 401/403. Войдите в систему, затем повторите действие.</p>

@@ -70,6 +70,7 @@ export type SavedReportListApiDto = {
   created_at: string;
   updated_at: string;
   has_schedule: boolean;
+  report_format?: "pdf" | "csv" | "slides" | "notebook" | string;
 };
 
 export type SavedReportDetailApiDto = SavedReportListApiDto & {

@@ -4,7 +4,22 @@ import type { ReportPdfMode } from "@/lib/preferences/report-pdf";
 export type { ReportPdfMode } from "@/lib/preferences/report-pdf";
 import { requestJson } from "@/lib/api/request";
 import { mockListReports, mockListScenarios } from "@/lib/api/mocks";
-import { getReportSnapshot } from "@/lib/reports/local-snapshots";
+import { getReportSnapshot, type ReportSnapshot } from "@/lib/reports/local-snapshots";
+import { fetchNotebooks } from "@/lib/api/notebooks";
+
+/** Поля снимка для клиентского PDF (без обязательных id/имени отчёта). */
+export type ScenarioPdfSnapshot = Pick<
+  ReportSnapshot,
+  | "notebook_id"
+  | "prompt"
+  | "sql"
+  | "insight"
+  | "confidence"
+  | "warnings"
+  | "table_preview"
+  | "chart_type"
+  | "trace_summary"
+>;
 import type {
   CreateReportScheduleRequestDto,
   CreateSavedReportRequestDto,
@@ -25,11 +40,22 @@ export async function fetchSavedReports(workspaceId: string): Promise<SavedRepor
 }
 
 export async function fetchNotebookScenarios(): Promise<NotebookScenarioDto[]> {
-  return requestJson({
-    path: "/api/v1/reports/scenarios",
-    init: { method: "GET", cache: "no-store" },
-    mock: () => mockListScenarios()
-  });
+  try {
+    const notebooks = await fetchNotebooks();
+    return notebooks.map((n) => ({
+      id: n.id,
+      name: n.title,
+      notebook_id: n.id,
+      owner_email: null,
+      updated_at: n.updated_at ?? n.created_at,
+      schedule: "none"
+    }));
+  } catch (error) {
+    if (isApiMockOnly() || isApiMockFallback()) {
+      return mockListScenarios();
+    }
+    throw error;
+  }
 }
 
 function normalizeCreateReportBody(
@@ -161,15 +187,37 @@ function firstNumericColumn(rows: Array<Record<string, string | number>>): strin
   return null;
 }
 
-async function makeFallbackPdfBlob(reportId: string, reportName: string, mode: ReportPdfMode): Promise<Blob> {
+function mergePdfSnapshot(
+  reportId: string,
+  reportName: string,
+  snapshotOverride: ScenarioPdfSnapshot | null | undefined
+): ReportSnapshot | null {
+  if (snapshotOverride) {
+    return {
+      report_id: reportId,
+      report_name: reportName,
+      created_at: new Date().toISOString(),
+      ...snapshotOverride
+    };
+  }
+  return getReportSnapshot(reportId);
+}
+
+async function makeFallbackPdfBlob(
+  reportId: string,
+  reportName: string,
+  mode: ReportPdfMode,
+  snapshotOverride?: ScenarioPdfSnapshot | null
+): Promise<Blob> {
   if (typeof document === "undefined") {
     return new Blob([`Drivee Analytics\n${reportName}`], { type: "application/pdf" });
   }
 
-  const snapshot = getReportSnapshot(reportId);
+  const snapshot = mergePdfSnapshot(reportId, reportName, snapshotOverride);
   const canvas = document.createElement("canvas");
   canvas.width = 1240;
-  canvas.height = 1754;
+  const previewRows = snapshot?.table_preview?.length ?? 0;
+  canvas.height = Math.min(3400, 1780 + Math.max(0, previewRows - 6) * 26);
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     return new Blob([`Drivee Analytics\n${reportName}`], { type: "application/pdf" });
@@ -232,12 +280,19 @@ async function makeFallbackPdfBlob(reportId: string, reportName: string, mode: R
   if (snapshot?.sql) {
     drawLabeledText("SQL", snapshot.sql);
   }
+  if (snapshot?.chart_type) {
+    drawLabeledText("Тип графика", snapshot.chart_type);
+  }
+  if (snapshot?.trace_summary) {
+    drawLabeledText("Trace / шаги", snapshot.trace_summary);
+  }
 
   // Diagram + table from data
   if (snapshot?.table_preview?.length) {
     const rows = snapshot.table_preview;
     const xCol = Object.keys(rows[0] ?? {})[0];
     const yCol = firstNumericColumn(rows);
+    const chartKind = snapshot.chart_type?.toLowerCase() ?? "line";
 
     if (xCol && yCol) {
       const chartTop = y + 8;
@@ -255,38 +310,62 @@ async function makeFallbackPdfBlob(reportId: string, reportName: string, mode: R
       const min = Math.min(...values, 0);
       const span = Math.max(max - min, 1);
 
-      ctx.strokeStyle = "#16a34a";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      rows.forEach((row, i) => {
-        const px = chartX + 30 + (i * (chartW - 60)) / Math.max(rows.length - 1, 1);
-        const py = chartTop + chartH - 25 - ((Number(row[yCol] ?? 0) - min) / span) * (chartH - 50);
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.stroke();
+      if (chartKind === "bar") {
+        const barCount = rows.length;
+        const gap = 8;
+        const barW = Math.max(12, (chartW - 60 - gap * (barCount - 1)) / Math.max(barCount, 1));
+        let bx = chartX + 30;
+        rows.forEach((row) => {
+          const v = Number(row[yCol] ?? 0);
+          const h = ((v - min) / span) * (chartH - 50);
+          ctx.fillStyle = "#16a34a";
+          ctx.fillRect(bx, chartTop + chartH - 25 - h, barW, h);
+          bx += barW + gap;
+        });
+      } else {
+        ctx.strokeStyle = "#16a34a";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        rows.forEach((row, i) => {
+          const px = chartX + 30 + (i * (chartW - 60)) / Math.max(rows.length - 1, 1);
+          const py = chartTop + chartH - 25 - ((Number(row[yCol] ?? 0) - min) / span) * (chartH - 50);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+      }
 
       ctx.fillStyle = "#065f46";
       ctx.font = "700 20px -apple-system, BlinkMacSystemFont, Segoe UI, Inter, Arial";
-      ctx.fillText(`Диаграмма: ${yCol} по ${xCol}`, chartX + 12, chartTop + 24);
+      ctx.fillText(
+        `Диаграмма (${chartKind}): ${yCol} по ${xCol}`,
+        chartX + 12,
+        chartTop + 24
+      );
       y = chartTop + chartH + 36;
+    } else if (rows.length) {
+      drawLabeledText(
+        "Диаграмма",
+        "Нет числовой колонки для построения графика — в PDF включена только таблица."
+      );
     }
 
     ctx.fillStyle = "#0f172a";
     ctx.font = "700 24px -apple-system, BlinkMacSystemFont, Segoe UI, Inter, Arial";
-    ctx.fillText("Данные (первые строки)", left, y);
+    ctx.fillText(`Данные (до ${Math.min(rows.length, 20)} строк)`, left, y);
     y += 30;
 
-    const cols = Object.keys(rows[0]).slice(0, 4);
+    const cols = Object.keys(rows[0]).slice(0, 6);
     ctx.font = "700 19px -apple-system, BlinkMacSystemFont, Segoe UI, Inter, Arial";
     ctx.fillStyle = "#334155";
     ctx.fillText(cols.join(" | "), left, y);
     y += 24;
     ctx.font = "500 18px -apple-system, BlinkMacSystemFont, Segoe UI, Inter, Arial";
     ctx.fillStyle = "#111827";
-    for (const row of rows.slice(0, 6)) {
+    for (const row of rows.slice(0, 20)) {
       const line = cols.map((c) => String(row[c] ?? "")).join(" | ");
       for (const wrapped of wrapText(ctx, line, contentWidth)) {
+        if (y > canvas.height - 80) break;
         ctx.fillText(wrapped, left, y);
         y += 22;
       }
@@ -393,17 +472,37 @@ function makeUltraSafePdfBlob(reportName: string): Blob {
   return new Blob(chunks, { type: "application/pdf" });
 }
 
-async function getSafeFallbackPdfBlob(reportId: string, reportName: string, mode: ReportPdfMode): Promise<Blob> {
+async function getSafeFallbackPdfBlob(
+  reportId: string,
+  reportName: string,
+  mode: ReportPdfMode,
+  snapshotOverride?: ScenarioPdfSnapshot | null
+): Promise<Blob> {
   try {
-    return await makeFallbackPdfBlob(reportId, reportName, mode);
+    return await makeFallbackPdfBlob(reportId, reportName, mode, snapshotOverride);
   } catch {
     return makeUltraSafePdfBlob(reportName);
   }
 }
 
-export async function downloadReportPdf(reportId: string, reportName: string, mode: ReportPdfMode = "board"): Promise<Blob> {
+/** PDF из текущего сценария (без сохранённого отчёта на сервере): таблица, график, SQL, trace. */
+export async function downloadNotebookScenarioPdf(
+  reportName: string,
+  mode: ReportPdfMode,
+  snapshot: ScenarioPdfSnapshot
+): Promise<Blob> {
+  const syntheticId = `notebook-pdf:${Date.now()}`;
+  return getSafeFallbackPdfBlob(syntheticId, reportName, mode, snapshot);
+}
+
+export async function downloadReportPdf(
+  reportId: string,
+  reportName: string,
+  mode: ReportPdfMode = "board",
+  snapshotOverride?: ScenarioPdfSnapshot | null
+): Promise<Blob> {
   if (isApiMockOnly()) {
-    return await getSafeFallbackPdfBlob(reportId, reportName, mode);
+    return await getSafeFallbackPdfBlob(reportId, reportName, mode, snapshotOverride);
   }
   try {
     const res = await apiFetch(`/api/v1/reports/${encodeURIComponent(reportId)}/download?mode=${encodeURIComponent(mode)}`, { method: "GET" });
@@ -415,6 +514,6 @@ export async function downloadReportPdf(reportId: string, reportName: string, mo
   } catch {
     // Always degrade to local PDF in UI flows:
     // backend can be unavailable/auth-protected in demo mode.
-    return await getSafeFallbackPdfBlob(reportId, reportName, mode);
+    return await getSafeFallbackPdfBlob(reportId, reportName, mode, snapshotOverride);
   }
 }

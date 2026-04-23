@@ -36,7 +36,8 @@ class TokenPairResponse(BaseModel):
 
 class UserMeResponse(BaseModel):
     id: UUID
-    email: EmailStr
+    # Для demo-аккаунтов поддерживаем адреса вида *.local (pydantic EmailStr их отсекает как reserved).
+    email: str
     role: RoleKey
     is_active: bool
     is_demo_user: bool

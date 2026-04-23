@@ -18,6 +18,12 @@ class NotebookCreateRequest(BaseModel):
     initial_context: Optional[NotebookContext] = None
 
 
+class NotebookPatchRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    description: Optional[str] = None
+    notebook_status: Optional[str] = Field(default=None, max_length=32)
+
+
 class NotebookCellCreateRequest(BaseModel):
     cell_type: NotebookCellTypeLiteral
     prompt_text: Optional[str] = None

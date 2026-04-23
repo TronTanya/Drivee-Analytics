@@ -13,6 +13,7 @@ from app.schemas.notebook import (
     NotebookCreateRequest,
     NotebookDetailResponse,
     NotebookListItemResponse,
+    NotebookPatchRequest,
     NotebookSaveScenarioRequest,
     RerunNotebookResponse,
     RunCellResponse,
@@ -48,6 +49,16 @@ def get_notebook(
     service: NotebookService = Depends(get_notebook_service),
 ) -> NotebookDetailResponse:
     return service.get_notebook(user, notebook_id)
+
+
+@router.patch("/{notebook_id}", response_model=NotebookDetailResponse)
+def patch_notebook(
+    notebook_id: uuid.UUID,
+    body: NotebookPatchRequest,
+    user: User = Depends(get_current_active_user),
+    service: NotebookService = Depends(get_notebook_service),
+) -> NotebookDetailResponse:
+    return service.patch_notebook(user, notebook_id, body)
 
 
 @router.post("/{notebook_id}/cells", response_model=NotebookCellResponse)

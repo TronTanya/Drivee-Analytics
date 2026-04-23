@@ -2,6 +2,7 @@
 
 import type { Route } from "next";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
@@ -16,12 +17,14 @@ import {
   useRerunReport,
   useSavedReports
 } from "@/hooks/api/use-reports";
+import { useCurrentUser } from "@/hooks/api/use-auth";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { downloadReportPdf, type ReportPdfMode } from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
 import { useUpsertSchedule } from "@/hooks/api/use-schedules";
 import { runAnalyticsPipeline } from "@/lib/api";
+import { ApiError } from "@/lib/api/client";
 import type { NotebookScenarioRow, SavedReportRow, ScheduleState } from "@/lib/system/mock-data";
 
 type KindFilter = "all" | "reports" | "scenarios";
@@ -64,12 +67,14 @@ function IconBtn({
   children,
   title,
   onClick,
-  variant = "neutral"
+  variant = "neutral",
+  disabled = false
 }: {
   children: React.ReactNode;
   title: string;
   onClick: () => void;
   variant?: "neutral" | "danger";
+  disabled?: boolean;
 }) {
   const cls =
     variant === "danger"
@@ -85,8 +90,9 @@ function IconBtn({
       <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
         aria-label={title}
-        className={`interactive-focus rounded-control border px-2 py-1 text-xs font-semibold transition ${cls}`}
+        className={`interactive-focus rounded-control border px-2 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}
       >
         {children}
       </button>
@@ -95,6 +101,7 @@ function IconBtn({
 }
 
 export function ReportsClient() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleState | "all">("all");
   const [kind, setKind] = useState<KindFilter>("all");
@@ -107,6 +114,7 @@ export function ReportsClient() {
   const [scenarios, setScenarios] = useState<NotebookScenarioRow[]>([]);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const meQuery = useCurrentUser();
   const rerunReport = useRerunReport();
   const createReport = useCreateReport();
   const deleteReport = useDeleteReport();
@@ -141,10 +149,11 @@ export function ReportsClient() {
       (savedReportsQuery.data ?? []).map((r) => ({
         id: r.id,
         name: r.title,
+        notebookId: r.notebook_id ?? null,
         owner: r.created_by ?? "—",
         updatedAt: new Date(r.updated_at).toISOString().slice(0, 16).replace("T", " "),
         schedule: r.has_schedule ? toScheduleState("active") : toScheduleState("none"),
-        format: toFormatLabel("pdf"),
+        format: toFormatLabel(r.report_format ?? "pdf"),
         href: "/reports" as Route,
         hasSchedule: r.has_schedule
       })),
@@ -175,7 +184,6 @@ export function ReportsClient() {
 
   const downloadPdf = async (title: string, sourceId: string, mode: ReportPdfMode) => {
     setActionMsg(null);
-    setBusyKey(`report-download-${sourceId}-${mode}`);
     try {
       const blob = await downloadReportPdf(sourceId, title, mode);
       const url = URL.createObjectURL(blob);
@@ -189,13 +197,65 @@ export function ReportsClient() {
       setActionMsg(`PDF отчета "${title}" скачан (${mode}).`);
     } catch {
       setActionMsg(`Не удалось скачать PDF отчета "${title}" (${mode}).`);
-    } finally {
-      setBusyKey(null);
     }
   };
 
   const downloadPdfDefault = async (title: string, sourceId: string) => {
     await downloadPdf(title, sourceId, getDefaultReportPdfMode());
+  };
+
+  const downloadCsvFromRerun = async (row: SavedReportRow) => {
+    const run = await rerunReport.mutateAsync(row.id);
+    const rows = Array.isArray(run.table_records) ? run.table_records : [];
+    if (!rows.length) {
+      setActionMsg(`У отчета "${row.name}" нет табличных данных для CSV.`);
+      return;
+    }
+    const cols = Object.keys(rows[0] ?? {});
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? "" : String(v);
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [
+      cols.map(esc).join(","),
+      ...rows.map((rowItem) => cols.map((c) => esc((rowItem as Record<string, unknown>)[c])).join(","))
+    ];
+    const blob = new Blob(["\ufeff", lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${row.name.replace(/[^\p{L}\p{N}\-_ ]/gu, "").replace(/\s+/g, "_") || "report"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setActionMsg(`CSV отчета "${row.name}" скачан.`);
+  };
+
+  const onExportReport = async (row: SavedReportRow) => {
+    setActionMsg(null);
+    setBusyKey(`report-export-${row.id}`);
+    try {
+      if (row.format === "CSV") {
+        await downloadCsvFromRerun(row);
+      } else if (row.format === "Notebook") {
+        if (row.notebookId) {
+          router.push((`/notebooks/${row.notebookId}` as Route));
+          setActionMsg(`Открыт исходный сценарий отчета "${row.name}".`);
+        } else {
+          setActionMsg(`Для отчета "${row.name}" не указан notebook_id.`);
+        }
+      } else if (row.format === "Slides") {
+        await downloadPdfDefault(row.name, row.id);
+        setActionMsg(`Slides-экспорт для "${row.name}" пока отдается как PDF.`);
+      } else {
+        await downloadPdfDefault(row.name, row.id);
+      }
+    } catch {
+      setActionMsg(`Не удалось экспортировать отчет "${row.name}".`);
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   const nextSchedule = (current: ScheduleState): ScheduleState => {
@@ -262,19 +322,33 @@ export function ReportsClient() {
   };
 
   const onDeleteReport = async (row: SavedReportRow) => {
-    if (!confirm(`Удалить отчет «${row.name}»?`)) return;
+    const meId = String(meQuery.data?.id ?? "");
+    const isOwner = !!row.owner && row.owner !== "—" && row.owner === meId;
+    if (!isOwner) {
+      setActionMsg("Удалять можно только свои отчёты.");
+      return;
+    }
     setActionMsg(null);
     setBusyKey(`report-delete-${row.id}`);
     try {
       await deleteReport.mutateAsync(row.id);
       setReports((r) => r.filter((x) => x.id !== row.id));
       setActionMsg(`Отчет "${row.name}" удален.`);
-    } catch {
-      setActionMsg(`Не удалось удалить отчет "${row.name}".`);
+    } catch (error) {
+      const detail = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      setActionMsg(`Не удалось удалить отчет "${row.name}": ${detail}`);
     } finally {
       setBusyKey(null);
     }
   };
+
+  const canDeleteReport = (row: SavedReportRow): boolean => {
+    const meId = String(meQuery.data?.id ?? "");
+    return !!row.owner && row.owner !== "—" && row.owner === meId;
+  };
+
+  const deleteReportTitle = (row: SavedReportRow): string =>
+    canDeleteReport(row) ? "Удалить" : "Удалять можно только свои отчёты";
 
   const onRerunScenario = async (row: NotebookScenarioRow) => {
     setActionMsg(null);
@@ -553,20 +627,15 @@ export function ReportsClient() {
                   <IconBtn title="Изменить расписание" onClick={() => onEditReportSchedule(row)}>
                     {busyKey === `report-edit-${row.id}` ? "Сохранение..." : "Изменить"}
                   </IconBtn>
-                  <IconBtn title="Скачать PDF по умолчанию" onClick={() => void downloadPdfDefault(row.name, row.id)}>
-                    {busyKey === `report-download-${row.id}-compact` || busyKey === `report-download-${row.id}-board`
-                      ? "Скачивание..."
-                      : "PDF по умолчанию"}
+                  <IconBtn title={`Экспорт (${row.format})`} onClick={() => void onExportReport(row)}>
+                    {busyKey === `report-export-${row.id}` ? "Экспорт..." : `Экспорт ${row.format}`}
                   </IconBtn>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <IconBtn title="Скачать PDF compact" onClick={() => void downloadPdf(row.name, row.id, "compact")}>
-                      {busyKey === `report-download-${row.id}-compact` ? "Скачивание..." : "PDF compact"}
-                    </IconBtn>
-                    <IconBtn title="Скачать PDF board" onClick={() => void downloadPdf(row.name, row.id, "board")}>
-                      {busyKey === `report-download-${row.id}-board` ? "Скачивание..." : "PDF board"}
-                    </IconBtn>
-                  </div>
-                  <IconBtn title="Удалить" variant="danger" onClick={() => onDeleteReport(row)}>
+                  <IconBtn
+                    title={deleteReportTitle(row)}
+                    variant="danger"
+                    disabled={!canDeleteReport(row) || busyKey === `report-delete-${row.id}`}
+                    onClick={() => onDeleteReport(row)}
+                  >
                     {busyKey === `report-delete-${row.id}` ? "Удаление..." : "Удалить"}
                   </IconBtn>
                 </div>
@@ -612,20 +681,13 @@ export function ReportsClient() {
                         <IconBtn title="Изменить расписание" onClick={() => onEditReportSchedule(row)}>
                           {busyKey === `report-edit-${row.id}` ? "Сохранение..." : "Изменить"}
                         </IconBtn>
-                        <IconBtn title="Скачать PDF по умолчанию" onClick={() => void downloadPdfDefault(row.name, row.id)}>
-                          {busyKey === `report-download-${row.id}-compact` || busyKey === `report-download-${row.id}-board`
-                            ? "Скачивание..."
-                            : "PDF по умолчанию"}
-                        </IconBtn>
-                        <IconBtn title="Скачать PDF compact" onClick={() => void downloadPdf(row.name, row.id, "compact")}>
-                          {busyKey === `report-download-${row.id}-compact` ? "Скачивание..." : "PDF compact"}
-                        </IconBtn>
-                        <IconBtn title="Скачать PDF board" onClick={() => void downloadPdf(row.name, row.id, "board")}>
-                          {busyKey === `report-download-${row.id}-board` ? "Скачивание..." : "PDF board"}
+                        <IconBtn title={`Экспорт (${row.format})`} onClick={() => void onExportReport(row)}>
+                          {busyKey === `report-export-${row.id}` ? "Экспорт..." : `Экспорт ${row.format}`}
                         </IconBtn>
                         <IconBtn
-                          title="Удалить"
+                          title={deleteReportTitle(row)}
                           variant="danger"
+                          disabled={!canDeleteReport(row) || busyKey === `report-delete-${row.id}`}
                           onClick={() => onDeleteReport(row)}
                         >
                           {busyKey === `report-delete-${row.id}` ? "Удаление..." : "Удалить"}

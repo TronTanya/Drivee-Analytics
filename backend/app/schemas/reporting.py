@@ -105,6 +105,7 @@ class SavedReportListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
     has_schedule: bool = False
+    report_format: str = "pdf"
 
 
 class SavedReportDetail(BaseModel):

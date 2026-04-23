@@ -58,7 +58,15 @@ export async function updateNotebook(id: string, body: UpdateNotebookRequestDto)
   return requestJson({
     path: `/api/v1/notebooks/${encodeURIComponent(id)}`,
     init: { method: "PATCH", body: JSON.stringify(body) },
-    mock: () => mockGetNotebook(id)
+    mock: async () => {
+      const base = await mockGetNotebook(id);
+      return {
+        ...base,
+        ...(body.title !== undefined ? { title: body.title } : {}),
+        ...(body.description !== undefined ? { description: body.description } : {}),
+        ...(body.notebook_status !== undefined ? { notebook_status: body.notebook_status } : {})
+      };
+    }
   });
 }
 
