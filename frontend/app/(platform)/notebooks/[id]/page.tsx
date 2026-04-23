@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { AddCellComposer } from "@/components/notebook/add-cell-composer";
 import { RunAllButton } from "@/components/notebook/run-all-button";
 import { NotebookCanvas } from "@/components/notebook/notebook-canvas";
@@ -23,7 +23,7 @@ import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { useCreateReport } from "@/hooks/api/use-reports";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useAnalyticsBusyPhaseHint } from "@/hooks/use-analytics-busy-phase-hint";
-import { saveNotebookScenario } from "@/lib/api/notebooks";
+import { createNotebook, saveNotebookScenario } from "@/lib/api/notebooks";
 import { downloadReportPdf, type ReportPdfMode } from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
@@ -40,7 +40,6 @@ import type { ChartKind, NotebookBlock, PromptBlock, TracePanelModel } from "@/l
 import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
 import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
-import { saveNotebookScenarioLocal } from "@/lib/notebook/local-scenario-snapshot";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
 import { EMPTY_TRACE, traceFromAnalytics } from "@/lib/notebook/trace-model";
 import {
@@ -323,6 +322,7 @@ function buildDemoBlocks(notebookId: string, promptOverride?: string): NotebookB
 
 export default function NotebookDetailsPage() {
   const params = useParams();
+  const router = useRouter();
   const notebookId = String(params.id ?? "");
 
   const [boot, setBoot] = useState<"loading" | "ready" | "error">("loading");
@@ -638,29 +638,27 @@ export default function NotebookDetailsPage() {
       lastPrompt && lastPrompt.type === "prompt" ? lastPrompt.text.trim().slice(0, 200) : "";
     const scenarioTitle = `Снимок · ${new Date().toLocaleString("ru-RU")}`;
     try {
-      if (canPersistNotebook) {
-        await saveNotebookScenario(notebookId, {
-          scenario_title: scenarioTitle,
-          scenario_description: promptPreview || undefined
+      let targetNotebookId = notebookId;
+      let autoCreated = false;
+      if (!canPersistNotebook) {
+        const created = await createNotebook({
+          title: `Сценарий ${notebookId}`,
+          description: "Автосоздано из slug-страницы для серверного сохранения."
         });
-        setPageNotice("Сценарий записан в context_chain ноутбука (сервер).");
-      } else {
-        let serialised: unknown[];
-        try {
-          serialised = JSON.parse(JSON.stringify(blocks)) as unknown[];
-        } catch {
-          setPageError("Не удалось подготовить снимок блоков для локального сохранения.");
-          return;
-        }
-        saveNotebookScenarioLocal({
-          notebook_id: notebookId,
-          scenario_title: scenarioTitle,
-          scenario_description: promptPreview || null,
-          blocks: serialised
-        });
-        setPageNotice(
-          `Сценарий сохранён локально в этом браузере (ключ: ${notebookId}). Для записи на сервер откройте ноутбук с UUID в адресе.`
-        );
+        targetNotebookId = created.id;
+        autoCreated = true;
+      }
+      await saveNotebookScenario(targetNotebookId, {
+        scenario_title: scenarioTitle,
+        scenario_description: promptPreview || undefined
+      });
+      setPageNotice(
+        autoCreated
+          ? `Сценарий сохранён в БД. Создан notebook ${targetNotebookId}; открываю его URL…`
+          : "Сценарий записан в context_chain ноутбука (сервер)."
+      );
+      if (autoCreated) {
+        router.push(`/notebooks/${targetNotebookId}`);
       }
     } catch (error) {
       const msg =
@@ -673,7 +671,7 @@ export default function NotebookDetailsPage() {
     } finally {
       setSavingScenario(false);
     }
-  }, [blocks, canPersistNotebook, composerBusy, notebookId]);
+  }, [canPersistNotebook, composerBusy, notebookId, router, blocks]);
 
   const handleChartTypeChange = useCallback((id: string, chartType: ChartKind) => {
     setBlocks((prev) =>
@@ -1096,7 +1094,7 @@ export default function NotebookDetailsPage() {
                 title={
                   canPersistNotebook
                     ? "POST /api/v1/notebooks/{id}/save — снимок в context_chain_json на сервере"
-                    : "Сохранить снимок блоков в localStorage браузера (демо-URL без UUID; на сервер не уходит)"
+                    : "Сначала будет создан UUID notebook на сервере, затем сценарий запишется в БД"
                 }
                 className="w-full rounded-control border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-950 shadow-xs hover:bg-sky-100 disabled:opacity-50 sm:w-auto"
               >
