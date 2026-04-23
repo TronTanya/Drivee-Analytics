@@ -35,6 +35,21 @@ _DIMENSION_PHRASES: list[tuple[str, tuple[str, ...]]] = [
 
 _TIME_PRESETS: frozenset[str] = frozenset(get_args(TimePreset))
 
+# Синонимы из LLM / фронта → литералы TimePreset (см. nl_interpretation.TimeRangeSpec).
+_TIME_PRESET_ALIASES: dict[str, str] = {
+    "this_week": "current_week",
+    "this_month": "current_month",
+    "this_year": "current_year",
+    "prev_week": "previous_week",
+    "past_week": "last_week",
+}
+
+
+def _canonical_time_preset(raw: str) -> Optional[str]:
+    key = raw.strip().lower()
+    key = _TIME_PRESET_ALIASES.get(key, key)
+    return key if key in _TIME_PRESETS else None
+
 
 class SemanticParser:
     """Слой нормализации: синонимы, периоды, лимиты; поля LLM уже в `entities` (IntentService)."""
@@ -142,8 +157,14 @@ class SemanticParser:
     @staticmethod
     def _detect_time_range(ql: str, entities: dict[str, Any]) -> TimeRangeSpec:
         if entities.get("time_period"):
-            tp = str(entities["time_period"]).lower()
-            return TimeRangeSpec(preset=tp, label_ru=f"time_period={tp}")  # type: ignore[arg-type]
+            raw = str(entities["time_period"])
+            canon = _canonical_time_preset(raw)
+            if canon:
+                return TimeRangeSpec(
+                    preset=canon,  # type: ignore[arg-type]
+                    label_ru=f"time_period={raw.strip().lower()}→{canon}",
+                )
+            # Неизвестное значение LLM — не падаем на Pydantic; ниже эвристики по тексту запроса.
         if "вчера" in ql or "yesterday" in ql.split():
             return TimeRangeSpec(preset="yesterday", label_ru="вчера")
         if "прошл" in ql and "недел" in ql:
@@ -229,10 +250,10 @@ class SemanticParser:
         tp = entities.get("time_period")
         if isinstance(tp, str) and tp.strip() and time_range.preset == "unknown":
             raw = tp.strip().lower()
-            alias = {"this_week": "current_week", "prev_week": "previous_week"}.get(raw, raw)
-            if alias in _TIME_PRESETS:
-                time_range.preset = alias  # type: ignore[assignment]
-                time_range.label_ru = time_range.label_ru or f"LLM:{raw}"
+            canon = _canonical_time_preset(raw)
+            if canon:
+                time_range.preset = canon  # type: ignore[assignment]
+                time_range.label_ru = time_range.label_ru or f"LLM:{raw}→{canon}"
                 signals.append("llm:time_period")
         for a in entities.get("llm_ambiguities") or []:
             t = str(a).strip()

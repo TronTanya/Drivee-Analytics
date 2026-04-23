@@ -20,6 +20,17 @@ class SemanticParserTests(unittest.TestCase):
         self.assertIn("cancellations_total", interp.metrics)
         self.assertEqual(patch.get("time_period"), "yesterday")
 
+    def test_llm_this_week_maps_to_current_week(self) -> None:
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="топ городов по отменам на этой неделе",
+            intent="ranking",
+            intent_signals=[],
+            entities={"time_period": "this_week", "top_n": 3},
+        )
+        self.assertEqual(interp.time_range.preset, "current_week")
+        self.assertEqual(patch.get("time_period"), "current_week")
+
     def test_resolve_with_hint_prioritizes_interpretation_metric(self) -> None:
         sem = SemanticService()
         r = sem.resolve_with_hint("покажи города", "done_rides")
