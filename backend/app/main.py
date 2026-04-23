@@ -38,13 +38,16 @@ def create_app() -> FastAPI:
             settings.app_env,
         )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # В dev любой порт localhost (3001, 5173, …); в prod — только явный список CORS_ORIGINS.
+    _cors_kw: dict = {
+        "allow_origins": cors_origins,
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+    if env not in ("prod", "production"):
+        _cors_kw["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    app.add_middleware(CORSMiddleware, **_cors_kw)
     register_error_handlers(app)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
