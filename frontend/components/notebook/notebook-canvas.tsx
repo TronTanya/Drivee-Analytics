@@ -27,8 +27,10 @@ export function NotebookCanvas({
           <aside className={`hidden shrink-0 xl:sticky xl:top-24 xl:block xl:max-h-[calc(100vh-7rem)] ${traceWidthClassName}`}>
             {trace}
           </aside>
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-2 xl:hidden">
-            <div className="max-h-[82vh] w-full max-w-3xl overflow-hidden rounded-card shadow-modal">{trace}</div>
+          <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-2 xl:hidden">
+            <div className="pointer-events-auto max-h-[82vh] w-full max-w-3xl overflow-hidden rounded-card shadow-modal">
+              {trace}
+            </div>
           </div>
         </>
       ) : null}

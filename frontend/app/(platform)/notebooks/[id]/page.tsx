@@ -51,7 +51,8 @@ import { isUuidString } from "@/lib/utils/uuid";
 
 // DeepSeek flow may include several sequential LLM calls in one pipeline run.
 // Keep client-side timeout comfortably above a typical multi-call latency.
-const ANALYTICS_TIMEOUT_MS = 45000;
+/** Долгие LLM/SQL-цепочки: слишком короткий таймаут даёт ложные ошибки на медленных средах. */
+const ANALYTICS_TIMEOUT_MS = 120_000;
 
 function traceClarificationRequested(trace: unknown): boolean {
   if (!trace || typeof trace !== "object") return false;
@@ -973,8 +974,8 @@ export default function NotebookDetailsPage() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,230px)_minmax(0,1fr)] xl:items-start">
-      <div className="hidden xl:block">
+    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,230px)_minmax(0,1fr)] xl:items-start">
+      <div className="hidden min-w-0 xl:block">
         <NotebookHistoryPanel
           items={promptHistory}
           onSelect={handlePickHistoryPrompt}
@@ -984,6 +985,7 @@ export default function NotebookDetailsPage() {
           onClear={handleClearHistory}
         />
       </div>
+      <div className="min-w-0">
       <NotebookCanvas
         traceOpen={traceOpen}
         trace={
@@ -1002,7 +1004,7 @@ export default function NotebookDetailsPage() {
           />
         }
       >
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
         <NotebookHeader
           title={title}
           subtitle="Промпт · план · SQL · результаты · графики · инсайты — с живым trace."
@@ -1238,6 +1240,7 @@ export default function NotebookDetailsPage() {
         />
         </div>
       </NotebookCanvas>
+      </div>
     </div>
   );
 }
