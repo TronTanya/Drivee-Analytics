@@ -185,7 +185,7 @@
     "target_field": null,
     "filter_value": null,
     "description_ru": "",
-    "sql_expression": "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)",
+    "sql_expression": "COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END)",
     "constraints": {
       "intents_allowed": [
         "summary",
@@ -224,7 +224,7 @@
     "target_field": null,
     "filter_value": null,
     "description_ru": "",
-    "sql_expression": "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)::float / NULLIF(COUNT(*), 0)",
+    "sql_expression": "(COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END))::float / NULLIF(COUNT(DISTINCT a.order_id), 0)",
     "constraints": {
       "intents_allowed": [
         "summary",

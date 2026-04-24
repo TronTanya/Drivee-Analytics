@@ -70,6 +70,53 @@ Drivee объединяет:
 
 **Метрики и сценарии (после выравнивания схемы):** `orders_count`, `tenders_count`, `client_cancellations`, `driver_cancellations`, `done_rides`, `avg_order_price`, `sum_order_price`, средние дистанция/длительность, конверсия, отмены до принятия, срезы по `city_id`, по дням, по `order_channel`, сравнение недель (шаблоны в seed).
 
+### Как мы измеряем точность NL→SQL
+
+Drivee Analytics не доверяет LLM вслепую. Каждый запрос проходит pipeline:
+
+1. intent detection;
+2. semantic metric mapping;
+3. dimension mapping;
+4. time range parsing;
+5. SQL generation;
+6. SQL validation;
+7. chart recommendation;
+8. explainability trace;
+9. confidence scoring.
+
+Для проверки качества добавлен **Golden NL→SQL Evaluation Suite** из 30+ бизнес-сценариев (`backend/app/evals/golden/nl_sql_golden_cases.json`). Он измеряет:
+
+- intent accuracy;
+- metric accuracy;
+- dimension accuracy;
+- time parsing accuracy;
+- chart accuracy;
+- clarification accuracy;
+- guardrail accuracy;
+- SQL validation pass rate.
+
+| Метрика | Что показывает |
+|---------|----------------|
+| Intent accuracy | Насколько верно система определяет тип запроса |
+| Metric accuracy | Насколько верно бизнес-термины сопоставляются с метриками |
+| Dimension accuracy | Насколько верно выбираются группировки |
+| Time range accuracy | Насколько верно понимаются периоды |
+| SQL validation pass rate | Насколько часто SQL проходит safety checks |
+| Clarification accuracy | Насколько верно система запрашивает уточнение при неоднозначности |
+| Guardrail accuracy | Насколько верно блокируются опасные запросы |
+
+**Команды:** backend — `make test-nl-sql-quality` или `pytest tests/evaluation tests/api/test_evaluation_api.py`; UI — страница **`/quality`** (NL→SQL Quality Center).
+
+**Demo для жюри:**
+
+1. Открыть Manager dashboard (`/dashboard/manager`).
+2. Перейти в **NL→SQL Quality** (`/quality`) или по карточке «Точность NL→SQL под контролем».
+3. Нажать **Run evaluation**.
+4. Показать сводные метрики.
+5. Открыть кейс в таблице.
+6. Показать expected vs actual interpretation.
+7. Показать SQL и trace в модальном окне.
+
 ## 6) Рабочие сценарии
 
 | Сценарий | Где в UI | Что проверяется |
@@ -84,6 +131,7 @@ Drivee объединяет:
 | Словарь | `/dictionary` | Чтение терминов (backend: минимальный `meta/dictionary` или мок — см. ограничения). |
 | Загрузка данных | `/data-upload` | Цепочка upload → import → staging. |
 | Защита (режим жюри, 5 сценариев) | `/scenarios` → блок «Режим показа жюри» | One-click переходы по `demo_case`, стабильные trace/clarification/guardrails маркеры. |
+| Качество NL→SQL (golden suite) | `/quality` | Метрики golden evaluation, прогон `POST /api/v1/evaluation/nl-sql/run`, детали кейсов. |
 
 Пошаговый сценарий экрана: **[docs/demo-script.md](docs/demo-script.md)**. Режимы Live/mock: **[docs/demo-defense.md](docs/demo-defense.md)**.
 
@@ -178,8 +226,8 @@ flowchart TB
 | `orders_count` | `COUNT(*)` | то же число строк; для «уникальных заказов» см. `distinct_orders` |
 | `distinct_orders` | `COUNT(DISTINCT a.order_id)` | `order_id` |
 | `tenders_count` | `COUNT(DISTINCT a.tender_id)` | `tender_id` |
-| `done_rides` | `COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)` | `driverdone_timestamp` |
-| `done_conversion` | завершённые / `COUNT(*)` | см. notes в JSON |
+| `done_rides` | `COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END)` | уникальные `order_id` с завершением |
+| `done_conversion` | уникальные завершённые / уникальные заказы | см. notes в JSON |
 | `client_cancellations` / `driver_cancellations` / `cancellations_total` | CASE по `clientcancel_timestamp` / `drivercancel_timestamp` / OR | соответствующие timestamp |
 | `cancellation_rate` | отмены / `COUNT(*)` | как `cancellations_total` к числу строк |
 | `sum_order_price` | `SUM(a.price_order_local)` | `price_order_local` |
@@ -459,7 +507,7 @@ Q2: "а теперь только по city_id=101"
 | term_key | Пример SQL-агрегата |
 |----------|---------------------|
 | orders_count | `COUNT(*)` |
-| done_rides | `COUNT(CASE WHEN driverdone_timestamp IS NOT NULL THEN 1 END)` |
+| done_rides | `COUNT(DISTINCT CASE WHEN driverdone_timestamp IS NOT NULL THEN order_id END)` |
 | client_cancellations | по `clientcancel_timestamp` |
 | avg_order_price | `AVG(price_order_local)` |
 

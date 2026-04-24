@@ -68,6 +68,44 @@ class IntentSqlTimeFilterTests(unittest.TestCase):
         self.assertIn("city_id::text = '67'", sql)
         self.assertNotIn(" AS value ", sql)
 
+    def test_summary_sql_applies_explicit_time_period(self) -> None:
+        sql = SQLGenerationService().generate(
+            intent="summary",
+            entities={"time_period": "current_month", "metric_hint": "orders_count"},
+            metric_sql="COUNT(*)",
+            use_campaigns_only=False,
+            workspace_id=None,
+        )
+        self.assertIn("date_trunc('month', current_date)", sql)
+        self.assertIn("AS value", sql)
+
+    def test_summary_sql_applies_calendar_year_on_driverdone_for_completion_queries(self) -> None:
+        sql = SQLGenerationService().generate(
+            intent="summary",
+            entities={
+                "calendar_year": 2026,
+                "time_window_anchor": "driverdone_timestamp",
+                "metric_hint": "done_rides",
+            },
+            metric_sql="COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END)",
+            use_campaigns_only=False,
+            workspace_id=None,
+        )
+        self.assertIn("make_timestamptz(2026", sql)
+        self.assertIn("driverdone_timestamp", sql)
+        self.assertIn("make_timestamptz(2027", sql)
+
+    def test_summary_sql_without_time_stays_open_ended(self) -> None:
+        sql = SQLGenerationService().generate(
+            intent="summary",
+            entities={"metric_hint": "orders_count"},
+            metric_sql="COUNT(*)",
+            use_campaigns_only=False,
+            workspace_id=None,
+        )
+        self.assertIn("WHERE 1=1", sql)
+        self.assertNotIn("current_timestamp - interval", sql)
+
     def test_dual_sql_used_even_when_intent_is_comparison(self) -> None:
         """Регрессия: LLM comparison + одна метрика давали dim/value вместо accepted_rows/cancelled_rows."""
         sql = SQLGenerationService().generate(

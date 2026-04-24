@@ -39,6 +39,7 @@ export type RunCellResponseDto = {
 export type RunNotebookAnalyticsRequestDto = {
   notebook_id: string;
   prompt: string;
+  /** Пагинация превью таблицы; на backend до 1_000_000 (см. RunAnalyticsRequest). */
   result_limit?: number;
   result_offset?: number;
   force_fresh_dialogue?: boolean;

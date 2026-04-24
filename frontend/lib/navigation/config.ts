@@ -14,6 +14,7 @@ export const PLATFORM_NAV: NavItem[] = [
   { href: "/templates", label: "Шаблоны", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/reports", label: "Отчеты", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/history", label: "История", roles: ["admin", "manager", "marketer", "executive"] },
+  { href: "/quality", label: "NL→SQL Quality", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/dictionary", label: "Словарь", roles: ["admin"] },
   { href: "/corrections", label: "Коррекции", roles: ["admin"] },
   { href: "/settings", label: "Настройки" }

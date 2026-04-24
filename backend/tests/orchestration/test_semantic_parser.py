@@ -20,6 +20,21 @@ class SemanticParserTests(unittest.TestCase):
         self.assertIn("cancellations_total", interp.metrics)
         self.assertEqual(patch.get("time_period"), "yesterday")
 
+    def test_calendar_year_za_2026_zavershennye_uses_driverdone_anchor(self) -> None:
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="Количество уникальных завершенных поездок за 2026 год",
+            intent="summary",
+            intent_signals=[],
+            entities={"metric_hint": "done_rides"},
+        )
+        self.assertEqual(interp.time_range.preset, "calendar_year")
+        self.assertEqual(interp.time_range.calendar_year, 2026)
+        self.assertEqual(interp.time_range.time_window_anchor, "driverdone_timestamp")
+        self.assertEqual(patch.get("calendar_year"), 2026)
+        self.assertEqual(patch.get("time_window_anchor"), "driverdone_timestamp")
+        self.assertNotIn("time_period", patch)
+
     def test_llm_this_week_maps_to_current_week(self) -> None:
         p = SemanticParser()
         interp, patch = p.build(

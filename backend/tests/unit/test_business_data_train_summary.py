@@ -38,3 +38,6 @@ def test_fetch_train_global_summary_queries_when_live(monkeypatch: pytest.Monkey
     assert out["distinct_orders"] == 4
     assert out["sum_order_price"] == 1140.0
     session.execute.assert_called_once()
+    stmt = session.execute.call_args[0][0]
+    sql_text = str(stmt)
+    assert "DISTINCT CASE" in sql_text and "driverdone_timestamp" in sql_text

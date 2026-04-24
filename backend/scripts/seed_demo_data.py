@@ -159,7 +159,12 @@ def ensure_workspace_memberships(session, workspace: Workspace, users: dict[str,
 def ensure_semantic_terms(session, workspace: Workspace, admin_user: User, admin_role: Role) -> None:
     terms = [
         ("orders_count", "Количество заказов", "COUNT(*)", ["заказы", "orders", "количество заказов"]),
-        ("done_rides", "Завершенные поездки", "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)", ["завершенные поездки", "done rides"]),
+        (
+            "done_rides",
+            "Завершенные поездки",
+            "COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END)",
+            ["завершенные поездки", "done rides"],
+        ),
         ("client_cancellations", "Отмены клиентом", "COUNT(CASE WHEN a.clientcancel_timestamp IS NOT NULL THEN 1 END)", ["отмены клиентом", "client cancellations"]),
         ("driver_cancellations", "Отмены водителем", "COUNT(CASE WHEN a.drivercancel_timestamp IS NOT NULL THEN 1 END)", ["отмены водителем", "driver cancellations"]),
         ("avg_order_price", "Средняя стоимость заказа", "AVG(a.price_order_local)", ["средняя стоимость", "average order price"]),

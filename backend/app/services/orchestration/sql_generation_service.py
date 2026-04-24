@@ -87,6 +87,20 @@ class SQLGenerationService:
 
     @staticmethod
     def _build_time_filter(entities: dict[str, Any], weeks: int) -> str:
+        cy = entities.get("calendar_year")
+        if cy is not None:
+            try:
+                y = int(cy)
+            except (TypeError, ValueError):
+                y = None
+            if y is not None and 2000 <= y <= 2100:
+                col = str(entities.get("time_window_anchor") or "order_timestamp")
+                if col not in ("order_timestamp", "driverdone_timestamp"):
+                    col = "order_timestamp"
+                return (
+                    f"a.{col}::timestamptz >= make_timestamptz({y}, 1, 1, 0, 0, 0, 'UTC') "
+                    f"AND a.{col}::timestamptz < make_timestamptz({y + 1}, 1, 1, 0, 0, 0, 'UTC')"
+                )
         if entities.get("window_days") is not None:
             try:
                 d = max(1, min(366, int(entities["window_days"])))
@@ -171,7 +185,16 @@ class SQLGenerationService:
         )
 
         if intent == "summary":
-            return f"SELECT {metric_sql} AS value FROM {table_name} a WHERE {where_base}"
+            tp = str(entities.get("time_period") or "").strip().lower()
+            has_explicit_time = (
+                entities.get("calendar_year") is not None
+                or entities.get("window_days") is not None
+                or (bool(tp) and tp != "unknown")
+            )
+            where_summary = (
+                f"{where_base} AND {time_filter}" if has_explicit_time else where_base
+            )
+            return f"SELECT {metric_sql} AS value FROM {table_name} a WHERE {where_summary}"
 
         if intent in ("trend", "forecast"):
             return (

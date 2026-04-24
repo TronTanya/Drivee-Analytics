@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional, get_args
+from typing import Any, Literal, Optional, get_args
 
 from app.schemas.nl_interpretation import (
     ComparisonSpec,
@@ -251,6 +251,25 @@ class SemanticParser:
                 preset="rolling_window",
                 label_ru=f"окно {ww} нед.",
                 window_weeks=ww,
+            )
+        y: int | None = None
+        if m := re.search(r"\b(20[0-9]{2})\s*год", ql):
+            y = int(m.group(1))
+        elif m := re.search(r"\bза\s+(20[0-9]{2})\b", ql):
+            y = int(m.group(1))
+        elif m := re.search(r"\bв\s+(20[0-9]{2})\b", ql):
+            y = int(m.group(1))
+        if y is not None and 2000 <= y <= 2100:
+            anchor: Literal["order_timestamp", "driverdone_timestamp"] = (
+                "driverdone_timestamp"
+                if any(p in ql for p in ("заверш", "выполн", "done ride", "completed ride"))
+                else "order_timestamp"
+            )
+            return TimeRangeSpec(
+                preset="calendar_year",
+                label_ru=f"календарный год {y}",
+                calendar_year=y,
+                time_window_anchor=anchor,
             )
         return TimeRangeSpec(preset="unknown", label_ru="")
 

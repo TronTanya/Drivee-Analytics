@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal, Optional, get_args
 
 from pydantic import BaseModel, Field, field_validator
 
 LLMIntentKind = Literal["trend", "comparison", "ranking", "share", "geo", "summary", "forecast"]
+_LLM_INTENTS: frozenset[str] = frozenset(get_args(LLMIntentKind))
 LLMQueryScope = Literal["data", "general"]
 
 
@@ -41,8 +42,15 @@ class LLMQueryInterpretation(BaseModel):
             "rank": "ranking",
             "overview": "summary",
             "aggregate": "summary",
+            "aggregation": "summary",
+            "count": "summary",
+            "kpi": "summary",
+            "metric": "summary",
         }
-        return alias_map.get(raw, raw)
+        out = alias_map.get(raw, raw)
+        if out not in _LLM_INTENTS:
+            return "summary"
+        return out
 
     @field_validator("query_scope", mode="before")
     @classmethod

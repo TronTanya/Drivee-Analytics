@@ -19,18 +19,27 @@ TimePreset = Literal[
     "current_year",
     "last_year",
     "rolling_window",
+    "calendar_year",
 ]
 
 ComparisonMode = Literal["none", "wow", "mom", "yoy", "unspecified", "custom"]
 
 
 class TimeRangeSpec(BaseModel):
-    """Нормализованный период; в entities для SQL мапится в time_period / window_*."""
+    """Нормализованный период; в entities для SQL мапится в time_period / window_* / calendar_year."""
 
     preset: TimePreset = "unknown"
     label_ru: str = ""
     window_weeks: Optional[int] = None
     window_days: Optional[int] = None
+    calendar_year: Optional[int] = Field(
+        default=None,
+        description="При preset=calendar_year — календарный год окна (UTC).",
+    )
+    time_window_anchor: Optional[Literal["order_timestamp", "driverdone_timestamp"]] = Field(
+        default=None,
+        description="Колонка для границ calendar_year: заказ vs завершение.",
+    )
 
 
 class ComparisonSpec(BaseModel):
@@ -77,6 +86,10 @@ class NLQueryInterpretation(BaseModel):
                 patch["window_days"] = int(tr.window_days)
             if tr.window_weeks is not None:
                 patch["window_weeks"] = int(tr.window_weeks)
+        elif tr.preset == "calendar_year" and tr.calendar_year is not None:
+            patch["calendar_year"] = int(tr.calendar_year)
+            if tr.time_window_anchor:
+                patch["time_window_anchor"] = tr.time_window_anchor
         elif tr.preset != "unknown":
             patch["time_period"] = tr.preset
         if tr.window_weeks is not None and "window_weeks" not in patch and tr.preset != "rolling_window":

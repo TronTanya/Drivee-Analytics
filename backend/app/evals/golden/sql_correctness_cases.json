@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "description": "SQL Correctness: нормализованные фрагменты и таблицы для детерминированных промптов (mock execution).",
+  "cases": [
+    {
+      "id": "done_rides_2026_bounds",
+      "prompt": "Количество уникальных завершенных поездок за 2026 год",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "make_timestamptz(2026, 1, 1, 0, 0, 0, 'utc')",
+          "make_timestamptz(2027, 1, 1, 0, 0, 0, 'utc')",
+          "a.driverdone_timestamp::timestamptz",
+          "as value"
+        ],
+        "forbidden_fragments_normalized": ["delete ", "drop ", "insert ", "update "],
+        "required_tables": ["train"],
+        "gold_normalized_sql": null,
+        "reference_sql_live": "SELECT COUNT(DISTINCT order_id)::bigint AS value FROM public.train a WHERE a.driverdone_timestamp IS NOT NULL AND a.driverdone_timestamp::timestamptz >= make_timestamptz(2026, 1, 1, 0, 0, 0, 'UTC') AND a.driverdone_timestamp::timestamptz < make_timestamptz(2027, 1, 1, 0, 0, 0, 'UTC')",
+        "compare_scalar_in_live": true,
+        "min_train_rows_for_live_compare": 100000,
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "orders_count_2024_order_ts",
+      "prompt": "сколько заказов за 2024 год",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "make_timestamptz(2024, 1, 1, 0, 0, 0, 'utc')",
+          "a.order_timestamp::timestamptz"
+        ],
+        "forbidden_fragments_normalized": ["a.driverdone_timestamp::timestamptz >="],
+        "required_tables": ["train"],
+        "gold_normalized_sql": null,
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "summary_total_done_no_calendar_window",
+      "prompt": "сколько всего завершенных поездок",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": ["where 1=1", "select"],
+        "forbidden_fragments_normalized": ["make_timestamptz("],
+        "required_tables": ["train"],
+        "gold_normalized_sql": null,
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "ranking_cancel_top3_2023",
+      "prompt": "топ 3 города по отменам за 2023 год",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "make_timestamptz(2023",
+          "group by",
+          "limit 3"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": ["train"],
+        "gold_normalized_sql": null,
+        "require_sql_validation_pass": true
+      }
+    }
+  ]
+}

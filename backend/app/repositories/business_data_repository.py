@@ -75,7 +75,11 @@ class BusinessDataRepository:
                 SELECT
                     COUNT(*)::bigint AS train_row_count,
                     COUNT(DISTINCT order_id)::bigint AS distinct_orders,
-                    COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides,
+                    COUNT(
+                        DISTINCT CASE
+                            WHEN driverdone_timestamp IS NOT NULL THEN order_id
+                        END
+                    )::bigint AS done_rides,
                     COUNT(*) FILTER (
                         WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL
                     )::bigint AS cancellations_total,

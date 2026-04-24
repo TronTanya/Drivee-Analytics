@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-cov-core test-e2e test-e2e-quick e2e
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e
 
 up:
 	$(DC) up --build
@@ -55,6 +55,22 @@ test-nl:
 # Guardrails/policy subset (валидатор + policy engine + sql trust).
 test-guardrails:
 	$(DC) run --rm backend python -m pytest tests/guardrails tests/sql_validation -q
+
+# Детерминированная проверка фрагментов SQL (golden sql_correctness_cases.json).
+test-sql-correctness:
+	$(DC) run --rm backend python -m pytest tests/evaluation/test_sql_correctness_evaluator.py tests/api/test_evaluation_api.py::test_sql_correctness_cases tests/api/test_evaluation_api.py::test_sql_correctness_summary_schema tests/api/test_evaluation_api.py::test_sql_correctness_run -q
+
+# Live SQL parity: mode=live с graceful skip при недостаточном train.
+test-sql-correctness-live:
+	$(DC) run --rm backend python -c "from app.services.evaluation.sql_correctness_evaluator import run_sql_correctness_evaluation; s, _ = run_sql_correctness_evaluation('live'); print(s.model_dump())"
+
+# NL→SQL генерация, семантика времени, sql_trust (без полного e2e Playwright).
+test-orchestration-all:
+	$(DC) run --rm backend python -m pytest tests/orchestration tests/sql_validation/test_sql_trust.py -q
+
+# Golden NL→SQL Quality Suite (метрики + API, без внешнего LLM в mock-режиме).
+test-nl-sql-quality:
+	$(DC) run --rm backend python -m pytest tests/evaluation tests/api/test_evaluation_api.py -q
 
 # Coverage по ключевым модулям orchestration/guardrails.
 test-cov-core:

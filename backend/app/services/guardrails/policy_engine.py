@@ -80,6 +80,13 @@ def check_prompt_abuse(prompt: str, settings: Settings) -> list[str]:
     visible = _prompt_without_zw(prompt)
     if not visible.strip():
         errors.append("Промпт пустой или состоит только из пробелов и невидимых символов.")
+    _destructive_ddl = re.compile(
+        r"\b(drop|truncate|alter\s+table|delete\s+from|insert\s+into|update\s+\S+\s+set)\b|"
+        r"удали(ть)?\s+таблиц|сотри(ть)?\s+таблиц",
+        re.IGNORECASE,
+    )
+    if _destructive_ddl.search(visible):
+        errors.append("Запрос содержит опасные конструкции DDL/DML — выполнение запрещено.")
     max_chars = int(getattr(settings, "guardrails_max_prompt_chars", 8000) or 8000)
     if len(prompt) > max_chars:
         errors.append(f"Промпт слишком длинный (>{max_chars} символов). Сократите запрос.")

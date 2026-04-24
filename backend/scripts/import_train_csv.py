@@ -73,7 +73,7 @@ def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
         df["order_channel"] = "unknown"
     for c in TS_COLS:
         if c in df.columns:
-            df[c] = pd.to_datetime(df[c], utc=True, errors="coerce")
+            df[c] = pd.to_datetime(df[c], utc=True, errors="coerce", format="mixed")
     for c in NUM_COLS:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")

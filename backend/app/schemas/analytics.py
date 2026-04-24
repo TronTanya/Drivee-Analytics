@@ -11,7 +11,7 @@ ForecastSidecarOverride = Literal["auto", "on", "off"]
 class RunAnalyticsRequest(BaseModel):
     notebook_id: str
     prompt: str
-    result_limit: Optional[int] = Field(None, ge=1, le=10_000, description="Пагинация таблицы результата (опционально).")
+    result_limit: Optional[int] = Field(None, ge=1, le=1_000_000, description="Пагинация таблицы результата (опционально).")
     result_offset: Optional[int] = Field(None, ge=0, description="Смещение для result_limit.")
     force_fresh_dialogue: bool = Field(
         False,

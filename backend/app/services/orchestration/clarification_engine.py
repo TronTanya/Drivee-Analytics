@@ -147,6 +147,14 @@ class ClarificationEngine:
                 clarification_options=list(OPTIONS_REVENUE_DEFINITION),
             )
 
+        if any(x in q for x in ("плох", "худш", "worst")) and any(x in q for x in ("город", "города", "city")):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="vague_quality_cities",
+                clarification_question="Что именно считать «плохими» городами: больше отмен, ниже выручку или ниже конверсию?",
+                clarification_options=list(OPTIONS_SALES_METRICS),
+            )
+
         if interp and ("best_metric_unspecified" in interp.ambiguities or "ranking_metric_missing" in interp.ambiguities):
             return ClarificationResponse(
                 clarification_required=True,

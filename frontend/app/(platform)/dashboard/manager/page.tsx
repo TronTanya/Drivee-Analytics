@@ -10,6 +10,7 @@ import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useNotebooks } from "@/hooks/api/use-notebooks";
 import { useSavedReports } from "@/hooks/api/use-reports";
 import { useQueryHistory } from "@/hooks/api/use-history";
+import Link from "next/link";
 import type { Route } from "next";
 import { useMemo } from "react";
 
@@ -114,6 +115,18 @@ export default function ManagerDashboardPage() {
       </section>
 
       <TrainDatasetSummarySection workspaceId={workspaceQuery.data} />
+
+      <SectionCard
+        title="Точность NL→SQL под контролем"
+        description="Golden tests проверяют, как система понимает intent, метрики, измерения, период, SQL и visual output."
+      >
+        <Link
+          href={"/quality" as Route}
+          className="inline-flex items-center rounded-control bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition hover:bg-brand-700"
+        >
+          Открыть Quality Center
+        </Link>
+      </SectionCard>
 
       <SectionCard title="Быстрые запросы" description="Переход в операционный сценарий с готовыми вопросами.">
         <QuickPrompts items={MANAGER_PROMPTS} />

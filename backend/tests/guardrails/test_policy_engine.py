@@ -65,6 +65,12 @@ def test_prompt_abuse_suspicious_multiline_short_lines() -> None:
     assert any("multi-line" in e for e in errs)
 
 
+def test_prompt_abuse_blocks_destructive_ddl_ru() -> None:
+    s = Settings()
+    errs = check_prompt_abuse("Удали таблицу заказов", s)
+    assert errs and any("DDL" in e or "DML" in e for e in errs)
+
+
 def test_executive_blocked_on_sensitive_entities() -> None:
     errs = evaluate_entities_for_role(
         role_key="executive",

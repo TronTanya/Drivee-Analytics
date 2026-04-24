@@ -350,6 +350,7 @@ class QueryOrchestrator:
         started = datetime.utcnow()
 
         def finish(local: OrchestrationOutput) -> OrchestrationOutput:
+            local = attach_interpretation_and_trace(local)
             _audit_emit(inp, local)
             return local
 
@@ -1027,6 +1028,117 @@ def build_default_orchestrator(
     persistence: Optional[PersistenceCallable] = None,
 ) -> QueryOrchestrator:
     return QueryOrchestrator(persistence=persistence)
+
+
+def attach_interpretation_and_trace(out: OrchestrationOutput) -> OrchestrationOutput:
+    """Нормализованные поля для NL→SQL Quality / жюри: interpretation + пошаговый trace."""
+    tp = dict(out.trace_payload or {})
+    entities = dict(out.entities or {})
+    metric = str(entities.get("canonical_metric_key") or "").strip()
+    if not metric and out.semantic_resolutions:
+        metric = str(out.semantic_resolutions[0].term_key or "")
+    dims: list[str] = []
+    raw_dims = entities.get("dimensions")
+    if isinstance(raw_dims, list):
+        dims = [str(d) for d in raw_dims if d is not None]
+    tr = tp.get("structured_interpretation")
+    if isinstance(tr, dict):
+        alt = tr.get("dimensions")
+        if isinstance(alt, list) and not dims:
+            dims = [str(d) for d in alt if d is not None]
+
+    def _time_token(ent: dict[str, Any]) -> str:
+        if ent.get("time_period"):
+            return str(ent["time_period"])
+        if ent.get("window_days") is not None:
+            try:
+                return f"rolling_{int(ent['window_days'])}d"
+            except (TypeError, ValueError):
+                pass
+        if ent.get("calendar_year") is not None:
+            try:
+                return f"calendar_year_{int(ent['calendar_year'])}"
+            except (TypeError, ValueError):
+                pass
+        return "unknown"
+
+    skip_filter = {
+        "dimensions",
+        "canonical_metric_key",
+        "metric_hint",
+        "time_grain",
+        "time_period",
+        "window_days",
+        "window_weeks",
+        "calendar_year",
+        "forecast_horizon_steps",
+        "top_n",
+        "dual_accept_cancel_counts",
+    }
+    filters: list[dict[str, Any]] = []
+    for k, v in entities.items():
+        if k in skip_filter or v is None or v == "":
+            continue
+        if isinstance(v, (dict, list)):
+            continue
+        filters.append({"field": k, "value": v})
+    clar_q = None
+    if out.ambiguity.required and out.ambiguity.question:
+        clar_q = out.ambiguity.question
+    elif out.clarification and out.clarification.clarification_question:
+        clar_q = out.clarification.clarification_question
+    requires_clar = bool(out.execution_status == "clarification_required" or out.ambiguity.required)
+
+    tp["interpretation"] = {
+        "intent": str(out.intent),
+        "metric": metric,
+        "dimensions": dims,
+        "time_range": _time_token(entities),
+        "filters": filters[:32],
+        "chart_type": str(out.chart.chart_type or "table"),
+        "confidence": float(out.confidence_score),
+        "requires_clarification": requires_clar,
+        "clarification_question": clar_q,
+    }
+
+    steps = tp.get("pipeline_steps")
+    trace_ui: list[dict[str, Any]] = []
+    if isinstance(steps, list):
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            name = str(s.get("name") or "step")
+            ok = bool(s.get("ok", True))
+            detail = s.get("detail") or {}
+            msg = _trace_step_message_ru(name, ok, detail if isinstance(detail, dict) else {})
+            trace_ui.append({"step": name, "status": "passed" if ok else "failed", "message": msg})
+    tp["trace"] = trace_ui
+    return out.model_copy(update={"trace_payload": tp})
+
+
+def _trace_step_message_ru(name: str, ok: bool, detail: dict[str, Any]) -> str:
+    if name == "classify_intent":
+        it = detail.get("intent", "—")
+        return f"Запрос отнесён к intent={it}" if ok else f"Ошибка на шаге intent ({it})"
+    if name == "semantic_parse":
+        return "Семантическая интерпретация (метрики, период, измерения)" if ok else "Семантический разбор: проблема"
+    if name == "resolve_semantic_terms":
+        return "Метрика сопоставлена со словарём данных" if ok else "Семантика: требуется внимание"
+    if name == "clarification_engine":
+        if detail.get("required"):
+            return "Запрос неоднозначен — запрошено уточнение"
+        return "Уточнение не требуется"
+    if name == "guardrails_policy":
+        return "Политики безопасности применены" if ok else "Запрос заблокирован политиками безопасности"
+    if name == "validate_sql":
+        return "SQL прошёл валидацию и whitelist" if ok else "SQL не прошёл валидацию"
+    if name == "generate_sql":
+        return "SQL сгенерирован по шаблону/семантике"
+    if name == "execute_sql":
+        return "Запрос выполнен в БД" if ok else "Ошибка выполнения SQL"
+    if name == "recommend_chart_type":
+        return "Выбран тип визуализации"
+    return name
 
 
 def build_orchestrator_with_learning(

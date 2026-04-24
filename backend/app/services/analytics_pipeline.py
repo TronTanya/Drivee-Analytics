@@ -613,13 +613,16 @@ def _build_forecast_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[
 
 def _result_to_pipeline_cells(result: NaturalLanguageAnalysisResult) -> list[PipelineCellItem]:
     explain_v1 = build_explainability_trace_v1(result)
+    ft_all: dict[str, Any] = dict(result.full_trace or {})
     trace_payload: dict[str, Any] = {
         "summary": result.trace_summary,
-        "interpreted_intent": str((result.full_trace or {}).get("intent") or (result.parsed or {}).get("intent") or ""),
+        "interpreted_intent": str(ft_all.get("intent") or (result.parsed or {}).get("intent") or ""),
         "confidence": _coerce_unit_interval(result.confidence, default=0.0),
         "warnings": list(result.warnings or []),
         "tables_used": list(result.used_tables or []),
         "explainability": explain_v1.model_dump(mode="json"),
+        "interpretation": ft_all.get("interpretation") or {},
+        "trace": ft_all.get("trace") or [],
     }
     if result.clarification_required:
         opts_in = list(result.clarification_options or [])

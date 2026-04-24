@@ -969,7 +969,8 @@ export async function mockListDictionary(): Promise<DictionaryEntryDto[]> {
       id: "done_rides",
       term: "Завершённые поездки",
       synonyms: ["завершённые поездки", "completed rides", "выполненные заказы"],
-      sql_expression: "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)",
+      sql_expression:
+        "COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END)",
       visibility_roles: ["admin", "manager", "marketer", "executive"],
       domain: "orders_rides",
       canonical_metric_key: "done_rides",

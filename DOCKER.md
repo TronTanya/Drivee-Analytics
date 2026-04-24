@@ -80,6 +80,13 @@ docker compose run --rm -v "$HOME/Downloads/train.csv:/import/train.csv:ro" \
   backend python scripts/import_train_csv.py --path /import/train.csv --limit 20000 --replace
 ```
 
+### Полный `train.csv` и переменные compose
+
+- В `docker-compose.yml` для сервиса **backend** по умолчанию задано **`EXTERNAL_TRAIN_CSV_LIMIT=-1`** (весь файл) и путь к CSV; при **`SKIP_DEMO_TRAIN_SEED=true`** демо-строки train в сиде не подменяют внешний импорт.
+- После смены **`command`** / лимита импорта обычного `docker compose restart backend` **недостаточно**: контейнер сохранит старую команду. Нужно пересоздать сервис, например:  
+  `docker compose up -d --force-recreate --no-deps backend`
+- Для тяжёлого полного импорта увеличьте в **`backend/.env`** таймаут и лимиты SQL (см. комментарии в **`backend/.env.example`**).
+
 ## 5) Migrations and seed commands
 
 ```bash
