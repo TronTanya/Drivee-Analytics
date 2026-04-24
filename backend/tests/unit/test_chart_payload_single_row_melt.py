@@ -24,6 +24,21 @@ def test_bar_payload_melts_single_row_accept_cancel_columns() -> None:
     assert values == [270, 9048]
 
 
+def test_scalar_single_value_column_gets_synthetic_category_axis() -> None:
+    """Одна колонка `value` (агрегат): ось и серия не должны совпадать — иначе пустой график в Recharts."""
+    result = NaturalLanguageAnalysisResult(
+        prompt="q",
+        safe_sql="SELECT COUNT(*) AS value FROM train",
+        table_records=[{"value": 10}],
+        visualization={"recommended_chart_type": "bar", "alternative_chart_types": ["table"]},
+    )
+    payload = _build_chart_cell_payload(result)
+    assert payload["chartType"] == "horizontal_bar"
+    assert payload["xKey"] == "_aggregate_label"
+    assert payload["series"] == [{"key": "value", "name": "value"}]
+    assert payload["data"] == [{"_aggregate_label": "Итого", "value": 10}]
+
+
 def test_horizontal_bar_payload_melts_same_shape() -> None:
     result = NaturalLanguageAnalysisResult(
         prompt="q",

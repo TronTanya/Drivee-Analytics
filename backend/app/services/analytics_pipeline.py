@@ -765,10 +765,11 @@ def _pick_numeric_columns(rows: list[dict[str, Any]], columns: list[str]) -> lis
 
 
 def _pick_dimension_column(columns: list[str], numeric_cols: list[str]) -> Optional[str]:
+    """Категориальная ось; если все колонки числовые (типично только `value`) — None (нужен синтетический label)."""
     for c in columns:
         if c not in numeric_cols:
             return c
-    return columns[0] if columns else None
+    return None
 
 
 def _sql_metric_column_display_name(column: str) -> str:
@@ -925,6 +926,37 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
     columns = list(rows[0].keys())
     numeric_cols = _pick_numeric_columns(rows, columns)
     dim_col = _pick_dimension_column(columns, numeric_cols)
+    # Один числовой столбец без измерения (SUM/COUNT AS value): иначе xKey и серия совпадают → пустой график в UI.
+    if len(columns) == 1 and len(numeric_cols) == 1:
+        metric_key = numeric_cols[0]
+        cat_key = "_aggregate_label"
+        data_scalar: list[dict[str, Any]] = []
+        if len(rows) == 1:
+            raw_v = rows[0].get(metric_key)
+            v0 = _as_float(raw_v)
+            data_scalar.append({cat_key: "Итого", metric_key: v0 if v0 is not None else raw_v})
+        else:
+            for i, row in enumerate(rows[:60]):
+                raw_v = row.get(metric_key)
+                v = _as_float(raw_v)
+                data_scalar.append({cat_key: f"#{i + 1}", metric_key: v if v is not None else raw_v})
+        return {
+            "chartType": "horizontal_bar",
+            "recommendedChartType": recommended,
+            "alternativeChartTypes": alternatives,
+            "visualizationExplanation": explanation
+            or "Один агрегированный показатель — показан как одна полоса по категории «Итого».",
+            "geoMetadata": geo_metadata,
+            "title": "Итог по запросу",
+            "subtitle": f"Одна метрика ({metric_key}); выборка n={sample_size}",
+            "unitLabel": unit_label,
+            "sampleSize": sample_size,
+            "qualityMetricLabel": quality_metric_label,
+            "qualityMetricValue": quality_metric_value,
+            "xKey": cat_key,
+            "series": [{"key": metric_key, "name": metric_key.replace("_", " ").strip() or "Значение"}],
+            "data": data_scalar,
+        }
     chart_type = recommended
     supported = {
         "line",
@@ -966,6 +998,12 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
                 return melted
         x_key = dim_col or columns[0]
         series_cols = numeric_cols[:2] if chart_type == "combo" else numeric_cols[:3]
+        series_cols = [c for c in series_cols if c != x_key]
+        if not series_cols:
+            for c in numeric_cols:
+                if c != x_key:
+                    series_cols.append(c)
+                    break
         if not series_cols and len(columns) > 1:
             series_cols = [columns[1]]
         data: list[dict[str, Any]] = []
