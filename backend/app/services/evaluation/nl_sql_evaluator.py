@@ -4,14 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
 
-from pydantic import TypeAdapter
-from unittest.mock import patch
-
-from app.core.config import settings
 from app.schemas.evaluation_nl_sql import (
     CaseChecks,
     CaseEvaluationResult,
@@ -23,13 +18,9 @@ from app.schemas.evaluation_nl_sql import (
     utc_now_iso,
 )
 from app.services.analytics_pipeline import analyze_natural_language
-from app.services.llm.factory import get_llm_service
-from app.services.llm.llm_service import LLMService
-from app.services.orchestration import query_orchestrator as query_orchestrator_module
+from app.services.evaluation.base_evaluator import evaluation_runtime_context
 
 logger = logging.getLogger(__name__)
-
-_DISABLED_LLM = LLMService(provider=None, temperature=0.1, max_tokens=64, timeout_seconds=5)
 
 _LAST_SUMMARY: Optional[EvaluationSummary] = None
 _LAST_CASES: list[CaseEvaluationResult] = []
@@ -220,25 +211,6 @@ def _interpretation_block(
         "requires_clarification": requires_clarification,
         "clarification_question": clarification_question,
     }
-
-
-@contextmanager
-def _evaluation_runtime_context(mode: EvaluationMode) -> Iterator[None]:
-    """Mock/deterministic: стабильный rules-first прогон без Postgres и без внешнего LLM."""
-    if mode == "live":
-        yield
-        return
-    with (
-        patch.object(settings, "deepseek_api_key", ""),
-        patch.object(settings, "mock_mode", True),
-        patch.object(settings, "guardrails_rate_limit_enabled", False),
-        patch.object(query_orchestrator_module, "get_llm_service", return_value=_DISABLED_LLM),
-    ):
-        get_llm_service.cache_clear()
-        try:
-            yield
-        finally:
-            get_llm_service.cache_clear()
 
 
 def _check_str(expected: Optional[str], actual: str) -> bool:
@@ -470,7 +442,7 @@ def run_nl_sql_evaluation(mode: EvaluationMode = "mock") -> tuple[EvaluationSumm
     cases = load_golden_cases()
     deterministic_eval = mode == "deterministic"
     results: list[CaseEvaluationResult] = []
-    with _evaluation_runtime_context(mode):
+    with evaluation_runtime_context(mode):
         for c in cases:
             try:
                 results.append(_evaluate_single(c))

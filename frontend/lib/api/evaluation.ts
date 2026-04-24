@@ -3,11 +3,18 @@ import type {
   CaseEvaluationResultDto,
   EvaluationMode,
   GoldenCasePublic,
+  GuardrailsRunResponse,
   NlSqlEvalRunResponse,
   NlSqlEvalSummary,
+  PromptStabilityResponse,
+  QualityCenterOverview,
+  QualityLastRunBundle,
+  RepairBriefLatestResponse,
   SqlCorrectnessCasePublic,
   SqlCorrectnessRunResponse,
-  SqlCorrectnessSummary
+  SqlCorrectnessSummary,
+  UnderstandingRunResponse,
+  VisualizationRunResponse
 } from "@/types/api/evaluation";
 
 export async function fetchNlSqlEvalCases(): Promise<GoldenCasePublic[]> {
@@ -43,5 +50,61 @@ export async function runSqlCorrectnessEvaluation(mode: EvaluationMode = "mock")
   return apiFetchJson<SqlCorrectnessRunResponse>("/api/v1/evaluation/sql-correctness/run", {
     method: "POST",
     body: JSON.stringify({ mode })
+  });
+}
+
+export async function fetchQualityCenterSummary(mode: EvaluationMode = "deterministic"): Promise<QualityCenterOverview> {
+  const q = new URLSearchParams({ mode });
+  return apiFetchJson<QualityCenterOverview>(`/api/v1/evaluation/quality/summary?${q.toString()}`);
+}
+
+export async function runQualityCenterEvaluation(
+  mode: EvaluationMode = "deterministic",
+  suites?: string[]
+): Promise<QualityCenterOverview> {
+  return apiFetchJson<QualityCenterOverview>("/api/v1/evaluation/quality/run", {
+    method: "POST",
+    body: JSON.stringify({ mode, suites: suites ?? undefined })
+  });
+}
+
+export async function fetchQualityLastRunDetails(mode: EvaluationMode = "deterministic"): Promise<QualityLastRunBundle> {
+  const q = new URLSearchParams({ mode });
+  return apiFetchJson<QualityLastRunBundle>(`/api/v1/evaluation/quality/last-run-details?${q.toString()}`);
+}
+
+export async function fetchRepairBriefLatest(): Promise<RepairBriefLatestResponse> {
+  return apiFetchJson<RepairBriefLatestResponse>("/api/v1/evaluation/quality/repair-brief/latest");
+}
+
+export async function runUnderstandingEvaluation(mode: EvaluationMode = "deterministic"): Promise<UnderstandingRunResponse> {
+  return apiFetchJson<UnderstandingRunResponse>("/api/v1/evaluation/understanding/run", {
+    method: "POST",
+    body: JSON.stringify({ mode })
+  });
+}
+
+export async function runVisualizationEvaluation(mode: EvaluationMode = "deterministic"): Promise<VisualizationRunResponse> {
+  return apiFetchJson<VisualizationRunResponse>("/api/v1/evaluation/visualization/run", {
+    method: "POST",
+    body: JSON.stringify({ mode })
+  });
+}
+
+export async function runGuardrailsEvaluation(mode: EvaluationMode = "deterministic"): Promise<GuardrailsRunResponse> {
+  return apiFetchJson<GuardrailsRunResponse>("/api/v1/evaluation/guardrails/run", {
+    method: "POST",
+    body: JSON.stringify({ mode })
+  });
+}
+
+export async function runPromptStabilityCheck(body: {
+  prompt: string;
+  runs: number;
+  mode: EvaluationMode;
+}): Promise<PromptStabilityResponse> {
+  return apiFetchJson<PromptStabilityResponse>("/api/v1/evaluation/prompt-stability", {
+    method: "POST",
+    body: JSON.stringify(body)
   });
 }

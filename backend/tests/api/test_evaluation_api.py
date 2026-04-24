@@ -75,7 +75,7 @@ def test_sql_correctness_cases(eval_client: TestClient) -> None:
     assert r.status_code == 200
     data = r.json()
     assert isinstance(data, list)
-    assert len(data) >= 4
+    assert len(data) >= 20
     assert "prompt" in data[0] and "id" in data[0]
 
 
@@ -101,4 +101,46 @@ def test_sql_correctness_run(eval_client: TestClient) -> None:
     assert r.status_code == 200
     body = r.json()
     assert "summary" in body and "case_results" in body
-    assert len(body["case_results"]) >= 4
+    assert len(body["case_results"]) >= 20
+
+
+def test_quality_center_summary(eval_client: TestClient) -> None:
+    r = eval_client.get("/api/v1/evaluation/quality/summary?mode=deterministic")
+    assert r.status_code == 200
+    body = r.json()
+    assert "overall_quality_score" in body
+    assert "nl_sql_understanding" in body
+    assert 0.0 <= body["overall_quality_score"] <= 1.0
+
+
+def test_understanding_cases_api(eval_client: TestClient) -> None:
+    r = eval_client.get("/api/v1/evaluation/understanding/cases")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) >= 30
+
+
+def test_prompt_stability_api(eval_client: TestClient) -> None:
+    r = eval_client.post(
+        "/api/v1/evaluation/prompt-stability",
+        json={"prompt": "Покажи лучшие каналы", "runs": 3, "mode": "deterministic"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["runs"] == 3
+    assert "stability_score" in body
+
+
+def test_quality_last_run_details(eval_client: TestClient) -> None:
+    r = eval_client.get("/api/v1/evaluation/quality/last-run-details?mode=deterministic")
+    assert r.status_code == 200
+    body = r.json()
+    assert "understanding" in body and body["understanding"]
+    assert len(body["understanding"]["case_results"]) >= 30
+
+
+def test_quality_repair_brief_latest(eval_client: TestClient) -> None:
+    r = eval_client.get("/api/v1/evaluation/quality/repair-brief/latest")
+    assert r.status_code == 200
+    body = r.json()
+    assert "found" in body

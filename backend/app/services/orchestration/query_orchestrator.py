@@ -381,6 +381,16 @@ class QueryOrchestrator:
                 dialogue=dialogue_res.to_api_dict(),
             )
         )
+        if dialogue_res.is_followup:
+            inh = dialogue_res.inheritance_trace or []
+            steps.append(
+                _step(
+                    "context_inheritance",
+                    True,
+                    message="Из notebook context унаследованы параметры предыдущего запроса.",
+                    inheritance_trace=list(inh)[:12],
+                )
+            )
 
         intent_res = self._intent.classify_intent(effective)
         entities = self._intent.extract_entities(effective)

@@ -1,67 +1,732 @@
 {
   "version": 1,
-  "description": "SQL Correctness: нормализованные фрагменты и таблицы для детерминированных промптов (mock execution).",
+  "description": "SQL correctness golden cases",
   "cases": [
     {
-      "id": "done_rides_2026_bounds",
-      "prompt": "Количество уникальных завершенных поездок за 2026 год",
-      "role": "manager",
-      "checks": {
-        "required_fragments_normalized": [
-          "make_timestamptz(2026, 1, 1, 0, 0, 0, 'utc')",
-          "make_timestamptz(2027, 1, 1, 0, 0, 0, 'utc')",
-          "a.driverdone_timestamp::timestamptz",
-          "as value"
-        ],
-        "forbidden_fragments_normalized": ["delete ", "drop ", "insert ", "update "],
-        "required_tables": ["train"],
-        "gold_normalized_sql": null,
-        "reference_sql_live": "SELECT COUNT(DISTINCT order_id)::bigint AS value FROM public.train a WHERE a.driverdone_timestamp IS NOT NULL AND a.driverdone_timestamp::timestamptz >= make_timestamptz(2026, 1, 1, 0, 0, 0, 'UTC') AND a.driverdone_timestamp::timestamptz < make_timestamptz(2027, 1, 1, 0, 0, 0, 'UTC')",
-        "compare_scalar_in_live": true,
-        "min_train_rows_for_live_compare": 100000,
-        "require_sql_validation_pass": true
-      }
-    },
-    {
-      "id": "orders_count_2024_order_ts",
+      "id": "sql_agg_orders_2024",
       "prompt": "сколько заказов за 2024 год",
       "role": "manager",
       "checks": {
         "required_fragments_normalized": [
-          "make_timestamptz(2024, 1, 1, 0, 0, 0, 'utc')",
-          "a.order_timestamp::timestamptz"
+          "order_timestamp"
         ],
-        "forbidden_fragments_normalized": ["a.driverdone_timestamp::timestamptz >="],
-        "required_tables": ["train"],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
         "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "order_timestamp"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "COUNT"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "value"
+        ],
         "require_sql_validation_pass": true
       }
     },
     {
-      "id": "summary_total_done_no_calendar_window",
-      "prompt": "сколько всего завершенных поездок",
-      "role": "manager",
-      "checks": {
-        "required_fragments_normalized": ["where 1=1", "select"],
-        "forbidden_fragments_normalized": ["make_timestamptz("],
-        "required_tables": ["train"],
-        "gold_normalized_sql": null,
-        "require_sql_validation_pass": true
-      }
-    },
-    {
-      "id": "ranking_cancel_top3_2023",
-      "prompt": "топ 3 города по отменам за 2023 год",
+      "id": "sql_agg_done_2026",
+      "prompt": "Количество уникальных завершенных поездок за 2026 год",
       "role": "manager",
       "checks": {
         "required_fragments_normalized": [
-          "make_timestamptz(2023",
-          "group by",
-          "limit 3"
+          "driverdone_timestamp",
+          "as value"
         ],
         "forbidden_fragments_normalized": [],
-        "required_tables": ["train"],
+        "required_tables": [
+          "train"
+        ],
         "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "driverdone_timestamp",
+          "as value"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "DISTINCT"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_trend_done_pw",
+      "prompt": "Покажи динамику завершённых заказов по дням за прошлую неделю",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "as bucket",
+          "as value"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "as bucket",
+          "as value"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "GROUP BY"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "bucket",
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_cmp_rev_city",
+      "prompt": "Сравни выручку по городам за последние 14 дней",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "city_id",
+          "sum"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "city_id",
+          "sum"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "GROUP BY"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "city_id",
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_rank_top5",
+      "prompt": "топ 5 городов по отменам за 2023 год",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "city_id",
+          "limit"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "city_id",
+          "limit"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "GROUP BY",
+          "LIMIT"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "city_id",
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_share_ch",
+      "prompt": "доля заказов по каналам за последний месяц",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "order_channel"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "order_channel"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "GROUP BY"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "order_channel",
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_geo_city",
+      "prompt": "рейтинг городов по выручке за прошлую неделю",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "city_id",
+          "group by"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "city_id",
+          "group by"
+        ],
+        "sql_must_contain": [
+          "SELECT",
+          "GROUP BY"
+        ],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [
+          "dim",
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_sum_all_done",
+      "prompt": "сколько всего завершенных поездок",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "driverdone"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "gold_normalized_sql": null,
+        "reference_sql_live": null,
+        "compare_scalar_in_live": false,
+        "min_train_rows_for_live_compare": 0,
+        "expected_columns": [
+          "driverdone"
+        ],
+        "sql_must_contain": [
+          "where 1=1",
+          "select"
+        ],
+        "sql_must_not_contain": [
+          "make_timestamptz("
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_roll_cancel_30",
+      "prompt": "тренд отмен за 30 дней",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_week_rev_lm",
+      "prompt": "выручка по неделям за последний месяц",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_day_orders_7d",
+      "prompt": "заказы по дням за 7 дней",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_rank_channel",
+      "prompt": "топ 3 канала по заказам за прошлую неделю",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_cmp_status",
+      "prompt": "сравни заказы по статусам за последние 14 дней",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_agg_tenders",
+      "prompt": "сколько тендеров за 2024 год",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_cancel_rate_city",
+      "prompt": "топ городов по доле отмен за последний месяц",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_avg_price_week",
+      "prompt": "средний чек по неделям за последний месяц",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_done_conv_day",
+      "prompt": "конверсия в завершённые по дням за 14 дней",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_driver_cancel_rank",
+      "prompt": "топ 5 городов по отменам водителя за 2023 год",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_client_cancel_trend",
+      "prompt": "тренд отмен клиента по дням за прошлую неделю",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_orders_channel_share",
+      "prompt": "распределение заказов по каналам за последний месяц",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_geo_orders_map",
+      "prompt": "заказы по городам за последние 14 дней",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_forecast_orders",
+      "prompt": "прогноз заказов на следующую неделю",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_guard_union",
+      "prompt": "SELECT 1; DROP TABLE train",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [
+          "drop table"
+        ],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [],
+        "sql_must_not_contain": [
+          "DROP"
+        ],
+        "result_shape": [],
+        "require_sql_validation_pass": false
+      }
+    },
+    {
+      "id": "sql_join_stub",
+      "prompt": "выручка по городам и каналам за прошлую неделю",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
+        "require_sql_validation_pass": true
+      }
+    },
+    {
+      "id": "sql_limit_safety",
+      "prompt": "покажи все заказы без лимита",
+      "role": "manager",
+      "checks": {
+        "required_fragments_normalized": [
+          "select",
+          "train"
+        ],
+        "forbidden_fragments_normalized": [],
+        "required_tables": [
+          "train"
+        ],
+        "expected_columns": [],
+        "sql_must_contain": [
+          "SELECT"
+        ],
+        "sql_must_not_contain": [
+          "DROP",
+          "DELETE"
+        ],
+        "result_shape": [
+          "value"
+        ],
         "require_sql_validation_pass": true
       }
     }

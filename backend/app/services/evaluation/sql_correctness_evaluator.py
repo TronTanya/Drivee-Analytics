@@ -162,6 +162,21 @@ def _evaluate_one(case: SqlCorrectnessCase, mode: EvaluationMode) -> SqlCorrectn
     if spec.require_sql_validation_pass and val_ok is False:
         failures.append("sql_validation.is_valid = false")
 
+    cols_ok = all(c.strip().lower() in norm for c in spec.expected_columns if c.strip())
+    if spec.expected_columns and not cols_ok:
+        failures.append(f"columns: ожидали подстроки {spec.expected_columns} в SQL")
+    sql_u = (sql_text or "").upper()
+    must_ok = all(s.upper() in sql_u for s in spec.sql_must_contain if s)
+    must_not_ok = all(s.upper() not in sql_u for s in spec.sql_must_not_contain if s)
+    sql_must_ok = must_ok and must_not_ok
+    if spec.sql_must_contain and not must_ok:
+        failures.append(f"sql_must_contain: {spec.sql_must_contain}")
+    if spec.sql_must_not_contain and not must_not_ok:
+        failures.append("sql_must_not_contain violated")
+    shape_ok = all(tok.strip().lower() in norm for tok in spec.result_shape if tok.strip())
+    if spec.result_shape and not shape_ok:
+        failures.append(f"result_shape: ожидали {spec.result_shape}")
+
     scalar_live_ok = True
     scalar_live_status = "not_requested"
     actual_scalar: Any = None
@@ -179,6 +194,9 @@ def _evaluate_one(case: SqlCorrectnessCase, mode: EvaluationMode) -> SqlCorrectn
         fragments=frag_ok,
         forbidden=forbid_ok,
         tables=tab_ok,
+        columns=cols_ok,
+        sql_must=sql_must_ok,
+        result_shape=shape_ok,
         gold_normalized=gold_ok,
         scalar_live=scalar_live_ok,
         sql_validation=val_check,
@@ -256,6 +274,9 @@ def run_sql_correctness_evaluation(mode: EvaluationMode = "mock") -> tuple[SqlCo
                         fragments=False,
                         forbidden=False,
                         tables=False,
+                        columns=False,
+                        sql_must=False,
+                        result_shape=False,
                         gold_normalized=False,
                         scalar_live=False,
                         sql_validation=False,

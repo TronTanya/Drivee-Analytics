@@ -42,6 +42,22 @@ class SqlCorrectnessChecksSpec(BaseModel):
         ge=0,
         description="Минимальное число строк в public.train для live scalar compare; иначе check помечается skipped.",
     )
+    expected_columns: list[str] = Field(
+        default_factory=list,
+        description="Имена колонок/алиасов, которые должны встречаться в нормализованном SQL.",
+    )
+    sql_must_contain: list[str] = Field(
+        default_factory=list,
+        description="Подстроки в исходном SQL (case-insensitive), как в NL golden.",
+    )
+    sql_must_not_contain: list[str] = Field(
+        default_factory=list,
+        description="Запрещённые подстроки в исходном SQL (case-insensitive).",
+    )
+    result_shape: list[str] = Field(
+        default_factory=list,
+        description="Ожидаемые имена колонок результата (проверка в live через LIMIT 0 или эвристика по SELECT).",
+    )
     require_sql_validation_pass: bool = True
 
 
@@ -62,6 +78,9 @@ class SqlCorrectnessCaseChecks(BaseModel):
     fragments: bool = True
     forbidden: bool = True
     tables: bool = True
+    columns: bool = True
+    sql_must: bool = True
+    result_shape: bool = True
     gold_normalized: bool = True
     scalar_live: bool = True
     sql_validation: bool = True

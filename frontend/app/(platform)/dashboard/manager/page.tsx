@@ -12,7 +12,9 @@ import { useSavedReports } from "@/hooks/api/use-reports";
 import { useQueryHistory } from "@/hooks/api/use-history";
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { fetchQualityCenterSummary } from "@/lib/api/evaluation";
+import type { QualityCenterOverview } from "@/types/api/evaluation";
 
 const MANAGER_PROMPTS = [
   { id: "1", label: "Где растут отмены по складам?", href: "/notebooks/ops-health" as Route },
@@ -24,7 +26,18 @@ function fmtNumber(n: number): string {
   return new Intl.NumberFormat("ru-RU").format(n);
 }
 
+function pct(n: number): string {
+  return `${(n * 100).toFixed(0)}%`;
+}
+
 export default function ManagerDashboardPage() {
+  const [qc, setQc] = useState<QualityCenterOverview | null>(null);
+  useEffect(() => {
+    void fetchQualityCenterSummary("deterministic")
+      .then(setQc)
+      .catch(() => setQc(null));
+  }, []);
+
   const workspaceQuery = useWorkspaceId();
   const notebooksQuery = useNotebooks();
   const reportsQuery = useSavedReports(workspaceQuery.data);
@@ -117,9 +130,23 @@ export default function ManagerDashboardPage() {
       <TrainDatasetSummarySection workspaceId={workspaceQuery.data} />
 
       <SectionCard
-        title="Точность NL→SQL под контролем"
-        description="Golden tests проверяют, как система понимает intent, метрики, измерения, период, SQL и visual output."
+        title="Качество AI-аналитики под контролем"
+        description="Golden tests проверяют understanding, SQL correctness, visual match и guardrails."
       >
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-control border border-border-subtle bg-surface-muted/40 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Overall Quality Score</div>
+            <div className="mt-1 text-xl font-semibold text-brand-800">{qc ? pct(qc.overall_quality_score) : "—"}</div>
+          </div>
+          <div className="rounded-control border border-border-subtle bg-surface-muted/40 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">SQL Correctness</div>
+            <div className="mt-1 text-xl font-semibold text-foreground">{qc ? pct(qc.sql_correctness.overall_accuracy) : "—"}</div>
+          </div>
+          <div className="rounded-control border border-border-subtle bg-surface-muted/40 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Guardrail Accuracy</div>
+            <div className="mt-1 text-xl font-semibold text-foreground">{qc ? pct(qc.guardrails_safety.overall_accuracy) : "—"}</div>
+          </div>
+        </div>
         <Link
           href={"/quality" as Route}
           className="inline-flex items-center rounded-control bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition hover:bg-brand-700"

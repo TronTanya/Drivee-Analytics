@@ -24,7 +24,7 @@ const RU = {
   nav_dictionary: "Словарь",
   nav_corrections: "Коррекции",
   nav_settings: "Настройки",
-  nav_quality: "NL→SQL Quality",
+  nav_quality: "Quality Center",
   nav_dashboard: "Дашборд",
 
   settings_page_title: "Настройки",
@@ -80,7 +80,7 @@ const EN: Record<keyof typeof RU, string> = {
   nav_dictionary: "Dictionary",
   nav_corrections: "Corrections",
   nav_settings: "Settings",
-  nav_quality: "NL→SQL Quality",
+  nav_quality: "Quality Center",
   nav_dashboard: "Dashboard",
 
   settings_page_title: "Settings",

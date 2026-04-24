@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "description": "Visualization match golden",
+  "cases": [
+    {
+      "id": "viz_line_trend",
+      "prompt": "Покажи динамику заказов по дням",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "day",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_line_rev",
+      "prompt": "тренд выручки по неделям",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "week",
+        "y_axis": "sum_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_bar_cmp",
+      "prompt": "сравни выручку по городам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "city_id",
+        "y_axis": "sum_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_bar_rank",
+      "prompt": "топ 5 городов по заказам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "city_id",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_pie_share",
+      "prompt": "доля заказов по каналам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "donut",
+        "x_axis": "order_channel",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_map_geo",
+      "prompt": "карта выручки по городам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "city_id",
+        "y_axis": "sum_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_line_fc",
+      "prompt": "прогноз заказов на неделю",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "day",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_line_cancel",
+      "prompt": "тренд отмен по дням",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "day",
+        "y_axis": "cancellations_total",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_bar_channel",
+      "prompt": "сравни конверсию по каналам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "order_channel",
+        "y_axis": "done_conversion",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_bar_status",
+      "prompt": "заказы по статусам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "status_order",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_line_conv",
+      "prompt": "конверсия по дням",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "day",
+        "y_axis": "done_conversion",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_rank_horiz",
+      "prompt": "рейтинг городов по выручке",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "city_id",
+        "y_axis": "sum_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_week_orders",
+      "prompt": "заказы по неделям",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "week",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_month_rev",
+      "prompt": "выручка по месяцам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "month",
+        "y_axis": "sum_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_geo_orders",
+      "prompt": "где больше заказов по городам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "city_id",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_share_done",
+      "prompt": "доля завершённых поездок по каналам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "donut",
+        "x_axis": "order_channel",
+        "y_axis": "done_rides",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_cmp_two_weeks",
+      "prompt": "сравни две недели по заказам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "line",
+        "x_axis": "week",
+        "y_axis": "orders_count",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_trend_price",
+      "prompt": "динамика среднего чека по дням",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "day",
+        "y_axis": "avg_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_top_channel",
+      "prompt": "топ каналов по выручке",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "order_channel",
+        "y_axis": "sum_order_price",
+        "series": [],
+        "result_shape": []
+      }
+    },
+    {
+      "id": "viz_driver_cancel",
+      "prompt": "отмены водителя по городам",
+      "role": "manager",
+      "expected": {
+        "chart_type": "table",
+        "x_axis": "city_id",
+        "y_axis": "driver_cancellations",
+        "series": [],
+        "result_shape": []
+      }
+    }
+  ]
+}

@@ -136,6 +136,25 @@ class ClarificationEngine:
         nd = ctx.nondefault_semantic_count
         interp = ctx.interpretation
 
+        if "лучш" in q and "канал" in q:
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="best_channels_vague",
+                clarification_question=(
+                    "Что считать «лучшими каналами»? "
+                    "Максимальная выручка, конверсия, число заказов или другой показатель из словаря метрик."
+                ),
+                clarification_options=list(OPTIONS_CHANNEL_METRICS),
+            )
+
+        if any(x in q for x in ("успешн", "проблемн", "эффективн", "активн")) and nd == 0:
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="vague_performance_adjective",
+                clarification_question="Уточните метрику: что именно считать успехом или проблемой?",
+                clarification_options=list(OPTIONS_SUMMARY_METRICS),
+            )
+
         if interp and ("revenue_metric_multiple" in interp.ambiguities or "revenue_definition_unclear" in interp.ambiguities):
             return ClarificationResponse(
                 clarification_required=True,
