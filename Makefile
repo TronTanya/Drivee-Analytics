@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live
 
 up:
 	$(DC) up --build
@@ -71,6 +71,13 @@ test-orchestration-all:
 # Golden NL→SQL Quality Suite (метрики + API, без внешнего LLM в mock-режиме).
 test-nl-sql-quality:
 	$(DC) run --rm backend python -m pytest tests/evaluation tests/api/test_evaluation_api.py -q
+
+# Drivee Quality Center: CLI прогон всех suite с порогом качества (exit 1 если ниже).
+quality-eval:
+	$(DC) run --rm backend python scripts/run_quality_evals.py --suite all --mode deterministic --fail-under 0.85
+
+quality-eval-live:
+	$(DC) run --rm backend python scripts/run_quality_evals.py --suite all --mode live --fail-under 0.85
 
 # Coverage по ключевым модулям orchestration/guardrails.
 test-cov-core:

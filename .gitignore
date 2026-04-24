@@ -30,3 +30,6 @@ playwright-report/
 test-results/
 blob-report/
 
+# Quality Center local eval runs (генерируются POST /evaluation/quality/run)
+backend/app/evals/runs/
+

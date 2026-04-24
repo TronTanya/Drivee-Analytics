@@ -84,38 +84,49 @@ Drivee Analytics не доверяет LLM вслепую. Каждый запр
 8. explainability trace;
 9. confidence scoring.
 
-Для проверки качества добавлен **Golden NL→SQL Evaluation Suite** из 30+ бизнес-сценариев (`backend/app/evals/golden/nl_sql_golden_cases.json`). Он измеряет:
+Для регрессии сохранён **Golden NL→SQL Evaluation Suite** (`backend/app/evals/golden/nl_sql_golden_cases.json`) с классическими метриками (intent, metric, dimensions, time, chart, clarification, guardrail, SQL validation).
 
-- intent accuracy;
-- metric accuracy;
-- dimension accuracy;
-- time parsing accuracy;
-- chart accuracy;
-- clarification accuracy;
-- guardrail accuracy;
-- SQL validation pass rate.
+### Drivee Quality Center
 
-| Метрика | Что показывает |
-|---------|----------------|
-| Intent accuracy | Насколько верно система определяет тип запроса |
-| Metric accuracy | Насколько верно бизнес-термины сопоставляются с метриками |
-| Dimension accuracy | Насколько верно выбираются группировки |
-| Time range accuracy | Насколько верно понимаются периоды |
-| SQL validation pass rate | Насколько часто SQL проходит safety checks |
-| Clarification accuracy | Насколько верно система запрашивает уточнение при неоднозначности |
-| Guardrail accuracy | Насколько верно блокируются опасные запросы |
+Drivee Analytics включает **Quality Center** — встроенный модуль проверки качества AI-аналитики (в составе notebook-платформы, не как отдельный SQL IDE). Он оценивает:
 
-**Команды:** backend — `make test-nl-sql-quality` или `pytest tests/evaluation tests/api/test_evaluation_api.py`; UI — страница **`/quality`** (NL→SQL Quality Center).
+- **NL→SQL Understanding**;
+- **SQL Correctness**;
+- **Visualization Match**;
+- **Guardrails & Safety**;
+- **Prompt Stability**;
+- **Follow-up Context** (в golden understanding и trace notebook).
+
+| Suite | Что проверяет |
+|-------|----------------|
+| Understanding | intent, metric, dimensions, period, clarification, follow-up |
+| SQL Correctness | таблицы, колонки, формулы/фрагменты, агрегации, GROUP BY, result shape, safety |
+| Visualization Match | chart type, оси, серии, согласованность с формулировкой |
+| Guardrails & Safety | опасный SQL, чувствительные данные, политики ролей |
+| Prompt Stability | одинаковый outcome при повторе промпта |
+| Follow-up Context | наследование metric/dimension/time между ячейками |
+
+**Команды:**
+
+```bash
+make quality-eval
+python backend/scripts/run_quality_evals.py --suite all --mode deterministic --fail-under 0.85
+pytest backend/tests/evaluation -q
+make test-nl-sql-quality
+```
+
+**UI:** маршрут **`/quality`** (**Quality Center**), карточка на дашборде менеджера и администратора.
+
+**Документация:** [docs/evaluation_guide.md](docs/evaluation_guide.md) · [docs/jury_quality_center_pitch.md](docs/jury_quality_center_pitch.md) · [docs/quality_center_audit.md](docs/quality_center_audit.md)
 
 **Demo для жюри:**
 
-1. Открыть Manager dashboard (`/dashboard/manager`).
-2. Перейти в **NL→SQL Quality** (`/quality`) или по карточке «Точность NL→SQL под контролем».
-3. Нажать **Run evaluation**.
-4. Показать сводные метрики.
-5. Открыть кейс в таблице.
-6. Показать expected vs actual interpretation.
-7. Показать SQL и trace в модальном окне.
+1. Открыть Manager или Admin dashboard — карточка «Качество AI-аналитики под контролем».
+2. Перейти в **Quality Center** (`/quality`).
+3. Показать **Overall Quality Score** и четыре suite-карточки.
+4. Вкладка **Understanding** — expected vs actual, SQL, trace.
+5. **SQL Correctness** и **Guardrails** — структура SQL и заблокированный опасный запрос.
+6. При необходимости — **Repair Brief** после `Run all evaluations`.
 
 ## 6) Рабочие сценарии
 
@@ -131,7 +142,7 @@ Drivee Analytics не доверяет LLM вслепую. Каждый запр
 | Словарь | `/dictionary` | Чтение терминов (backend: минимальный `meta/dictionary` или мок — см. ограничения). |
 | Загрузка данных | `/data-upload` | Цепочка upload → import → staging. |
 | Защита (режим жюри, 5 сценариев) | `/scenarios` → блок «Режим показа жюри» | One-click переходы по `demo_case`, стабильные trace/clarification/guardrails маркеры. |
-| Качество NL→SQL (golden suite) | `/quality` | Метрики golden evaluation, прогон `POST /api/v1/evaluation/nl-sql/run`, детали кейсов. |
+| Drivee Quality Center | `/quality` | Четыре suite, `GET/POST /api/v1/evaluation/quality/*`, repair brief, prompt stability; legacy `POST /api/v1/evaluation/nl-sql/run`. |
 
 Пошаговый сценарий экрана: **[docs/demo-script.md](docs/demo-script.md)**. Режимы Live/mock: **[docs/demo-defense.md](docs/demo-defense.md)**.
 
