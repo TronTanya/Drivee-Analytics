@@ -9,7 +9,7 @@
 | Клиент | Next.js 14 (App Router), TypeScript, Tailwind, React Query | Notebook, дашборды, системные страницы, trace panel, режимы live/mock/fallback |
 | API | FastAPI, Pydantic | JWT, notebooks/cells/run, `POST /analytics/run`, data upload, forecast, reports, templates, history, admin corrections |
 | Оркестрация | Сервисы в `app/services/orchestration/`, `sql_validation/`, `semantic_layer/` | NL→SQL pipeline, guardrails, explainability |
-| Данные | PostgreSQL, SQLAlchemy | Каноническая факт-таблица `anonymized_incity_orders`, артефакты notebook, отчёты, шаблоны, история |
+| Данные | PostgreSQL, SQLAlchemy | Канонический аналитический слой **`public.train`** (VIEW над факт-таблицей заказов), артефакты notebook, отчёты, шаблоны, история |
 
 ## Схема потоков
 
@@ -34,7 +34,7 @@ flowchart TB
   end
 
   subgraph db["PostgreSQL"]
-    ORD[("anonymized_incity_orders + staging")]
+    ORD[("public.train + staging")]
     NBDB[("notebooks · cells · runs")]
     META[("templates · reports · schedules · nl_queries_history")]
   end
@@ -64,7 +64,7 @@ flowchart TB
 4. Семантика: сопоставление метрик/терминов (`SemanticService` + словарь).  
 5. Clarification: нужен ли вопрос пользователю, черновой confidence.  
 6. Генерация SQL (+ опционально learned correction).  
-7. Валидация (whitelist, запреты, лимиты, роль).  
+7. Валидация (whitelist таблиц: **`train`** и staging **`user_staging`**, whitelist колонок, запреты, лимиты, роль).  
 8. Выполнение в Postgres или mock-режиме.  
 9. Рекомендация графика, инсайт, опционально forecast.  
 10. Сбор trace и ответ клиенту.

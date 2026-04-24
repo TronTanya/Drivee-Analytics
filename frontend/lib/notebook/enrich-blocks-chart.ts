@@ -16,19 +16,24 @@ function uniqueChartKinds(raw: Array<string | undefined | null>): ChartKind[] {
 }
 
 /**
- * После стабилизации сценария: единый автовыбор типа графика по trace + намерению.
- * Ручной override в UI меняет `chartType` у блока; при следующем запуске pipeline значение снова придёт из API.
+ * После стабилизации: тип графика из trace (бэкенд: intent + схема результата).
+ * Если пользователь уже выбрал другой тип, чем последняя «рекомендация» в блоке — сохраняем выбор.
  */
 export function enrichBlocksWithAutoChart(blocks: NotebookBlock[], trace: TracePanelModel): NotebookBlock[] {
-  const auto = resolveAutoChartKind(trace);
-  const rec = normalizeChartKind(trace.chartRecommendation.chartType) ?? auto;
+  const backendPrimary = resolveAutoChartKind(trace);
+  const rec = normalizeChartKind(trace.chartRecommendation.chartType) ?? backendPrimary;
   return blocks.map((b) => {
     if (b.type !== "chart") return b;
     const block = b as ChartBlock;
+    const prevRec = block.recommendedChartType != null ? normalizeChartKind(block.recommendedChartType) : null;
+    const prevType = normalizeChartKind(block.chartType);
+    const userPickedDifferentFromRec =
+      prevType != null && prevRec != null && prevType !== prevRec;
+    const chartType = userPickedDifferentFromRec ? prevType : backendPrimary;
     const alts = uniqueChartKinds([
       ...(block.alternativeChartTypes ?? []),
       ...(trace.chartRecommendation.alternatives ?? []),
-      auto,
+      backendPrimary,
       rec,
       "line",
       "bar",
@@ -42,17 +47,17 @@ export function enrichBlocksWithAutoChart(blocks: NotebookBlock[], trace: TraceP
       trace.chartRecommendation.rationale?.trim() ||
       "Тип графика выбран автоматически по намерению запроса и подсказке модели.";
     let geo = block.geoMetadata;
-    if (auto === "map" && !geo?.geoEnabled) {
+    if (chartType === "map" && !geo?.geoEnabled) {
       geo = {
         geoEnabled: true,
         geoDimension: "city_id",
         mapScope: "regional",
-        fallbackChartType: "horizontal_bar"
+        fallbackChartType: "table"
       };
     }
     return {
       ...block,
-      chartType: auto,
+      chartType,
       recommendedChartType: rec,
       alternativeChartTypes: alts,
       visualizationExplanation: rationale,

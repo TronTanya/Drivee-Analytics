@@ -35,6 +35,42 @@ function groupByRole<T extends { role: UserRole }>(rows: T[]): Record<UserRole, 
   return out;
 }
 
+function groupQueryTemplatesByRole(rows: QueryTemplateDto[]): Record<UserRole, QueryTemplateDto[]> {
+  const out: Record<UserRole, QueryTemplateDto[]> = {
+    admin: [],
+    manager: [],
+    marketer: [],
+    executive: []
+  };
+  for (const row of rows) {
+    const rk = row.target_role_key;
+    const targets: UserRole[] =
+      rk && ROLE_ORDER.includes(rk as UserRole) ? [rk as UserRole] : [...ROLE_ORDER];
+    for (const t of targets) {
+      out[t].push(row);
+    }
+  }
+  return out;
+}
+
+function groupMockQueryTemplates(rows: QueryTemplateRow[]): Record<UserRole, QueryTemplateRow[]> {
+  const out: Record<UserRole, QueryTemplateRow[]> = {
+    admin: [],
+    manager: [],
+    marketer: [],
+    executive: []
+  };
+  for (const row of rows) {
+    const rk = row.target_role_key;
+    const targets: UserRole[] =
+      rk && ROLE_ORDER.includes(rk as UserRole) ? [rk as UserRole] : [...ROLE_ORDER];
+    for (const t of targets) {
+      out[t].push(row);
+    }
+  }
+  return out;
+}
+
 function QuickRunButton({ href, label }: { href: Route; label: string }) {
   return (
     <Link
@@ -47,18 +83,25 @@ function QuickRunButton({ href, label }: { href: Route; label: string }) {
 }
 
 function QueryTemplateCardMock({ row }: { row: QueryTemplateRow }) {
+  const scenarioHref = `${row.runHref}?template_prompt=${encodeURIComponent(row.prefillPrompt ?? row.name)}` as Route;
   return (
-    <div className="surface-content bg-surface-page px-3 py-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+    <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">{row.name}</p>
           <p className="mt-0.5 text-xs text-foreground-secondary">{row.description}</p>
-          <pre className="surface-console mt-2 max-h-20 overflow-auto p-2 font-mono text-[10px]">
+          <pre className="surface-console mt-2 max-h-20 min-w-0 max-w-full overflow-x-auto overflow-y-auto whitespace-pre p-2 font-mono text-[10px]">
             {row.sql}
           </pre>
         </div>
-        <div className="w-full sm:w-auto">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
           <QuickRunButton href={row.runHref} label="Быстрый запуск" />
+          <Link
+            href={scenarioHref}
+            className="text-center text-[11px] font-semibold text-brand-800 underline-offset-2 hover:underline"
+          >
+            В сценарий (подставить текст)
+          </Link>
         </div>
       </div>
     </div>
@@ -68,26 +111,32 @@ function QueryTemplateCardMock({ row }: { row: QueryTemplateRow }) {
 function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; workspaceId: string }) {
   const quickRun = useQuickRunQueryTemplate();
   const [msg, setMsg] = useState<string | null>(null);
+  const [runningTemplateId, setRunningTemplateId] = useState<string | null>(null);
+  const thisRunning = runningTemplateId === row.id;
+  const nb = row.default_notebook_id ?? "ops-health";
+  const scenarioHref =
+    `/notebooks/${nb}?template_prompt=${encodeURIComponent(row.nl_prompt_template || row.name)}` as Route;
 
   return (
-    <div className="surface-content bg-surface-page px-3 py-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+    <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">{row.name}</p>
           {row.template_key ? (
             <p className="mt-0.5 text-[10px] font-mono text-foreground-muted">{row.template_key}</p>
           ) : null}
           <p className="mt-0.5 text-xs text-foreground-secondary">{row.description}</p>
-          <pre className="surface-console mt-2 max-h-24 overflow-auto p-2 font-mono text-[10px]">
+          <pre className="surface-console mt-2 max-h-24 min-w-0 max-w-full overflow-x-auto overflow-y-auto whitespace-pre p-2 font-mono text-[10px]">
             {(row.sql_template && row.sql_template.trim()) || row.nl_prompt_template || row.sql}
           </pre>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
           <button
             type="button"
-            disabled={quickRun.isPending}
+            disabled={thisRunning}
             onClick={async () => {
               setMsg(null);
+              setRunningTemplateId(row.id);
               try {
                 const res = await quickRun.mutateAsync({ workspaceId, templateId: row.id });
                 setMsg(
@@ -95,15 +144,23 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
                 );
               } catch {
                 setMsg("Не удалось выполнить шаблон через API.");
+              } finally {
+                setRunningTemplateId(null);
               }
             }}
             className="interactive-focus micro-lift rounded-control bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-black shadow-xs hover:bg-brand-400 disabled:opacity-50"
           >
-            {quickRun.isPending ? "Запуск…" : "Быстрый запуск (API)"}
+            {thisRunning ? "Запуск…" : "Быстрый запуск (API)"}
           </button>
           <Link
-            href={"/history" as Route}
+            href={scenarioHref}
             className="text-center text-[11px] font-semibold text-brand-800 underline-offset-2 hover:underline"
+          >
+            В сценарий (подставить текст)
+          </Link>
+          <Link
+            href={"/history" as Route}
+            className="text-center text-[11px] font-semibold text-foreground-secondary underline-offset-2 hover:underline"
           >
             История запусков
           </Link>
@@ -116,9 +173,9 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
 
 function NotebookTemplateCard({ row }: { row: NotebookTemplateRow }) {
   return (
-    <div className="surface-content bg-surface-page px-3 py-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+    <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">{row.name}</p>
           <p className="mt-0.5 text-xs text-foreground-secondary">{row.description}</p>
         </div>
@@ -141,7 +198,7 @@ export function TemplatesView() {
   const workspaceQuery = useWorkspaceId();
   const workspaceId = workspaceQuery.data;
   const templatesQuery = useQueryTemplates(workspaceId);
-  const nbTemplatesQuery = useNotebookTemplates();
+  const nbTemplatesQuery = useNotebookTemplates(workspaceId);
   const [roleView, setRoleView] = useState<"current" | "all">("current");
 
   const queryRowsLive = templatesQuery.data;
@@ -155,10 +212,10 @@ export function TemplatesView() {
   const useLiveQueryTemplates = Boolean(workspaceId && queryTemplatesForGroup);
 
   const byQueryLiveGrouped = useMemo(
-    () => (queryTemplatesForGroup ? groupByRole(queryTemplatesForGroup) : null),
+    () => (queryTemplatesForGroup ? groupQueryTemplatesByRole(queryTemplatesForGroup) : null),
     [queryTemplatesForGroup]
   );
-  const byQueryMockGrouped = useMemo(() => groupByRole(MOCK_QUERY_TEMPLATES), []);
+  const byQueryMockGrouped = useMemo(() => groupMockQueryTemplates(MOCK_QUERY_TEMPLATES), []);
 
   const notebookRows = useMemo((): NotebookTemplateRow[] => {
     const d = nbTemplatesQuery.data;
@@ -182,7 +239,7 @@ export function TemplatesView() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="min-w-0 max-w-full space-y-8">
       <SystemPageIntro
         title="Шаблоны"
         subtitle="NL- и SQL-шаблоны workspace, быстрый запуск через API и заготовки сценариев."
@@ -196,9 +253,11 @@ export function TemplatesView() {
       />
 
       {!workspaceId ? (
-        <div className="rounded-card border border-border-subtle bg-surface-card px-4 py-3 text-sm text-foreground-secondary">
+        <div className="min-w-0 break-words rounded-card border border-border-subtle bg-surface-card px-4 py-3 text-sm text-foreground-secondary">
           Workspace не задан (войдите в систему или укажите{" "}
-          <code className="rounded bg-surface-muted px-1 py-0.5 text-xs">NEXT_PUBLIC_DEFAULT_WORKSPACE_ID</code>
+          <code className="break-all rounded bg-surface-muted px-1 py-0.5 text-xs">
+            NEXT_PUBLIC_DEFAULT_WORKSPACE_ID
+          </code>
           ). Ниже показан демо-каталог; для живых шаблонов нужен workspace.
         </div>
       ) : null}
@@ -261,9 +320,13 @@ export function TemplatesView() {
               <div className="space-y-2">
                 {(useLiveQueryTemplates ? byQueryLiveGrouped![role] : byQueryMockGrouped[role]).map((row) =>
                   useLiveQueryTemplates ? (
-                    <QueryTemplateCardLive key={row.id} row={row as QueryTemplateDto} workspaceId={workspaceId!} />
+                    <QueryTemplateCardLive
+                      key={`${row.id}-${role}`}
+                      row={row as QueryTemplateDto}
+                      workspaceId={workspaceId!}
+                    />
                   ) : (
-                    <QueryTemplateCardMock key={row.id} row={row as QueryTemplateRow} />
+                    <QueryTemplateCardMock key={`${row.id}-${role}`} row={row as QueryTemplateRow} />
                   )
                 )}
                 {(useLiveQueryTemplates ? byQueryLiveGrouped![role] : byQueryMockGrouped[role]).length === 0 ? (

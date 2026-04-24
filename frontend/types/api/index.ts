@@ -9,5 +9,4 @@ export * from "@/types/api/forecast";
 export * from "@/types/api/history";
 export * from "@/types/api/notebooks";
 export * from "@/types/api/reports";
-export * from "@/types/api/schedules";
 export * from "@/types/api/templates";

@@ -13,11 +13,14 @@ ROLE_ALLOWED_CANONICAL_METRICS: Dict[str, Optional[FrozenSet[str]]] = {
     "executive": frozenset(
         {
             "orders_count",
+            "train_row_count",
+            "distinct_orders",
             "tenders_count",
             "done_rides",
             "cancellations_total",
             "client_cancellations",
             "driver_cancellations",
+            "cancellation_rate",
             "done_conversion",
             "cancel_before_accept_count",
             "avg_duration_seconds",

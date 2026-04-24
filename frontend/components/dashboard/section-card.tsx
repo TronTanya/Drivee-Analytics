@@ -15,16 +15,16 @@ export function SectionCard({
 }) {
   return (
     <section
-      className={`surface-section ${className}`.trim()}
+      className={`surface-section shadow-xs transition hover:shadow-soft ${className}`.trim()}
     >
-      <div className="flex flex-col gap-1 border-b border-border-subtle/80 bg-surface-muted/35 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div>
+      <div className="flex min-w-0 flex-col gap-1 border-b border-border-subtle/80 bg-surface-muted/35 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="min-w-0">
           <h2 className="text-heading-3 text-foreground">{title}</h2>
           {description ? <p className="mt-0.5 text-xs text-foreground-secondary">{description}</p> : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="p-4 sm:p-5">{children}</div>
+      <div className="min-w-0 p-4 sm:p-5">{children}</div>
     </section>
   );
 }

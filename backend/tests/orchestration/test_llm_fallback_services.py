@@ -23,6 +23,26 @@ class FallbackServiceTests(unittest.TestCase):
         text = service.generate("summary", [], ["value"])
         self.assertEqual(text, "Нет строк результата для краткого вывода.")
 
+    def test_insight_fallback_trend_growth(self) -> None:
+        service = InsightGenerationService(llm_service=None)
+        rows = [
+            {"day": "2026-04-01", "revenue": 100.0},
+            {"day": "2026-04-02", "revenue": 130.0},
+        ]
+        text = service.generate("trend", rows, ["day", "revenue"])
+        self.assertIn("рост", text.lower())
+        self.assertIn("revenue", text)
+
+    def test_insight_fallback_ranking_by_city(self) -> None:
+        service = InsightGenerationService(llm_service=None)
+        rows = [
+            {"city_id": "Алматы", "cancelled_orders": 14},
+            {"city_id": "Астана", "cancelled_orders": 6},
+        ]
+        text = service.generate("ranking", rows, ["city_id", "cancelled_orders"])
+        self.assertIn("Алматы", text)
+        self.assertIn("cancelled_orders", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.user import User
     from app.models.workspace import Workspace
 
 
@@ -41,6 +42,7 @@ class Notebook(Base, TimestampMixin):
     )
 
     workspace: Mapped[Workspace] = relationship("Workspace", back_populates="notebooks")
+    owner: Mapped["User"] = relationship("User", foreign_keys=[owner_user_id], lazy="selectin")
     cells: Mapped[list[NotebookCell]] = relationship(
         "NotebookCell",
         back_populates="notebook",

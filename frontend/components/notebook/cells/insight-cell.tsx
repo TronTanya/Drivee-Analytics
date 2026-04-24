@@ -1,10 +1,26 @@
 import type { InsightCellProps } from "@/lib/notebook/block-types";
 import { ConfidenceBadge } from "@/components/notebook/confidence-badge";
+import { UiStateSurface } from "@/components/ui/state-surface";
 
 export function InsightCell({ block }: InsightCellProps) {
+  const hasBullets = block.bullets.some((b) => String(b).trim().length > 0);
+  const hasTitle = Boolean(block.title?.trim());
+  const hasSummary = Boolean(block.summary?.trim());
+  if (!hasTitle && !hasSummary && !hasBullets) {
+    return (
+      <UiStateSurface
+        variant="empty"
+        title="Инсайт не сформирован"
+        description="Pipeline не вернул текстовое резюме. Попробуйте перезапуск или уточните метрику и период в промпте."
+        dense
+        className="rounded-control border border-border-subtle bg-surface-card px-4 py-4 shadow-xs"
+      />
+    );
+  }
+
   return (
     <div className="surface-decision relative overflow-hidden border-border-subtle bg-surface-card px-4 py-4">
-      <div className="absolute left-0 top-0 h-full w-1 bg-[#d6ff63]" aria-hidden />
+      <div className="absolute left-0 top-0 h-full w-1 bg-brand-400" aria-hidden />
       <div className="pl-2">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-secondary">Инсайт</p>
@@ -15,7 +31,7 @@ export function InsightCell({ block }: InsightCellProps) {
         <ul className="mt-3 space-y-1.5 text-sm text-foreground">
           {block.bullets.map((b, i) => (
             <li key={i} className="flex gap-2">
-              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#9fd228]" aria-hidden />
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-brand-600" aria-hidden />
               <span className="leading-relaxed">{b}</span>
             </li>
           ))}

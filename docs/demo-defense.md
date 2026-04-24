@@ -21,9 +21,9 @@
    | `NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK` | не задавать или `false` | **Важно:** аналитика `/api/v1/analytics/run` идёт в backend, как в бою. Мок подставляется **только** при сбое и только если включён fallback-профиль. |
    | `NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK` | `true` | Только для офлайн-показа: весь analytics на клиентском моке (явно «не честный» live). |
 
-4. Войти демо-пользователем (пароли задаёт seed, например `demo123` для ролевых аккаунтов — см. `seed_demo_data.py`).
+4. Войти демо-пользователем — см. **[demo-users-credentials.md](./demo-users-credentials.md)**.
 
-5. Точка входа UI: **`/demo-router`** — карта сценариев и ссылки.
+5. Точка входа UI после входа: **`/notebooks`** — список сценариев; дальше открывайте нужный ноутбук (например **`/notebooks/ops-health`**). Канонические промпты защиты — **`frontend/lib/demo/defense-scenarios.ts`**.
 
 ## Четыре сценария (что показывать)
 
@@ -37,6 +37,12 @@
 | 4 | Совместная работа через шаблоны | `/templates` + `/notebooks/ops-health` | См. `DEFENSE_DEMO_SCENARIOS[3].nlPrompt` |
 
 После seed в БД появляются строки истории с `trace_payload_json.defense_scenario_id` — это **маркеры сценария**, а не подмена ответа LLM.
+
+## Источник данных для аналитики
+
+- В живой БД NL→SQL и шаблоны опираются на **`public.train`** (VIEW над факт-таблицей заказов; колонки описаны в `docs/demo-analytics-dataset.md`).
+- **Whitelist** пользовательского SQL: только **`train`** и таблицы staging в **`user_staging`** после импорта CSV; имя физической таблицы под VIEW в запросах не допускается (см. `README.md` §10, `backend/POSTGRES_LAYER.md`).
+- Клиентский fallback (`mockRunAnalytics`, `SEEDED_ORDERS`) — отдельный контур: детерминированные цифры для демо при сбое сети, не построчная копия Postgres.
 
 ## Ограничения (озвучивать честно)
 

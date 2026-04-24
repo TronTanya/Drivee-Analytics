@@ -30,9 +30,16 @@ export type QueryHistoryDto = {
   notebook_id?: string;
   validation_ok: boolean;
   validation_hint: string;
+  /** succeeded | failed | not_started … с бэкенда */
+  execution_status?: string;
   duration_ms: number;
   chart_type?: string;
   interpreted_summary?: string;
+  /** Parsed intent / NL summary (кратко) */
+  parsed_intent_json?: Record<string, unknown>;
+  confidence?: number | null;
+  result_summary?: string | null;
+  author_role_key?: string | null;
   owner_user_id?: string;
   rerun_cell_id?: string;
   rerun_notebook_id?: string;

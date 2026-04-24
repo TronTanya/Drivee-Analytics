@@ -17,7 +17,7 @@ type BulkRunSummary = {
 };
 
 const DEFAULT_WORKSPACE_ID = "00000000-0000-0000-0000-000000000001";
-const DEFAULT_SOURCE_TABLE = "public.anonymized_incity_orders";
+const DEFAULT_SOURCE_TABLE = "public.train";
 const DEFAULT_DATE_COLUMN = "order_timestamp";
 const LAST_RUN_KEY = "drivee.automl.bulk.last.v1";
 

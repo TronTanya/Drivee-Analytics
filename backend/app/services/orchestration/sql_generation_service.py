@@ -10,7 +10,7 @@ from app.schemas.orchestration import IntentKind
 
 
 class SQLGenerationService:
-    SOURCE_TABLE = "anonymized_incity_orders"
+    SOURCE_TABLE = "train"
 
     @staticmethod
     def _resolve_source_table(source_table: Optional[str]) -> str:
@@ -52,6 +52,24 @@ class SQLGenerationService:
             parts.append(f"a.status_order::text = '{entities['status_order']}'")
         if entities.get("status_tender"):
             parts.append(f"a.status_tender::text = '{entities['status_tender']}'")
+        if entities.get("order_channel"):
+            parts.append(f"a.order_channel::text = '{entities['order_channel']}'")
+        if entities.get("user_id"):
+            parts.append(f"a.user_id::text = '{entities['user_id']}'")
+        if entities.get("driver_id"):
+            parts.append(f"a.driver_id::text = '{entities['driver_id']}'")
+        if entities.get("offset_hours") is not None:
+            try:
+                oh = int(entities["offset_hours"])
+                parts.append(f"a.offset_hours = {oh}")
+            except (TypeError, ValueError):
+                pass
+        if entities.get("month"):
+            try:
+                month = max(1, min(12, int(entities["month"])))
+                parts.append(f"EXTRACT(MONTH FROM a.order_timestamp::timestamp) = {month}")
+            except (TypeError, ValueError):
+                pass
         return " AND ".join(parts)
 
     def generate(
@@ -121,6 +139,20 @@ class SQLGenerationService:
         table_name = self._resolve_source_table(source_table)
         where_base = self.build_where_orders(entities, workspace_id)
         grain = entities.get("time_grain") or "week"
+        dims = entities.get("dimensions") if isinstance(entities.get("dimensions"), list) else []
+        dim_key = "city_id"
+        if "order_channel" in dims:
+            dim_key = "order_channel"
+        elif "status_order" in dims:
+            dim_key = "status_order"
+        elif "status_tender" in dims:
+            dim_key = "status_tender"
+        elif "user_id" in dims:
+            dim_key = "user_id"
+        elif "driver_id" in dims:
+            dim_key = "driver_id"
+        elif "offset_hours" in dims:
+            dim_key = "offset_hours"
         weeks = int(entities.get("window_weeks") or 8)
         top_n = int(entities.get("top_n") or 5)
         trunc = {"day": "day", "week": "week", "month": "month"}.get(grain, "week")
@@ -141,13 +173,13 @@ class SQLGenerationService:
 
         if intent == "comparison":
             return (
-                f"SELECT a.city_id::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
+                f"SELECT a.{dim_key}::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
                 f"GROUP BY 1 ORDER BY value DESC"
             )
 
         if intent == "ranking":
             return (
-                f"SELECT a.city_id::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
+                f"SELECT a.{dim_key}::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} "
                 f"GROUP BY 1 ORDER BY value DESC LIMIT {top_n}"
             )
 
@@ -158,9 +190,15 @@ class SQLGenerationService:
             )
 
         if intent == "share":
+            share_dim = (
+                dim_key
+                if dim_key
+                in {"city_id", "status_order", "status_tender", "order_channel", "user_id", "driver_id", "offset_hours"}
+                else "status_order"
+            )
             return (
                 f"WITH base AS ("
-                f"SELECT a.status_order::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} GROUP BY 1"
+                f"SELECT a.{share_dim}::text AS dim, {metric_sql} AS value FROM {table_name} a WHERE {where_with_time} GROUP BY 1"
                 f") SELECT dim, value, value / NULLIF(SUM(value) OVER (), 0) AS share FROM base ORDER BY value DESC"
             )
 

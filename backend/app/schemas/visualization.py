@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+
+class GeoMapFeature(BaseModel):
+    """Точка/регион для будущей интерактивной карты (MVP: передаётся в API/UI)."""
+
+    id: str = ""
+    label: str = ""
+    value: Optional[float] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
 
 class GeoVisualizationMetadata(BaseModel):
@@ -12,6 +22,10 @@ class GeoVisualizationMetadata(BaseModel):
     geo_dimension: Optional[str] = None
     map_scope: Optional[str] = None
     fallback_chart_type: Optional[str] = None
+    map_features: list[GeoMapFeature] = Field(
+        default_factory=list,
+        description="Нормализованные объекты для map/geo слоя (id, подпись, значение, опц. координаты).",
+    )
 
 
 class VisualizationRecommendation(BaseModel):

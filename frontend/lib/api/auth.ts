@@ -6,23 +6,31 @@ import { mockLogin, mockMe, mockRegister } from "@/lib/api/mocks";
 import type { AuthSessionDto, LoginRequestDto, RegisterRequestDto, UserDto } from "@/types/api/auth";
 
 export async function login(body: LoginRequestDto): Promise<AuthSessionDto> {
-  const session = await requestJson({
+  const tokens = await requestJson({
     path: "/api/v1/auth/login",
     init: { method: "POST", body: JSON.stringify(body) },
-    mock: () => mockLogin(body)
+    mock: async () => (await mockLogin(body)).tokens
   });
-  setTokenPair(session.tokens.access_token, session.tokens.refresh_token ?? null);
-  return session;
+  setTokenPair(tokens.access_token, tokens.refresh_token ?? null);
+  const user = await fetchCurrentUser();
+  return { user, tokens };
 }
 
 export async function register(body: RegisterRequestDto): Promise<AuthSessionDto> {
-  const session = await requestJson({
+  const payload = {
+    email: body.email,
+    password: body.password,
+    role: body.demo_role ?? "manager",
+    is_demo: true
+  };
+  const tokens = await requestJson({
     path: "/api/v1/auth/register",
-    init: { method: "POST", body: JSON.stringify(body) },
-    mock: () => mockRegister(body)
+    init: { method: "POST", body: JSON.stringify(payload) },
+    mock: async () => (await mockRegister(body)).tokens
   });
-  setTokenPair(session.tokens.access_token, session.tokens.refresh_token ?? null);
-  return session;
+  setTokenPair(tokens.access_token, tokens.refresh_token ?? null);
+  const user = await fetchCurrentUser();
+  return { user, tokens };
 }
 
 export async function fetchCurrentUser(): Promise<UserDto> {

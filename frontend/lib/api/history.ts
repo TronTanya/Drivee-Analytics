@@ -15,6 +15,9 @@ type HistoryApiItem = {
   table_row_count?: number | null;
   validation_status: string;
   execution_status: string;
+  confidence?: number | null;
+  result_summary?: string | null;
+  author_role_key?: string | null;
   created_at: string;
   rerun_notebook_id: string;
   rerun_cell_id: string;
@@ -30,9 +33,14 @@ function mapHistoryItem(row: HistoryApiItem): QueryHistoryDto {
     notebook_id: row.notebook_id,
     validation_ok: row.validation_status === "passed",
     validation_hint: row.validation_status,
+    execution_status: row.execution_status,
     duration_ms: 0,
     chart_type: row.chart_type ?? undefined,
     interpreted_summary: row.interpreted_summary ?? undefined,
+    parsed_intent_json: row.interpreted_intent,
+    confidence: row.confidence ?? undefined,
+    result_summary: row.result_summary ?? undefined,
+    author_role_key: row.author_role_key ?? undefined,
     owner_user_id: row.owner_user_id ?? undefined,
     rerun_cell_id: row.rerun_cell_id,
     rerun_notebook_id: row.rerun_notebook_id,
@@ -109,13 +117,11 @@ export async function fetchQueryHistory(
 
 export async function rerunNotebookRun(runId: string): Promise<{ status: string }> {
   void runId;
-  // Backend endpoint для rerun из истории пока не реализован.
-  return { status: "queued" };
+  throw new ApiError("Перезапуск из истории пока не реализован на backend", 501);
 }
 
 export async function saveRunAsReport(runId: string, name: string): Promise<{ report_id: string }> {
   void runId;
   void name;
-  // Backend endpoint для save-report из истории пока не реализован.
-  return { report_id: `r-${Date.now()}` };
+  throw new ApiError("Сохранение run из истории пока не реализовано на backend", 501);
 }

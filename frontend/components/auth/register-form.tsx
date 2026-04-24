@@ -9,6 +9,7 @@ import { Controller, useForm } from "react-hook-form";
 import { FormField } from "@/components/auth/form-field";
 import { InlineAlert } from "@/components/auth/inline-alert";
 import { Button } from "@/components/ui/button";
+import { useRegister } from "@/hooks/api/use-auth";
 import { useSession } from "@/lib/auth/session-context";
 import type { UserRole } from "@/lib/types";
 import { registerSchema, type RegisterFormValues } from "@/lib/validation/auth-schemas";
@@ -26,6 +27,7 @@ const ROLE_OPTIONS: { value: UserRole; label: string; description: string }[] = 
 export function RegisterForm() {
   const router = useRouter();
   const { setRole, setEmail } = useSession();
+  const registerMutation = useRegister();
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState(false);
 
@@ -48,18 +50,20 @@ export function RegisterForm() {
   const onSubmit = async (data: RegisterFormValues) => {
     setFormError(null);
     setFormSuccess(false);
-    await new Promise((r) => setTimeout(r, 1100));
-
-    if (data.email.toLowerCase() === "taken@demo.com") {
-      setFormError("Этот email уже зарегистрирован. Выполните вход.");
-      return;
+    try {
+      const session = await registerMutation.mutateAsync({
+        email: data.email.trim(),
+        password: data.password,
+        full_name: data.fullName.trim(),
+        demo_role: data.demoRole
+      });
+      setRole(session.user.role);
+      setEmail(session.user.email);
+      setFormSuccess(true);
+      router.push("/notebooks" as Route);
+    } catch {
+      setFormError("Не удалось создать аккаунт. Возможно, email уже используется.");
     }
-
-    setRole(data.demoRole);
-    setEmail(data.email.trim());
-    setFormSuccess(true);
-    await new Promise((r) => setTimeout(r, 400));
-    router.push("/demo-router" as Route);
   };
 
   return (
@@ -96,7 +100,7 @@ export function RegisterForm() {
           id="register-email"
           label="Рабочий email"
           error={errors.email?.message}
-          hint='Проверка конфликта: email taken@demo.com вызывает ошибку.'
+          hint="Регистрация выполняется через backend API."
         >
           <input
             id="register-email"
@@ -176,7 +180,7 @@ export function RegisterForm() {
         <Button
           type="submit"
           className="w-full py-3"
-          loading={isSubmitting && !formSuccess}
+          loading={(isSubmitting || registerMutation.isPending) && !formSuccess}
           loadingLabel="Создание аккаунта…"
         >
           Создать аккаунт

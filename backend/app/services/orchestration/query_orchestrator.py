@@ -6,9 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Optional
 
-import numpy as np
 from sqlalchemy.orm import Session
-import pandas as pd
 
 from app.schemas.clarification import ClarificationResponse
 from app.schemas.nl_interpretation import NLQueryInterpretation
@@ -43,6 +41,7 @@ from app.services.cache.query_result_cache import (
     try_get_cached_sql_result,
 )
 from app.services.correction_learning_service import AppliedCorrectionMatch, CorrectionLearningService
+from app.services.ds.baseline_forecast import run_baseline_forecast_sidecar
 from app.services.orchestration.sql_execution_service import ExecutionResult, SQLExecutionService
 from app.services.orchestration.sql_generation_service import SQLGenerationService
 from app.services.llm.factory import get_llm_service
@@ -112,43 +111,6 @@ def _chart_from_visualization(viz: VisualizationRecommendation) -> ChartRecommen
         rationale=explanation,
         alternatives=viz.alternative_chart_types,
     )
-
-
-def _forecast_from_rows(rows: list[dict[str, Any]], horizon_steps: int = 4) -> list[dict[str, Any]]:
-    if len(rows) < 2:
-        return []
-    df = pd.DataFrame(rows)
-
-    # Prefer canonical "value", but gracefully fall back to the first numeric metric column.
-    target_col: Optional[str] = None
-    if "value" in df.columns:
-        target_col = "value"
-    else:
-        for c in df.columns:
-            if pd.api.types.is_numeric_dtype(df[c]):
-                target_col = c
-                break
-        if target_col is None:
-            for c in df.columns:
-                coerced = pd.to_numeric(df[c], errors="coerce")
-                if coerced.notna().sum() >= max(2, int(len(df) * 0.5)):
-                    df[c] = coerced
-                    target_col = c
-                    break
-
-    if target_col is None:
-        return []
-
-    y = df[target_col].astype(float).to_numpy()
-    x = np.arange(len(y))
-    slope, intercept = np.polyfit(x, y, 1)
-    horizon = max(1, min(90, int(horizon_steps)))
-    out = []
-    for i in range(horizon):
-        step = len(y) + i
-        pred = float(slope * step + intercept)
-        out.append({"step": i + 1, "forecast_value": round(pred, 2)})
-    return out
 
 
 def _resolve_forecast_horizon(entities: dict[str, Any]) -> int:
@@ -263,6 +225,7 @@ class QueryOrchestrator:
                 "semantic_terms": [r.model_dump() for r in resolutions],
                 "forecast_mode": {"active": False, "method": None},
                 "forecast_selection": {},
+                "forecast_explainability": {},
                 "quality_gate": {"status": "failed", "reasons": ["guardrails"]},
                 **self._interpretation_trace_fields(interp),
             },
@@ -492,6 +455,7 @@ class QueryOrchestrator:
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "forecast_mode": {"active": False, "method": None},
                     "forecast_selection": {},
+                    "forecast_explainability": {},
                     "quality_gate": {"status": "warning", "reasons": ["clarification_required"]},
                     **self._interpretation_trace_fields(interp),
                 },
@@ -607,6 +571,7 @@ class QueryOrchestrator:
                     "sql_generation": sql_generation_trace,
                     "forecast_mode": {"active": False, "method": None},
                     "forecast_selection": {},
+                    "forecast_explainability": {},
                     "quality_gate": {"status": "failed", "reasons": ["sql_validation_failed"]},
                     **self._interpretation_trace_fields(interp),
                 },
@@ -694,6 +659,7 @@ class QueryOrchestrator:
                     "sql_generation": sql_generation_trace,
                     "forecast_mode": {"active": False, "method": None},
                     "forecast_selection": {},
+                    "forecast_explainability": {},
                     "quality_gate": {"status": "failed", "reasons": ["sql_execution_failed"]},
                     **self._interpretation_trace_fields(interp),
                 },
@@ -769,6 +735,7 @@ class QueryOrchestrator:
         steps.append(_step("generate_insight", True))
 
         forecast_records: list[dict[str, Any]] = []
+        forecast_meta: dict[str, Any] = {}
         if inp.forecast_sidecar == "off":
             want_forecast = False
         elif inp.forecast_sidecar == "on":
@@ -777,13 +744,58 @@ class QueryOrchestrator:
             want_forecast = intent_res.intent == "forecast" or "прогноз" in effective.lower()
         if want_forecast:
             horizon_steps = _resolve_forecast_horizon(entities)
-            forecast_records = _forecast_from_rows(exec_res.rows, horizon_steps=horizon_steps)
+            if inp.forecast_horizon_steps is not None:
+                horizon_steps = max(1, min(90, int(inp.forecast_horizon_steps)))
+            grain = str(entities.get("time_grain") or "day").lower()
+            if grain not in ("day", "week", "month"):
+                grain = "day"
+            src_lbl = str((inp.notebook_context or {}).get("source_table") or "").strip()
+            forecast_records, forecast_meta = run_baseline_forecast_sidecar(
+                exec_res.rows,
+                horizon_steps=horizon_steps,
+                time_grain=grain,
+                source_table_label=src_lbl,
+            )
             steps.append(_step("forecast_sidecar", True, points=len(forecast_records)))
 
         forecast_active = bool(forecast_records) or (
             intent_res.intent == "forecast" and inp.forecast_sidecar != "off"
         )
-        forecast_method: Optional[str] = "linear_trend_ols" if forecast_records else None
+        forecast_method: Optional[str] = None
+        if want_forecast:
+            m = forecast_meta.get("method")
+            forecast_method = str(m) if m else None
+
+        forecast_selection_payload: dict[str, Any] = {}
+        forecast_explainability_payload: dict[str, Any] = {}
+        if want_forecast:
+            forecast_selection_payload = {
+                "metric_key": forecast_meta.get("metric_column"),
+                "selected_strategy": (str(forecast_meta.get("method")) if forecast_records and forecast_meta.get("method") else None),
+                "backtest_summary": {"note_ru": forecast_meta.get("backtest_note_ru") or ""},
+                "data_quality": {
+                    "r_squared": forecast_meta.get("r_squared"),
+                    "history_points": forecast_meta.get("history_points"),
+                    "confidence_score": forecast_meta.get("confidence_score"),
+                    "residual_sigma": forecast_meta.get("residual_sigma"),
+                    "warning_ru": forecast_meta.get("warning_ru"),
+                },
+            }
+            forecast_explainability_payload = {
+                "explanation_ru": forecast_meta.get("explanation_ru"),
+                "warning_ru": forecast_meta.get("warning_ru"),
+                "horizon_steps": forecast_meta.get("horizon_steps"),
+                "method_label_ru": forecast_meta.get("method_label_ru"),
+                "method": forecast_meta.get("method"),
+                "history": forecast_meta.get("history") or [],
+                "confidence_score": forecast_meta.get("confidence_score"),
+                "r_squared": forecast_meta.get("r_squared"),
+                "metric_column": forecast_meta.get("metric_column"),
+                "backtest_note_ru": forecast_meta.get("backtest_note_ru"),
+                "time_grain": forecast_meta.get("time_grain"),
+                "source_table_label": forecast_meta.get("source_table_label"),
+                "combined_series": forecast_meta.get("combined_series") or [],
+            }
 
         steps.append(_step("build_trace_payload", True))
         steps.append(_step("persist_results", True, hook=bool(self._persistence)))
@@ -824,7 +836,8 @@ class QueryOrchestrator:
             "inheritance_trace": dialogue_res.inheritance_trace,
             "effective_query": effective,
             "forecast_mode": {"active": forecast_active, "method": forecast_method},
-            "forecast_selection": {},
+            "forecast_selection": forecast_selection_payload if want_forecast else {},
+            "forecast_explainability": forecast_explainability_payload if want_forecast else {},
             "quality_gate": {"status": qg_status, "reasons": qg_reasons},
             **self._interpretation_trace_fields(interp),
         }

@@ -1,11 +1,12 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { commitCsvImport, commitCsvUploadDirect, previewCsvUpload } from "@/lib/api/data-upload";
+import { commitCsvImport, commitCsvUploadDirect, previewCsvUploadWithWorkspace } from "@/lib/api/data-upload";
 
 export function usePreviewCsvUpload() {
   return useMutation({
-    mutationFn: (file: File) => previewCsvUpload(file)
+    mutationFn: ({ file, workspaceId }: { file: File; workspaceId: string }) =>
+      previewCsvUploadWithWorkspace(file, workspaceId)
   });
 }
 

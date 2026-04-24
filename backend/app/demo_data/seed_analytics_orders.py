@@ -1,5 +1,5 @@
 """
-Идемпотентная генерация объёмного демо-набора в public.anonymized_incity_orders.
+Идемпотентная генерация объёмного демо-набора в факт-таблицу public.anonymized_incity_orders (читается в аналитике как public.train).
 
 Префикс order_id = DEMO- — строки с ним удаляются и вставляются заново при каждом seed.
 Опорная дата: UTC-сегодня, чтобы шаблоны с CURRENT_DATE / date_trunc('week') оставались актуальными.
@@ -14,6 +14,19 @@ from typing import Any, Iterable
 from sqlalchemy import delete, text
 
 from app.models.business_demo import AnonymizedIncityOrder
+
+
+def ensure_train_view(session) -> None:
+    """Канонический слой для NL→SQL; не создаётся через SQLAlchemy metadata.create_all."""
+    session.execute(
+        text(
+            """
+            CREATE OR REPLACE VIEW public.train AS
+            SELECT * FROM public.anonymized_incity_orders
+            """
+        )
+    )
+    session.flush()
 
 
 def ensure_order_channel_schema(session) -> None:
@@ -252,6 +265,7 @@ def replace_demo_orders_dataset(session, *, anchor: date | None = None) -> int:
     rows = list(_iter_demo_rows(anchor))
     for part in chunked(rows, 250):
         session.add_all([AnonymizedIncityOrder(**row) for row in part])
+    ensure_train_view(session)
     return len(rows)
 
 

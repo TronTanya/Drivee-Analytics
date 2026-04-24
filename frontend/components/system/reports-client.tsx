@@ -22,7 +22,6 @@ import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { downloadReportPdf, type ReportPdfMode } from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
-import { useUpsertSchedule } from "@/hooks/api/use-schedules";
 import { runAnalyticsPipeline } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
 import type { NotebookScenarioRow, SavedReportRow, ScheduleState } from "@/lib/system/mock-data";
@@ -118,7 +117,6 @@ export function ReportsClient() {
   const rerunReport = useRerunReport();
   const createReport = useCreateReport();
   const deleteReport = useDeleteReport();
-  const upsertSchedule = useUpsertSchedule();
   const createReportSchedule = useCreateReportSchedule();
 
   useEffect(() => {
@@ -151,10 +149,11 @@ export function ReportsClient() {
         name: r.title,
         notebookId: r.notebook_id ?? null,
         owner: r.created_by ?? "—",
+        creatorRoleKey: r.creator_role_key ?? null,
         updatedAt: new Date(r.updated_at).toISOString().slice(0, 16).replace("T", " "),
         schedule: r.has_schedule ? toScheduleState("active") : toScheduleState("none"),
         format: toFormatLabel(r.report_format ?? "pdf"),
-        href: "/reports" as Route,
+        href: (`/reports/${r.id}` as Route),
         hasSchedule: r.has_schedule
       })),
     [savedReportsQuery.data]
@@ -300,22 +299,11 @@ export function ReportsClient() {
       setReports((prev) =>
         prev.map((x) => (x.id === row.id ? { ...x, schedule: updated, hasSchedule: updated !== "none" } : x))
       );
-      setActionMsg(`Расписание отчета "${row.name}" записано (weekly / email_mock stub).`);
+      setActionMsg(
+        `Расписание отчёта «${row.name}» записано. Канал email_mock — только лог в JSON, без реальной отправки почты.`
+      );
     } catch {
-      try {
-        await upsertSchedule.mutateAsync({
-          name: `Расписание отчета ${row.name}`,
-          cron: "0 9 * * 1",
-          timezone: "Asia/Almaty",
-          target_type: "report",
-          target_id: row.id,
-          is_active: scheduleToIsActive(updated)
-        });
-        setReports((prev) => prev.map((x) => (x.id === row.id ? { ...x, schedule: updated } : x)));
-        setActionMsg(`Расписание отчета "${row.name}" обновлено (legacy schedules API).`);
-      } catch {
-        setActionMsg(`Не удалось обновить расписание отчета "${row.name}".`);
-      }
+      setActionMsg(`Не удалось обновить расписание отчета "${row.name}".`);
     } finally {
       setBusyKey(null);
     }
@@ -395,11 +383,12 @@ export function ReportsClient() {
         {
           id: created.id,
           name: created.title,
+          notebookId: row.notebookId,
           owner: row.owner,
           updatedAt: new Date(created.updated_at).toISOString().slice(0, 16).replace("T", " "),
           schedule: "none",
           format: "PDF",
-          href: "/reports" as Route
+          href: (`/notebooks/${row.notebookId}` as Route)
         },
         ...prev
       ]);
@@ -415,22 +404,11 @@ export function ReportsClient() {
     setActionMsg(null);
     setBusyKey(`scenario-edit-${row.id}`);
     const updated = nextSchedule(row.schedule);
-    try {
-      await upsertSchedule.mutateAsync({
-        name: `Расписание сценария ${row.name}`,
-        cron: "0 8 * * 1-5",
-        timezone: "Asia/Almaty",
-        target_type: "notebook_scenario",
-        target_id: row.id,
-        is_active: scheduleToIsActive(updated)
-      });
-      setScenarios((prev) => prev.map((x) => (x.id === row.id ? { ...x, schedule: updated } : x)));
-      setActionMsg(`Расписание сценария "${row.name}" обновлено.`);
-    } catch {
-      setActionMsg(`Не удалось обновить сценарий "${row.name}".`);
-    } finally {
-      setBusyKey(null);
-    }
+    setScenarios((prev) => prev.map((x) => (x.id === row.id ? { ...x, schedule: updated } : x)));
+    setActionMsg(
+      `Расписание сценария "${row.name}" обновлено в интерфейсе (демо: отдельного API расписаний для сценариев нет).`
+    );
+    setBusyKey(null);
   };
 
   const filteredReports = useMemo(
@@ -614,7 +592,18 @@ export function ReportsClient() {
                     {row.name}
                   </Link>
                   <p className="text-xs text-foreground-secondary">{row.owner}</p>
+                  {row.creatorRoleKey ? (
+                    <p className="text-xs text-foreground-muted">Роль автора: {row.creatorRoleKey}</p>
+                  ) : null}
                   <p className="text-xs tabular-nums text-foreground-muted">{row.updatedAt}</p>
+                  {row.notebookId ? (
+                    <Link
+                      href={`/notebooks/${row.notebookId}` as Route}
+                      className="text-xs font-semibold text-brand-800 underline-offset-2 hover:underline"
+                    >
+                      Открыть сценарий
+                    </Link>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium">{row.format}</span>
@@ -651,6 +640,7 @@ export function ReportsClient() {
                 <tr className="border-b border-border-subtle text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
                   <th className="pb-2 pr-4">Название</th>
                   <th className="pb-2 pr-4">Владелец</th>
+                  <th className="pb-2 pr-4">Роль автора</th>
                   <th className="pb-2 pr-4">Обновлено</th>
                   <th className="pb-2 pr-4">Формат</th>
                   <th className="pb-2 pr-4">Расписание</th>
@@ -664,8 +654,19 @@ export function ReportsClient() {
                       <Link href={row.href as Route} className="interactive-focus rounded-control px-0.5 hover:text-brand-800 hover:underline">
                         {row.name}
                       </Link>
+                      {row.notebookId ? (
+                        <div className="mt-1">
+                          <Link
+                            href={`/notebooks/${row.notebookId}` as Route}
+                            className="text-[11px] font-semibold text-brand-700 hover:underline"
+                          >
+                            Сценарий
+                          </Link>
+                        </div>
+                      ) : null}
                     </td>
                     <td className="py-3 pr-4 text-foreground-secondary">{row.owner}</td>
+                    <td className="py-3 pr-4 text-xs text-foreground-muted">{row.creatorRoleKey ?? "—"}</td>
                     <td className="py-3 pr-4 tabular-nums text-foreground-secondary">{row.updatedAt}</td>
                     <td className="py-3 pr-4">
                       <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium">{row.format}</span>

@@ -23,6 +23,20 @@ class SemanticDictionaryStoreTests(unittest.TestCase):
         self.assertGreater(len(res), 0)
         self.assertEqual(res[0].term_key, "cancellations_total")
 
+    def test_resolves_dimension_and_filter_terms(self) -> None:
+        store = SemanticDictionaryStore.load(_default_dictionary_path())
+        store.bootstrap_from_train()
+        dims = store.resolve_dimensions("Сравни заказы по каналам за март")
+        flt = store.resolve_filters("Покажи выручку по городам за прошлую неделю")
+        self.assertIn("order_channel", dims)
+        self.assertEqual(flt.get("time_period"), "previous_week")
+
+    def test_dictionary_has_version_metadata(self) -> None:
+        store = SemanticDictionaryStore.load(_default_dictionary_path())
+        meta = store.metadata()
+        self.assertTrue(meta.get("version"))
+        self.assertEqual(meta.get("term_count"), len(store.terms))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,10 +13,11 @@ export function useQueryTemplates(workspaceId: string | undefined) {
   });
 }
 
-export function useNotebookTemplates() {
+export function useNotebookTemplates(workspaceId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.templates.notebooks(),
-    queryFn: fetchNotebookTemplates,
+    queryKey: [...queryKeys.templates.notebooks(), workspaceId ?? "none"],
+    queryFn: () => fetchNotebookTemplates(workspaceId),
+    enabled: Boolean(workspaceId && workspaceId.length >= 8),
     staleTime: 60_000
   });
 }

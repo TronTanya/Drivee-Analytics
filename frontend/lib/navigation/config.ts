@@ -9,18 +9,18 @@ export type NavItem = {
 
 /** Stable primary navigation for defense demo. */
 export const PLATFORM_NAV: NavItem[] = [
-  { href: "/demo-router", label: "Главная" },
   { href: "/notebooks", label: "Сценарии" },
-  { href: "/templates", label: "Шаблоны", roles: ["admin", "manager", "marketer"] },
-  { href: "/reports", label: "Отчеты", roles: ["admin", "manager", "executive"] },
-  { href: "/history", label: "История", roles: ["admin", "manager", "executive"] },
+  { href: "/templates", label: "Шаблоны", roles: ["admin", "manager", "marketer", "executive"] },
+  { href: "/reports", label: "Отчеты", roles: ["admin", "manager", "marketer", "executive"] },
+  { href: "/history", label: "История", roles: ["admin", "manager", "marketer", "executive"] },
+  { href: "/dictionary", label: "Словарь", roles: ["admin"] },
+  { href: "/corrections", label: "Коррекции", roles: ["admin"] },
   { href: "/settings", label: "Настройки" }
 ];
 
 /** Optional/advanced modules. Keep out of the primary defense path. */
 export const PLATFORM_ADVANCED_NAV: NavItem[] = [
   { href: "/forecast-lab", label: "AutoML Lab", roles: ["admin", "manager", "marketer", "executive"] },
-  { href: "/dictionary", label: "Словарь", roles: ["admin", "manager"] },
   { href: "/data-upload", label: "Загрузка данных", roles: ["admin", "manager", "marketer"] }
 ];
 

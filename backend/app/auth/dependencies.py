@@ -28,8 +28,8 @@ def _bearer_token(authorization: Optional[str] = Header(default=None)) -> str:
 
 def _demo_auth_enabled() -> bool:
     env = (settings.app_env or "").strip().lower()
-    # Никогда не ослабляем auth в production.
-    return bool(settings.demo_auth_bypass_enabled) and env not in {"prod", "production"}
+    # Разрешаем bypass только в явно девелоперских окружениях.
+    return bool(settings.demo_auth_bypass_enabled) and env in {"dev", "demo", "local", "test"}
 
 
 def _resolve_demo_user(users: UserRepository) -> User:

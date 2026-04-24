@@ -10,6 +10,7 @@ export type SavedReportRow = {
   name: string;
   notebookId?: string | null;
   owner: string;
+  creatorRoleKey?: string | null;
   updatedAt: string;
   schedule: ScheduleState;
   format: "PDF" | "Slides" | "Notebook" | "CSV";
@@ -32,6 +33,8 @@ export type NotebookRunRow = {
   id: string;
   ranAt: string;
   notebookTitle: string;
+  /** UUID сценария для ссылок и сохранения отчёта */
+  notebookId: string;
   notebookHref: Route;
   status: "success" | "failed" | "partial";
   validationOk: boolean;
@@ -48,10 +51,15 @@ export type QueryHistoryRow = {
   notebookId: string;
   validationOk: boolean;
   validationHint: string;
+  executionStatus?: string;
   durationMs: number;
   notebookHref: Route;
   interpretedSummary?: string;
   chartType?: string;
+  parsedIntent?: Record<string, unknown>;
+  confidence?: number | null;
+  resultSummary?: string | null;
+  authorRoleKey?: string | null;
   ownerUserId?: string;
   saveAsReportBodyHint?: Record<string, unknown>;
 };
@@ -62,6 +70,10 @@ export type QueryTemplateRow = {
   description: string;
   role: UserRole;
   sql: string;
+  /** NL-текст для подстановки в сценарий (?template_prompt=) */
+  prefillPrompt?: string;
+  /** null — показывать во всех ролевых секциях каталога */
+  target_role_key?: string | null;
   /** Target notebook for “Quick run” (mock) */
   runHref: Route;
 };
@@ -85,6 +97,10 @@ export type DictionaryRow = {
   sourceTable?: string;
   sourceColumn?: string | null;
   aggregationType?: string;
+  termType?: string;
+  targetField?: string | null;
+  filterValue?: string | null;
+  descriptionRu?: string;
   constraints?: Record<string, unknown>;
   exampleQueries?: string[];
   systemInterpretationRu?: string;
@@ -155,17 +171,19 @@ export const MOCK_NOTEBOOK_RUNS: NotebookRunRow[] = [
     id: "run-1",
     ranAt: "2026-04-20 10:12",
     notebookTitle: "Q1 completion bridge",
+    notebookId: "nb-q1-bridge",
     notebookHref: r("/notebooks/nb-q1-bridge"),
     status: "success",
     validationOk: true,
     validationHint: "Все проверки пройдены",
-    traceSummary: "Планировщик → anonymized_incity_orders · материализовано 3 ячейки",
+    traceSummary: "Планировщик → train · материализовано 3 ячейки",
     durationMs: 4200
   },
   {
     id: "run-2",
     ranAt: "2026-04-20 09:55",
     notebookTitle: "Операционное здоровье",
+    notebookId: "ops-health",
     notebookHref: r("/notebooks/ops-health"),
     status: "partial",
     validationOk: false,
@@ -177,6 +195,7 @@ export const MOCK_NOTEBOOK_RUNS: NotebookRunRow[] = [
     id: "run-3",
     ranAt: "2026-04-19 16:40",
     notebookTitle: "In-city заказы Q1",
+    notebookId: "campaign-q1",
     notebookHref: r("/notebooks/campaign-q1"),
     status: "failed",
     validationOk: false,
@@ -213,36 +232,84 @@ export const MOCK_QUERY_HISTORY: QueryHistoryRow[] = [
 
 export const MOCK_QUERY_TEMPLATES: QueryTemplateRow[] = [
   {
-    id: "qt-1",
-    name: "Дневной тренд заказов",
-    description: "Заказы по дням за последнюю неделю",
+    id: "qt-revenue-city",
+    name: "Выручка по городам (30 дней)",
+    description: "Сумма price_order_local по city_id — как «месяц» в демо-окне",
+    role: "executive",
+    target_role_key: "executive",
+    prefillPrompt: "Покажи выручку по городам за последний месяц",
+    sql: "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/strategy-board")
+  },
+  {
+    id: "qt-orders-channel",
+    name: "Заказы по каналам",
+    description: "Сравнение объёма заказов по order_channel",
     role: "marketer",
-    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id) AS orders_count FROM public.anonymized_incity_orders WHERE order_timestamp >= CURRENT_DATE - INTERVAL '7 day' GROUP BY 1 ORDER BY 1",
+    target_role_key: "marketer",
+    prefillPrompt: "Сравни количество заказов по каналам",
+    sql: "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
     runHref: r("/notebooks/campaign-q1")
   },
   {
-    id: "qt-2",
-    name: "Сводка по нарушениям SLA",
-    description: "Склады с нарушением cut-off",
+    id: "qt-cancel-daily",
+    name: "Динамика отмен по дням",
+    description: "Отмены по дням за 30 дней",
     role: "manager",
-    sql: "SELECT warehouse_id, breach_count FROM ops.sla_daily WHERE breach_count > 0",
+    target_role_key: null,
+    prefillPrompt: "Покажи динамику отмен по дням",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
     runHref: r("/notebooks/ops-health")
   },
   {
-    id: "qt-3",
-    name: "Аудит ролевых прав",
-    description: "Кто имеет доступ к PII-таблицам",
-    role: "admin",
-    sql: "SELECT role, table_name FROM governance.access_matrix WHERE pii = true",
-    runHref: r("/notebooks/template-governance")
+    id: "qt-top5-revenue",
+    name: "Топ-5 городов по выручке",
+    description: "SUM(price_order_local), LIMIT 5",
+    role: "executive",
+    target_role_key: "executive",
+    prefillPrompt: "Покажи топ-5 городов по выручке",
+    sql: "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
+    runHref: r("/notebooks/strategy-board")
   },
   {
-    id: "qt-4",
-    name: "Набор KPI завершения",
-    description: "Завершенные поездки и отмены",
-    role: "executive",
-    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL) AS done_rides FROM public.anonymized_incity_orders GROUP BY 1 ORDER BY 1",
-    runHref: r("/notebooks/strategy-board")
+    id: "qt-week-compare",
+    name: "Заказы: неделя к неделе",
+    description: "Текущая vs прошлая календарная неделя",
+    role: "manager",
+    target_role_key: "manager",
+    prefillPrompt: "Сравни недели между собой по числу заказов",
+    sql: "SELECT COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS orders_prev_week, COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS orders_this_week FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day'",
+    runHref: r("/notebooks/ops-health")
+  },
+  {
+    id: "qt-avg-check-channel",
+    name: "Средний чек по каналам",
+    description: "Категория = order_channel (сегмент продаж)",
+    role: "marketer",
+    target_role_key: "marketer",
+    prefillPrompt: "Покажи средний чек по категориям",
+    sql: "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/campaign-q1")
+  },
+  {
+    id: "qt-cancel-share-city",
+    name: "Доля отмен по городам",
+    description: "Доля отменённых к заказам по city_id за 14 дней",
+    role: "manager",
+    target_role_key: null,
+    prefillPrompt: "Покажи долю отмен по городам",
+    sql: "SELECT city_id, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS cancellation_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/ops-health")
+  },
+  {
+    id: "qt-orders-trend-30",
+    name: "Тренд заказов за 30 дней",
+    description: "Число заказов по дням",
+    role: "marketer",
+    target_role_key: null,
+    prefillPrompt: "Покажи тренд заказов за 30 дней",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/campaign-q1")
   }
 ];
 

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.deps import get_current_active_user
 from app.core.config import settings
-from app.schemas.dictionary_terms import DictionaryEntryResponse
+from app.models.user import User
+from app.schemas.dictionary_terms import DictionaryBootstrapResponse, DictionaryEntryResponse, DictionaryEntryUpsertRequest
 from app.services.cache.ttl_cache import TTLCache
 from app.services.semantic_layer.store import get_semantic_dictionary_store
 
@@ -45,25 +47,58 @@ def get_dictionary_entry(entry_id: str) -> DictionaryEntryResponse:
     return row
 
 
-@router.post("/entries", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def create_dictionary_entry() -> dict[str, str]:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Семантический словарь в MVP задаётся файлом app/data/semantic_dictionary.json",
-    )
+@router.post("/entries", response_model=DictionaryEntryResponse)
+def create_dictionary_entry(
+    body: DictionaryEntryUpsertRequest,
+    user: User = Depends(get_current_active_user),
+) -> DictionaryEntryResponse:
+    del user
+    try:
+        row = get_semantic_dictionary_store().create_public(body.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    _dictionary_list_cache().clear()
+    get_semantic_dictionary_store.cache_clear()
+    return row
 
 
-@router.patch("/entries/{entry_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def patch_dictionary_entry(entry_id: str) -> dict[str, str]:  # noqa: ARG001
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Семантический словарь в MVP задаётся файлом app/data/semantic_dictionary.json",
-    )
+@router.patch("/entries/{entry_id}", response_model=DictionaryEntryResponse)
+def patch_dictionary_entry(
+    entry_id: str,
+    body: DictionaryEntryUpsertRequest,
+    user: User = Depends(get_current_active_user),
+) -> DictionaryEntryResponse:
+    del user
+    try:
+        row = get_semantic_dictionary_store().update_public(entry_id, body.model_dump(mode="json"))
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    _dictionary_list_cache().clear()
+    get_semantic_dictionary_store.cache_clear()
+    return row
 
 
-@router.delete("/entries/{entry_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def delete_dictionary_entry(entry_id: str) -> dict[str, str]:  # noqa: ARG001
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Семантический словарь в MVP задаётся файлом app/data/semantic_dictionary.json",
-    )
+@router.delete("/entries/{entry_id}", response_model=dict[str, str])
+def delete_dictionary_entry(
+    entry_id: str,
+    user: User = Depends(get_current_active_user),
+) -> dict[str, str]:
+    del user
+    try:
+        get_semantic_dictionary_store().delete_public(entry_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    _dictionary_list_cache().clear()
+    get_semantic_dictionary_store.cache_clear()
+    return {"status": "deleted"}
+
+
+@router.post("/entries/bootstrap-train", response_model=DictionaryBootstrapResponse)
+def bootstrap_dictionary_from_train(
+    user: User = Depends(get_current_active_user),
+) -> DictionaryBootstrapResponse:
+    del user
+    stats = get_semantic_dictionary_store().bootstrap_from_train()
+    _dictionary_list_cache().clear()
+    get_semantic_dictionary_store.cache_clear()
+    return DictionaryBootstrapResponse(**stats)

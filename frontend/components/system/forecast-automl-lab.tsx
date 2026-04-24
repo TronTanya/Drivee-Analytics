@@ -15,7 +15,7 @@ const STRATEGIES = [
 
 export function ForecastAutoMLLab() {
   const [workspaceId, setWorkspaceId] = useState("00000000-0000-0000-0000-000000000001");
-  const [sourceTable, setSourceTable] = useState("public.anonymized_incity_orders");
+  const [sourceTable, setSourceTable] = useState("public.train");
   const [dateColumn, setDateColumn] = useState("order_timestamp");
   const [horizonDays, setHorizonDays] = useState(14);
   const [holdoutDays, setHoldoutDays] = useState(14);

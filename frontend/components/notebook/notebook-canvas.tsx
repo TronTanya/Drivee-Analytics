@@ -27,7 +27,8 @@ export function NotebookCanvas({
           <aside className={`hidden shrink-0 xl:sticky xl:top-24 xl:block xl:max-h-[calc(100vh-7rem)] ${traceWidthClassName}`}>
             {trace}
           </aside>
-          <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-2 xl:hidden">
+          {/* Не перекрываем sticky-header (Вход / навигация): оверлей только под шапкой */}
+          <div className="pointer-events-none fixed inset-x-0 bottom-0 top-20 z-50 flex items-end justify-center bg-slate-950/35 p-2 xl:hidden">
             <div className="pointer-events-auto max-h-[82vh] w-full max-w-3xl overflow-hidden rounded-card shadow-modal">
               {trace}
             </div>

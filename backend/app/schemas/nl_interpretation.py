@@ -47,6 +47,7 @@ class NLQueryInterpretation(BaseModel):
     """Промежуточный объект после semantic parse (+ опционально LLM)."""
 
     intent: IntentKind = "summary"
+    metric: str = Field(default="", description="Основная (первая) метрика запроса.")
     entities: dict[str, Any] = Field(default_factory=dict, description="Копия/объединение сущностей для SQL.")
     metrics: list[str] = Field(
         default_factory=list,
@@ -56,9 +57,13 @@ class NLQueryInterpretation(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict, description="Явные фильтры: city_id, status_order, …")
     time_range: TimeRangeSpec = Field(default_factory=TimeRangeSpec)
     comparison: ComparisonSpec = Field(default_factory=ComparisonSpec)
+    aggregation: str = Field(default="", description="Тип агрегирования: sum/count/avg/share/trend/ranking.")
+    grouping: list[str] = Field(default_factory=list, description="Поля группировки (dimensions + time_grain).")
     sort: SortSpec = Field(default_factory=SortSpec)
     limit: Optional[int] = Field(default=None, description="TOP N для ranking.")
+    chart_hint: str = Field(default="", description="Рекомендуемый тип визуализации.")
     ambiguities: list[str] = Field(default_factory=list, description="Короткие коды/тексты неоднозначности.")
+    ambiguity_flags: list[str] = Field(default_factory=list, description="Явные флаги неоднозначности для UI.")
     confidence_score: float = Field(default=0.75, ge=0.0, le=1.0)
     confidence_band: Literal["high", "medium", "low"] = "medium"
     source_signals: list[str] = Field(default_factory=list, description="Откуда взяты поля: rules, llm, merge.")
@@ -80,6 +85,8 @@ class NLQueryInterpretation(BaseModel):
             patch["top_n"] = self.limit
         if self.metrics:
             patch.setdefault("metric_hint", self.metrics[0])
+        if self.dimensions:
+            patch["dimensions"] = list(self.dimensions)
         if self.comparison.mode not in ("none", "unspecified"):
             patch.setdefault("compare_baseline", self.comparison.mode)
         for k, v in self.filters.items():
@@ -92,8 +99,12 @@ class NLQueryInterpretation(BaseModel):
         parts.append(f"Намерение: {self.intent}")
         if self.metrics:
             parts.append("Метрики: " + ", ".join(self.metrics))
+        if self.aggregation:
+            parts.append(f"Агрегация: {self.aggregation}")
         if self.dimensions:
             parts.append("Измерения: " + ", ".join(self.dimensions))
+        if self.grouping:
+            parts.append("Группировка: " + ", ".join(self.grouping))
         if self.time_range.label_ru:
             parts.append(f"Период: {self.time_range.label_ru}")
         elif self.time_range.preset != "unknown":
@@ -104,6 +115,8 @@ class NLQueryInterpretation(BaseModel):
             parts.append(f"Лимит: топ-{self.limit}")
         if self.sort.field:
             parts.append(f"Сортировка: {self.sort.field} {self.sort.direction}")
+        if self.chart_hint:
+            parts.append(f"График: {self.chart_hint}")
         if self.ambiguities:
             parts.append("Заметки: " + "; ".join(self.ambiguities[:4]))
         return " · ".join(parts) if parts else "Интерпретация по умолчанию."

@@ -12,7 +12,16 @@ PostgreSQL is the primary storage for:
 - corrections and audit logs
 - CSV ingestion metadata and dataset versions
 - metric snapshots, forecasts, anomalies
-- canonical business dataset `anonymized_incity_orders` (single source of truth for MVP analytics)
+- canonical analytics surface **`public.train`** (VIEW over the physical orders table; single logical source for NL→SQL in MVP)
+
+### User SQL whitelist (MVP)
+
+Ad-hoc / NL→SQL execution is allowed to touch only:
+
+- **`public.train`** — the logical analytics table (queries and generated SQL should reference this name).
+- **`user_staging.t_*`** — CSV upload staging tables (pattern from config).
+
+The physical backing table for the VIEW exists for ORM, bootstrap DDL, and bulk seed scripts; it is **not** listed in the SQL table whitelist and must not appear in user-facing SQL. See `app/core/config.py` (`sql_whitelist_tables` / staging pattern).
 
 ## Environment
 

@@ -1,5 +1,6 @@
 import type { PromptCellProps } from "@/lib/notebook/block-types";
 import { Button } from "@/components/ui/button";
+import { enterpriseInputClassName } from "@/components/ui/enterprise-input";
 
 export function PromptCell({ block, onChange, onSubmit, disabled }: PromptCellProps) {
   return (
@@ -21,7 +22,7 @@ export function PromptCell({ block, onChange, onSubmit, disabled }: PromptCellPr
                 if (!disabled && block.text.trim()) onSubmit(block.text);
               }
             }}
-            className="interactive-focus mt-2 min-h-[72px] w-full resize-y rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-sm leading-relaxed text-foreground"
+            className={`${enterpriseInputClassName} mt-2 min-h-[72px] resize-y font-sans`}
           />
           {onSubmit ? (
             <div className="mt-2 flex justify-end">

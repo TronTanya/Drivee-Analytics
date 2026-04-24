@@ -5,6 +5,10 @@ import { isExplainabilityTraceV1 } from "@/types/api/trace";
 export const EMPTY_TRACE: TracePanelModel = {
   schemaVersion: 1,
   interpretedIntent: "",
+  structuredInterpretation: {},
+  interpretationSummaryRu: "",
+  interpretationNotes: [],
+  sqlGuardrails: {},
   extractedEntities: {},
   semanticTerms: [],
   tablesUsed: [],
@@ -14,6 +18,9 @@ export const EMPTY_TRACE: TracePanelModel = {
   warnings: [],
   confidence: 0,
   clarificationRequested: false,
+  clarificationReason: "",
+  clarificationReasonSummaryRu: "",
+  clarificationQuestion: "",
   followUpContextUsed: false,
   learnedCorrectionUsed: false,
   chartRecommendation: { chartType: "table", rationale: "", alternatives: [] },
@@ -25,6 +32,7 @@ export const EMPTY_TRACE: TracePanelModel = {
     dataQuality: {},
     backtestSummary: {}
   },
+  forecastExplainability: {},
   qualityGate: {
     status: "passed",
     reasons: []
@@ -35,7 +43,8 @@ export const EMPTY_TRACE: TracePanelModel = {
     messagesRu: []
   },
   steps: [],
-  logs: []
+  logs: [],
+  resolvedSourceTable: ""
 };
 
 function coercePhaseStatus(s: string | undefined): TraceStepStatus {
@@ -62,6 +71,11 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
     data_quality: {},
     backtest_summary: {}
   };
+  const forecastExplainabilityRaw = trace.forecast_explainability;
+  const forecastExplainability =
+    forecastExplainabilityRaw && typeof forecastExplainabilityRaw === "object"
+      ? (forecastExplainabilityRaw as Record<string, unknown>)
+      : {};
   const qualityGate = trace.quality_gate ?? { status: "passed", reasons: [] };
   const guardrailsRaw = trace.guardrails ?? { blocked: false, codes: [], messages_ru: [] };
   const phases = trace.execution_phases ?? [];
@@ -74,6 +88,13 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
   return {
     schemaVersion: 1,
     interpretedIntent: trace.interpreted_intent ?? "",
+    structuredInterpretation:
+      trace.structured_interpretation && typeof trace.structured_interpretation === "object"
+        ? trace.structured_interpretation
+        : {},
+    interpretationSummaryRu: trace.interpretation_summary_ru ?? "",
+    interpretationNotes: Array.isArray(trace.interpretation_notes) ? trace.interpretation_notes.map(String) : [],
+    sqlGuardrails: trace.sql_guardrails && typeof trace.sql_guardrails === "object" ? trace.sql_guardrails : {},
     extractedEntities: trace.extracted_entities ?? {},
     semanticTerms: terms,
     tablesUsed: trace.tables_used ?? [],
@@ -83,6 +104,9 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
     warnings: trace.warnings ?? [],
     confidence: trace.confidence ?? 0,
     clarificationRequested: !!trace.clarification_requested,
+    clarificationReason: (trace.clarification_reason ?? "").trim(),
+    clarificationReasonSummaryRu: (trace.clarification_reason_summary_ru ?? "").trim(),
+    clarificationQuestion: (trace.clarification_question ?? "").trim(),
     followUpContextUsed: !!trace.follow_up_context_used,
     learnedCorrectionUsed: !!trace.learned_correction_used,
     chartRecommendation: {
@@ -98,6 +122,7 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
       dataQuality: forecastSelection.data_quality ?? {},
       backtestSummary: forecastSelection.backtest_summary ?? {}
     },
+    forecastExplainability,
     qualityGate: {
       status: qualityGate.status ?? "passed",
       reasons: qualityGate.reasons ?? []
@@ -159,6 +184,16 @@ export function traceFromAnalytics(trace: AnalyticsTraceDto | undefined): TraceP
   if (!trace) return { ...EMPTY_TRACE };
   if (isExplainabilityTraceV1(trace)) return mapV1(trace);
   return mapLegacy(trace);
+}
+
+/** Trace из ответа аналитики + явная поверхность данных из корня ответа API. */
+export function traceFromAnalyticsRun(
+  trace: AnalyticsTraceDto | undefined,
+  resolvedSourceTable?: string | null
+): TracePanelModel {
+  const base = traceFromAnalytics(trace);
+  const rs = (resolvedSourceTable ?? "").trim();
+  return { ...base, resolvedSourceTable: rs };
 }
 
 /** Read `trace_payload_json.explainability` from a notebook cell API payload. */

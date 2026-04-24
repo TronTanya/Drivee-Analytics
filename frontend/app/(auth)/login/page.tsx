@@ -7,7 +7,7 @@ export default function LoginPage() {
       <AuthPageIntro
         eyebrow="С возвращением"
         title="Вход в ваш workspace"
-        description="Доступ к сценариям, AI-инсайтам и ролевым дашбордам. Интерфейс работает без реальной авторизации."
+        description="Доступ к сценариям, AI-инсайтам и ролевым дашбордам. Вход идёт через API бэкенда; демо-аккаунты и пароль задаются сидом (`make seed`, см. docs/demo-users-credentials.md)."
       />
       <LoginForm />
     </div>

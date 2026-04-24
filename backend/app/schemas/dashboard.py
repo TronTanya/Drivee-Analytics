@@ -25,6 +25,22 @@ class DashboardSuggestionResponse(BaseModel):
     recurring_scenarios: int = 0
 
 
+class TrainDatasetSummaryResponse(BaseModel):
+    """Агрегаты по каноническому слою `public.train` (VIEW); для согласованных KPI на дашборде."""
+
+    source_table: str = Field(default="public.train", description="Имя поверхности в БД.")
+    train_row_count: int = Field(..., ge=0, description="Строки выборки заказ×тендер.")
+    distinct_orders: int = Field(..., ge=0)
+    done_rides: int = Field(..., ge=0)
+    cancellations_total: int = Field(..., ge=0)
+    order_timestamp_min: Optional[datetime] = None
+    order_timestamp_max: Optional[datetime] = None
+    sum_order_price: Optional[float] = Field(
+        default=None,
+        description="Сумма price_order_local; не отдаётся роли executive.",
+    )
+
+
 class DashboardWidgetCreateItem(BaseModel):
     title: str = Field(..., min_length=1)
     chart_type: str = Field(..., min_length=1)

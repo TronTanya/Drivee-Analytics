@@ -26,6 +26,16 @@ class ReportPayload(BaseModel):
         description="Метаданные результата: колонки, число строк, preview hash, validation и т.д.",
     )
     chart_type: Optional[str] = Field(default=None, description="Выбранный или рекомендованный тип графика.")
+    chart_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Параметры визуализации на момент сохранения (тип, серии, подписи — по мере наличия в UI).",
+    )
+    result_snapshot: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Снимок таблицы: columns, rows (ограниченный список), row_count.",
+    )
+    creator_role_key: Optional[str] = Field(default=None, description="Роль пользователя, сохранившего отчёт.")
+    creator_user_id: Optional[str] = Field(default=None, description="UUID автора на момент сохранения.")
     trace_summary: Optional[str] = None
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     warnings: list[str] = Field(default_factory=list)
@@ -101,6 +111,7 @@ class SavedReportListItem(BaseModel):
     description: Optional[str]
     notebook_id: Optional[uuid.UUID]
     created_by: Optional[uuid.UUID]
+    creator_role_key: Optional[str] = None
     is_shared: bool
     created_at: datetime
     updated_at: datetime
@@ -144,9 +155,13 @@ class QueryTemplateResponse(BaseModel):
     template_name: str
     description: Optional[str]
     nl_prompt_template: str
+    # Канонический SELECT к public.train для быстрого запуска и подстановки в сценарий.
+    sql_template: Optional[str] = None
     default_chart_type: Optional[str]
     default_params_json: dict[str, Any]
     target_role_id: Optional[uuid.UUID]
+    # Ключ роли-владельца (manager/marketer/executive); None если шаблон общий для всех.
+    target_role_key: Optional[str] = None
     is_system: bool
 
 
@@ -173,6 +188,9 @@ class HistoryItemResponse(BaseModel):
     table_row_count: Optional[int] = None
     validation_status: str
     execution_status: str
+    confidence: Optional[float] = Field(default=None, description="Уверенность ячейки / pipeline.")
+    result_summary: Optional[str] = Field(default=None, description="Краткий инсайт / summary результата.")
+    author_role_key: Optional[str] = Field(default=None, description="Роль владельца ноутбука (автор запуска).")
     created_at: datetime
     rerun_notebook_id: uuid.UUID
     rerun_cell_id: uuid.UUID

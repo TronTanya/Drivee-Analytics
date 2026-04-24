@@ -21,18 +21,20 @@ export type AppendCellRequestDto = {
   payload?: Record<string, unknown>;
 };
 
+export type ForecastSidecarMode = "auto" | "on" | "off";
+
 export type RunCellRequestDto = {
   /** Optional override prompt / parameters */
   input?: string;
+  forecast_horizon_steps?: number;
+  forecast_sidecar?: ForecastSidecarMode;
+  chart_type_override?: string | null;
 };
 
 export type RunCellResponseDto = {
   cell: NotebookCellDto;
   trace?: AnalyticsTraceDto;
 };
-
-/** Соответствует query-параметрам POST /api/v1/analytics/run (расширения оркестратора). */
-export type ForecastSidecarMode = "auto" | "on" | "off";
 
 export type RunNotebookAnalyticsRequestDto = {
   notebook_id: string;
@@ -43,6 +45,7 @@ export type RunNotebookAnalyticsRequestDto = {
   skip_learned_corrections?: boolean;
   forecast_sidecar?: ForecastSidecarMode;
   chart_type_override?: string | null;
+  forecast_horizon_steps?: number;
 };
 
 /** Опции только для тела запроса (без notebook_id / prompt). */
@@ -53,4 +56,19 @@ export type RunNotebookAnalyticsResponseDto = {
   /** Wire cells; UI may map via `cellDtosToBlocks` */
   cells: NotebookCellDto[];
   trace: AnalyticsTraceDto;
+  /** Unified E2E contract fields (backend live). */
+  question?: string;
+  interpreted_query?: string;
+  safe_sql?: string;
+  table?: {
+    columns: string[];
+    rows: Record<string, string | number>[];
+    caption?: string;
+  };
+  chart?: Record<string, unknown>;
+  insight?: string;
+  confidence?: number;
+  /** Поверхность после enrich контекста (например public.train). */
+  resolved_source_table?: string;
+  runtime_mode?: "live" | "fallback" | "mock-only";
 };

@@ -14,8 +14,11 @@ from app.services.cache.ttl_cache import TTLCache
 from app.models.user import User
 from app.repositories.query_template_repository import QueryTemplateRepository
 from app.repositories.workspace_repository import WorkspaceRepository
+from fastapi.encoders import jsonable_encoder
+
 from app.schemas.reporting import QueryTemplateResponse, TemplateQuickRunResponse
 from app.services.analytics_pipeline import analyze_natural_language
+from app.services.orchestration.sql_execution_service import SQLExecutionService
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -57,7 +60,12 @@ def list_templates(
     if not user.role:
         raise ForbiddenException("User has no role")
     rows = QueryTemplateRepository(session).list_for_workspace_and_role(workspace_id, user.role.id)
-    return [QueryTemplateResponse.model_validate(r) for r in rows]
+    out: list[QueryTemplateResponse] = []
+    for r in rows:
+        rk = r.target_role.role_key if r.target_role else None
+        base = QueryTemplateResponse.model_validate(r)
+        out.append(base.model_copy(update={"target_role_key": rk}))
+    return out
 
 
 @router.post("/{template_id}/run", response_model=TemplateQuickRunResponse)
@@ -80,24 +88,54 @@ def quick_run_template(
         return TemplateQuickRunResponse.model_validate(hit)
 
     role_key = user.role.role_key if user.role else None
-    result = analyze_natural_language(
-        tpl.nl_prompt_template,
-        notebook_context=dict(tpl.default_params_json or {}),
-        workspace_id=str(workspace_id),
-        role_key=role_key,
-        user_id=str(user.id),
-        db_session=session,
-    )
-    resp = TemplateQuickRunResponse(
-        template_id=template_id,
-        execution_status=result.execution_status,
-        safe_sql=result.safe_sql,
-        insight=result.insight,
-        chart_type=result.chart_type,
-        table_records=list(result.table_records),
-        confidence=result.confidence,
-        warnings=list(result.warnings),
-    )
+    sql_body = (tpl.sql_template or "").strip()
+    if sql_body:
+        exec_res = SQLExecutionService().execute(sql=sql_body, role_key=role_key)
+        rows_safe = jsonable_encoder(exec_res.rows) if exec_res.ok else []
+        chart_t = (tpl.default_chart_type or "line").strip().lower() or "line"
+        if not exec_res.ok:
+            resp = TemplateQuickRunResponse(
+                template_id=template_id,
+                execution_status="failed",
+                safe_sql=exec_res.final_sql or sql_body,
+                insight=exec_res.error or "Не удалось выполнить SQL шаблона",
+                chart_type=chart_t,
+                table_records=rows_safe,
+                confidence=0.0,
+                warnings=list(exec_res.validation_warnings)
+                + ([exec_res.error] if exec_res.error else []),
+            )
+        else:
+            n = len(rows_safe)
+            resp = TemplateQuickRunResponse(
+                template_id=template_id,
+                execution_status="succeeded",
+                safe_sql=exec_res.final_sql or sql_body,
+                insight=f"Выполнен шаблон «{tpl.template_name}»: {n} строк из public.train.",
+                chart_type=chart_t,
+                table_records=rows_safe,
+                confidence=0.9,
+                warnings=list(exec_res.validation_warnings),
+            )
+    else:
+        result = analyze_natural_language(
+            tpl.nl_prompt_template,
+            notebook_context=dict(tpl.default_params_json or {}),
+            workspace_id=str(workspace_id),
+            role_key=role_key,
+            user_id=str(user.id),
+            db_session=session,
+        )
+        resp = TemplateQuickRunResponse(
+            template_id=template_id,
+            execution_status=result.execution_status,
+            safe_sql=result.safe_sql,
+            insight=result.insight,
+            chart_type=result.chart_type,
+            table_records=list(result.table_records),
+            confidence=result.confidence,
+            warnings=list(result.warnings),
+        )
     if resp.execution_status == "succeeded":
         _template_quick_run_cache().set(ck, resp.model_dump(mode="json"))
     return resp

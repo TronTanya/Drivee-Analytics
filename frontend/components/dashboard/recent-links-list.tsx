@@ -1,8 +1,14 @@
 import type { Route } from "next";
 import Link from "next/link";
-import type { ListItem } from "@/lib/dashboard/mock-data";
 
-export function RecentLinksList({ items }: { items: ListItem[] }) {
+export type RecentListItem = {
+  id: string;
+  title: string;
+  meta: string;
+  href: Route;
+};
+
+export function RecentLinksList({ items }: { items: RecentListItem[] }) {
   return (
     <ul className="divide-y divide-border-subtle">
       {items.map((item) => (

@@ -2,6 +2,8 @@
 
 Документ фиксирует **текущее состояние** кодовой базы (frontend + backend), **разрывы** между UI и API, **приоритеты** и **последовательность** эволюционных улучшений без переписывания стека.
 
+> Status sync (2026-04-23): часть исторических gap уже закрыта в коде. Актуальный baseline контрактов и runtime-режимов вынесен в `docs/domain-contracts-and-runtime-modes.md`. Этот файл сохраняется как стратегический roadmap.
+
 ---
 
 ## 1. Executive summary
@@ -50,7 +52,6 @@
 | Route | Подключение | Зрелость |
 |-------|----------------|----------|
 | `/login`, `/register` | Auth API | Высокая. |
-| `/demo-router` | Навигация | Хаб демо. |
 | `/notebooks`, `/notebooks/[id]` | Notebooks + **analytics/run** (или mock) | **Ядро продукта**; trace/chart зависят от ответа API. |
 | `/dashboard/*` | Частично mock-карточки (`lib/dashboard/mock-data`) | KPI **демо-уровень**; комментарии в UI про «после готовности backend». |
 | `/reports` | `useSavedReports` и др. → пути **частично не совпадают** с backend (см. §5) | Часто **mock/fallback** для `scenarios`, `rerun` может отличаться. |
@@ -95,7 +96,7 @@
 
 | Источник | Использование |
 |----------|----------------|
-| `public.anonymized_incity_orders` (и `settings.ds_default_source_table`) | Основной факт-таблица NL→SQL, DS, bootstrap SQL. |
+| **`public.train`** (и `settings.ds_default_source_table`) | Каноническое имя для NL→SQL, DS, bootstrap SQL (VIEW над факт-таблицей заказов). В whitelist пользовательского SQL участвует только это имя для факт-аналитики, не базовая таблица VIEW. |
 | `user_staging.*` (после CSV import) | Whitelist + `DataImportJob.transform_config_json.qualified_table`; подстановка в notebook context как `source_table`. |
 | Продуктовые таблицы | `notebooks`, `notebook_cells`, `cell_runs`, `saved_reports`, `report_schedules`, `query_templates`, `query_corrections`, `data_import_jobs`, `forecast_runs`, и т.д. (см. README §9, Alembic baseline). |
 
@@ -114,7 +115,7 @@
 5. **Clarification** — ветвление «нужно уточнение?», confidence (`ClarificationEngine`).  
 6. **SQL generation** — шаблоны по intent + `metric_sql` + `source_table` (`SQLGenerationService`).  
 7. **Correction learning** (опционально, при `db_session` + workspace).  
-8. **Validation** — `SQLValidatorService` (whitelist таблиц/колонок, запрет опасных конструкций).  
+8. **Validation** — `SQLValidatorService` (whitelist таблиц: **`train`** + staging **`user_staging`**, колонок, запрет опасных конструкций).  
 9. **Execution** — PostgreSQL или mock (`SQLExecutionService`).  
 10. **Chart recommendation** — правила (`ChartRecommendationService`).  
 11. **Insight** — LLM + детерминированный fallback (`InsightGenerationService`).  

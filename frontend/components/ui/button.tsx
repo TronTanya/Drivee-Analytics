@@ -34,7 +34,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       disabled={disabled || loading}
-      className={`${base} ${variants[variant]} ${className}`.trim()}
+      aria-busy={loading || undefined}
+      className={`${base} ${variants[variant]} active:scale-[0.99] ${className}`.trim()}
       {...props}
     >
       {loading ? (

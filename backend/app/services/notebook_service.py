@@ -22,15 +22,27 @@ from app.schemas.notebook import (
     NotebookPatchRequest,
     NotebookSaveScenarioRequest,
     RerunNotebookResponse,
+    RunCellRequest,
     RunCellResponse,
     SaveNotebookResponse,
 )
+from app.schemas.clarification import clarification_reason_summary_ru
 from app.schemas.notebook_context import NotebookContext, ScenarioSnapshot
 from app.services.analytics_pipeline import analyze_natural_language, build_explainability_trace_v1
 from app.utils.time import utc_now
 
 if TYPE_CHECKING:
     from app.models.user import User
+
+
+def _forecast_payload_for_cell(analysis: Any) -> dict[str, Any]:
+    ft = dict(analysis.full_trace or {})
+    exp = ft.get("forecast_explainability")
+    out: dict[str, Any] = {"records": list(analysis.forecast_records or [])}
+    if isinstance(exp, dict):
+        out["explainability"] = dict(exp)
+    return out
+
 
 ALLOWED_CELL_TYPES = frozenset(
     {"prompt", "clarification", "sql", "table", "chart", "insight", "trace", "forecast"}
@@ -170,7 +182,13 @@ class NotebookService:
         self._session().refresh(cell)
         return NotebookCellResponse.model_validate(cell)
 
-    def run_cell(self, user: User, notebook_id: uuid.UUID, cell_id: uuid.UUID) -> RunCellResponse:
+    def run_cell(
+        self,
+        user: User,
+        notebook_id: uuid.UUID,
+        cell_id: uuid.UUID,
+        run_options: RunCellRequest | None = None,
+    ) -> RunCellResponse:
         notebook = self._notebooks.get_by_id_with_cells(notebook_id)
         if not notebook:
             raise NotFoundException("Notebook not found")
@@ -185,6 +203,9 @@ class NotebookService:
         prompt = (cell.prompt_text or "").strip()
         if not prompt:
             raise ValidationException("Prompt cell has no text")
+
+        opts = run_options or RunCellRequest()
+        sidecar = opts.forecast_sidecar if opts.forecast_sidecar is not None else "auto"
 
         run_number = self._notebooks.next_cell_run_number(cell.id)
         started = utc_now()
@@ -205,6 +226,9 @@ class NotebookService:
             role_key=user.role.role_key if user.role else None,
             user_id=str(user.id),
             db_session=self._session(),
+            forecast_sidecar=sidecar,
+            chart_type_override=opts.chart_type_override,
+            forecast_horizon_steps=opts.forecast_horizon_steps,
         )
         needs_clarification = analysis.clarification_required
         cell.clarification_required = needs_clarification
@@ -250,6 +274,7 @@ class NotebookService:
             **dict(cell.context_snapshot_json or {}),
             "dialogue": analysis.dialogue,
             "entities": analysis.full_trace.get("entities"),
+            "source_table": getattr(analysis, "resolved_source_table", None) or "",
         }
 
         run.generated_sql = analysis.safe_sql
@@ -287,6 +312,8 @@ class NotebookService:
                         "interpreted_intent": {
                             "awaiting_clarification": True,
                             "reason": analysis.clarification_reason,
+                            "reason_summary_ru": analysis.clarification_reason_summary_ru
+                            or clarification_reason_summary_ru(analysis.clarification_reason),
                         },
                         "validation_status": "pending",
                         "execution_status": "not_started",
@@ -315,7 +342,12 @@ class NotebookService:
                 ),
                 ("chart", {"insight_text": analysis.chart_hint, "chart_type": analysis.chart_type or "line"}),
                 ("insight", {"insight_text": analysis.insight}),
-                ("forecast", {"forecast_payload_json": {"records": analysis.forecast_records}}),
+                (
+                    "forecast",
+                    {
+                        "forecast_payload_json": _forecast_payload_for_cell(analysis),
+                    },
+                ),
             ]
 
         for ctype, fields in child_specs:
@@ -387,7 +419,7 @@ class NotebookService:
         prompts = [c for c in sorted(notebook.cells, key=lambda x: x.position) if c.cell_type == "prompt"]
         results: list[RunCellResponse] = []
         for p in prompts:
-            results.append(self.run_cell(user, notebook_id, p.id))
+            results.append(self.run_cell(user, notebook_id, p.id, None))
         return RerunNotebookResponse(runs=results)
 
     def save_as_scenario(self, user: User, notebook_id: uuid.UUID, body: NotebookSaveScenarioRequest) -> SaveNotebookResponse:

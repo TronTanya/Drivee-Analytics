@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.analytics import ForecastSidecarOverride
 from app.schemas.notebook_context import NotebookContext
 from app.schemas.pipeline import NotebookCellTypeLiteral
 
@@ -106,6 +107,14 @@ class NotebookListItemResponse(BaseModel):
     latest_cell_id: Optional[UUID]
     created_at: datetime
     updated_at: datetime
+
+
+class RunCellRequest(BaseModel):
+    """Опции запуска prompt-ячейки (оркестратор / baseline-прогноз)."""
+
+    forecast_horizon_steps: Optional[int] = Field(None, ge=1, le=90)
+    forecast_sidecar: Optional[ForecastSidecarOverride] = None
+    chart_type_override: Optional[str] = None
 
 
 class RunCellResponse(BaseModel):

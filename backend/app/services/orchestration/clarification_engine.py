@@ -147,6 +147,14 @@ class ClarificationEngine:
                 clarification_options=list(OPTIONS_REVENUE_DEFINITION),
             )
 
+        if interp and ("best_metric_unspecified" in interp.ambiguities or "ranking_metric_missing" in interp.ambiguities):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="best_metric_unspecified",
+                clarification_question="Что считать «лучшими»: больше заказов, меньше отмен или выше средний чек?",
+                clarification_options=list(OPTIONS_CHANNEL_METRICS),
+            )
+
         if interp and "city_scope_all_vs_one" in interp.ambiguities:
             return ClarificationResponse(
                 clarification_required=True,

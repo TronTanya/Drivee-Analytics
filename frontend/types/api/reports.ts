@@ -8,6 +8,10 @@ export type ReportPayloadDto = {
   generated_sql?: string | null;
   result_metadata?: Record<string, unknown>;
   chart_type?: string | null;
+  chart_config?: Record<string, unknown>;
+  result_snapshot?: Record<string, unknown>;
+  creator_role_key?: string | null;
+  creator_user_id?: string | null;
   trace_summary?: string | null;
   confidence?: number | null;
   warnings?: string[];
@@ -66,6 +70,7 @@ export type SavedReportListApiDto = {
   description?: string | null;
   notebook_id?: string | null;
   created_by?: string | null;
+  creator_role_key?: string | null;
   is_shared: boolean;
   created_at: string;
   updated_at: string;

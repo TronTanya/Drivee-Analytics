@@ -46,6 +46,10 @@ export type AnalyticsGuardrailsDto = {
 export type AnalyticsExplainabilityTraceV1Dto = {
   schema_version: 1;
   interpreted_intent: string;
+  structured_interpretation?: Record<string, unknown>;
+  interpretation_summary_ru?: string;
+  interpretation_notes?: string[];
+  sql_guardrails?: Record<string, unknown>;
   extracted_entities: Record<string, unknown>;
   semantic_terms: AnalyticsSemanticTermDto[];
   tables_used: string[];
@@ -55,11 +59,19 @@ export type AnalyticsExplainabilityTraceV1Dto = {
   warnings: string[];
   confidence: number;
   clarification_requested: boolean;
+  /** Почему трактовка неоднозначна (с бэкенда, без «угадайки»). */
+  clarification_reason?: string;
+  /** Краткое пояснение причины на русском (если пришло с API). */
+  clarification_reason_summary_ru?: string;
+  /** Конкретный вопрос пользователю. */
+  clarification_question?: string;
   follow_up_context_used: boolean;
   learned_correction_used: boolean;
   chart_recommendation: AnalyticsChartRecommendationDto;
   forecast_mode: AnalyticsForecastModeDto;
   forecast_selection: AnalyticsForecastSelectionDto;
+  /** Baseline-прогноз: объяснение, предупреждения, история (MVP). */
+  forecast_explainability?: Record<string, unknown>;
   quality_gate: AnalyticsQualityGateDto;
   execution_phases?: AnalyticsExecutionPhaseDto[];
   guardrails?: AnalyticsGuardrailsDto;

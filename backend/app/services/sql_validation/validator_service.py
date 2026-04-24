@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from typing import Any, List, Optional, Set
 
 from app.core.config import Settings, settings as default_settings
@@ -42,6 +43,8 @@ from app.services.sql_validation.utils import (
     split_statements,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SQLValidatorService:
     def __init__(self, app_settings: Optional[Settings] = None) -> None:
@@ -65,6 +68,13 @@ class SQLValidatorService:
 
         raw_stripped = sql.strip()
         if not raw_stripped:
+            explainability = {
+                "decision": "rejected",
+                "reason_summary_ru": "SQL отклонён: пустой запрос.",
+                "triggered_rules": ["reject_empty"],
+                "errors": ["Empty SQL."],
+                "warnings": [],
+            }
             return SQLValidationResult(
                 is_valid=False,
                 errors=["Empty SQL."],
@@ -78,12 +88,21 @@ class SQLValidatorService:
                 preview_assessment=preview_assessment,
                 data_correctness=data_correctness,
                 performance={},
+                guardrail_explainability=explainability,
             )
 
         parts = split_statements(raw_stripped)
         if len(parts) > 1:
             errors.append("Multiple SQL statements are not allowed.")
             applied.append("single_statement_only")
+            explainability = {
+                "decision": "rejected",
+                "reason_summary_ru": "SQL отклонён: обнаружено несколько SQL-выражений.",
+                "triggered_rules": list(applied),
+                "errors": list(errors),
+                "warnings": list(warnings),
+            }
+            logger.warning("sql_guardrail_rejected reason=multiple_statements role=%s sql=%s", role_key, raw_stripped[:500])
             return SQLValidationResult(
                 is_valid=False,
                 errors=errors,
@@ -97,6 +116,7 @@ class SQLValidatorService:
                 preview_assessment=preview_assessment,
                 data_correctness=data_correctness,
                 performance={},
+                guardrail_explainability=explainability,
             )
 
         single = parts[0]
@@ -257,6 +277,8 @@ class SQLValidatorService:
                 applied.append("mandatory_limit_missing")
             elif intent_l in mandatory_limit_intent_set(self._s):
                 applied.append("mandatory_limit_ok")
+                if " limit " not in pad_tokens(normalized):
+                    warnings.append("LIMIT был автоматически добавлен политикой guardrails.")
 
         time_notes = check_time_filter_heuristic(normalized, physical_refs)
         group_notes = check_group_by_heuristic(normalized)
@@ -314,6 +336,34 @@ class SQLValidatorService:
             time_notes=time_notes,
             empty_result=False,
         )
+        explainability = {
+            "decision": "allowed" if is_valid else "rejected",
+            "reason_summary_ru": (
+                "SQL прошёл guardrails-проверки и разрешён к выполнению."
+                if is_valid
+                else "SQL отклонён guardrails-политикой."
+            ),
+            "triggered_rules": list(dict.fromkeys(applied)),
+            "errors": list(errors),
+            "warnings": list(warnings),
+            "policy_snapshot": {
+                "select_only": True,
+                "blocked_verbs": sorted(BLOCKED_SQL_VERBS),
+                "table_whitelist_enabled": True,
+                "column_whitelist_enabled": bool(self._s.sql_enforce_global_column_whitelist),
+                "default_limit": int(self._s.sql_default_limit),
+            },
+        }
+
+        if not is_valid:
+            logger.warning(
+                "sql_guardrail_rejected role=%s intent=%s rules=%s errors=%s sql=%s",
+                role_key,
+                intent,
+                ",".join(applied),
+                "; ".join(errors)[:400],
+                raw_stripped[:800],
+            )
 
         return SQLValidationResult(
             is_valid=is_valid,
@@ -328,6 +378,7 @@ class SQLValidatorService:
             preview_assessment=preview_assessment,
             data_correctness=data_correctness,
             performance=performance,
+            guardrail_explainability=explainability,
         )
 
 

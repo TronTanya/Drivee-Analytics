@@ -22,12 +22,14 @@ import {
   NotebookValidationBlockedState
 } from "@/components/notebook/notebook-states";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
+import { useCurrentUser } from "@/hooks/api/use-auth";
 import { useCreateReport } from "@/hooks/api/use-reports";
 import { useNotebook } from "@/hooks/api/use-notebooks";
 import { queryKeys } from "@/hooks/api/query-keys";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useAnalyticsBusyPhaseHint } from "@/hooks/use-analytics-busy-phase-hint";
 import { createNotebook, saveNotebookScenario } from "@/lib/api/notebooks";
+import { runForecast } from "@/lib/api/forecast";
 import {
   downloadNotebookScenarioPdf,
   downloadReportPdf,
@@ -36,6 +38,7 @@ import {
 } from "@/lib/api/reports";
 import { getDefaultReportPdfMode } from "@/lib/preferences/report-pdf";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
+import { useSession } from "@/lib/auth/session-context";
 import { TracePanel } from "@/components/notebook/trace-panel";
 import {
   ApiError,
@@ -51,19 +54,31 @@ import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
 import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
-import { EMPTY_TRACE, traceFromAnalytics } from "@/lib/notebook/trace-model";
+import { EMPTY_TRACE, traceFromAnalyticsRun } from "@/lib/notebook/trace-model";
 import {
   deterministicSqlTopCancelledCities,
   topCityCancellations,
   topCityLimitFromPrompt
 } from "@/lib/demo/seeded-data";
-import { mockRunAnalytics } from "@/lib/api/mocks";
 import { isUuidString } from "@/lib/utils/uuid";
 
 // DeepSeek flow may include several sequential LLM calls in one pipeline run.
 // Keep client-side timeout comfortably above a typical multi-call latency.
 /** Долгие LLM/SQL-цепочки: слишком короткий таймаут даёт ложные ошибки на медленных средах. */
 const ANALYTICS_TIMEOUT_MS = 120_000;
+const DEFAULT_FORECAST_HORIZON_DAYS = 14;
+
+/** После 401/403 не оставлять старые интерпретации рядом с новым (провалившимся) запросом. */
+const STALE_BLOCKS_ON_SESSION_LOSS = new Set<NotebookBlock["type"]>(["forecast", "insight", "chart"]);
+
+function stripStaleBlocksAfterAuthFailure(blocks: NotebookBlock[]): NotebookBlock[] {
+  return blocks.filter((b) => !STALE_BLOCKS_ON_SESSION_LOSS.has(b.type));
+}
+
+const SESSION_EXPIRED_CELL_MSG =
+  "Сессия истекла или токен недействителен. Выйдите и войдите снова, затем повторите запрос.";
+const SESSION_EXPIRED_PAGE_MSG =
+  "Аналитика недоступна: сессия истекла (401/403). Прогноз, график и инсайт от прошлого запуска скрыты, чтобы не путать с новым запросом.";
 
 function traceClarificationRequested(trace: unknown): boolean {
   if (!trace || typeof trace !== "object") return false;
@@ -87,9 +102,29 @@ function isAuthError(error: unknown): boolean {
   }
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
-    return msg.includes("authorization") || msg.includes("unauthorized");
+    return (
+      msg.includes("authorization") ||
+      msg.includes("unauthorized") ||
+      msg.includes("invalid or expired access token")
+    );
   }
   return false;
+}
+
+function analyticsErrorBanner(
+  error: unknown,
+  isTimeout: boolean,
+  timeoutPageMsg: string,
+  pageFallbackPrefix: string
+): { cell: string; page: string } {
+  if (isTimeout) {
+    return { cell: "Не удалось выполнить промпт.", page: timeoutPageMsg };
+  }
+  if (isAuthError(error)) {
+    return { cell: SESSION_EXPIRED_CELL_MSG, page: SESSION_EXPIRED_PAGE_MSG };
+  }
+  const detail = analyticsRunFailureMessage(error);
+  return { cell: detail.slice(0, 320), page: `${pageFallbackPrefix}${detail}`.slice(0, 400) };
 }
 
 function mergeBlocksById(
@@ -114,7 +149,7 @@ function mergeBlocksById(
   return [...updated, ...toAppend];
 }
 
-const CORE_CHAIN_ORDER: NotebookBlock["type"][] = ["clarification", "trace", "sql", "table", "chart", "insight"];
+const CORE_CHAIN_ORDER: NotebookBlock["type"][] = ["clarification", "trace", "sql", "table", "chart", "insight", "forecast"];
 
 function isMeaningfulBlock(block: NotebookBlock): boolean {
   if (block.type === "clarification") {
@@ -156,7 +191,195 @@ function isMeaningfulBlock(block: NotebookBlock): boolean {
   if (block.type === "insight") {
     return block.title.trim().length > 0 || (block.summary?.trim().length ?? 0) > 0 || block.bullets.length > 0;
   }
+  if (block.type === "forecast") {
+    return block.headline.trim().length > 0 || block.baseline !== undefined;
+  }
   return true;
+}
+
+const REPORT_SNAPSHOT_MAX_ROWS = 80;
+const REPORT_CHART_DATA_SAMPLE = 40;
+
+/** Снимок таблицы для каталога отчётов (ограниченное число строк). */
+function buildReportResultSnapshotForPayload(tableBlock: NotebookBlock | undefined): Record<string, unknown> {
+  if (!tableBlock || tableBlock.type !== "table") return {};
+  const { columns, rows } = tableBlock;
+  const slim = rows.slice(0, REPORT_SNAPSHOT_MAX_ROWS).map((row) => {
+    const o: Record<string, unknown> = {};
+    for (const c of columns) o[c] = row[c];
+    return o;
+  });
+  return { columns, rows: slim, row_count: rows.length };
+}
+
+/** Конфиг графика с канвы + при необходимости только рекомендация из trace. */
+function buildReportChartConfigForPayload(
+  chartBlock: NotebookBlock | undefined,
+  fallbackChartType: ChartKind | string | undefined
+): Record<string, unknown> {
+  if (chartBlock && chartBlock.type === "chart") {
+    return {
+      chartType: chartBlock.chartType,
+      recommendedChartType: chartBlock.recommendedChartType,
+      xKey: chartBlock.xKey,
+      series: chartBlock.series,
+      title: chartBlock.title,
+      subtitle: chartBlock.subtitle,
+      unitLabel: chartBlock.unitLabel,
+      geoMetadata: chartBlock.geoMetadata ?? undefined,
+      data_sample: chartBlock.data.slice(0, REPORT_CHART_DATA_SAMPLE)
+    };
+  }
+  if (fallbackChartType) return { chartType: fallbackChartType, source: "recommendation_only" };
+  return {};
+}
+
+function upsertForecastAfterInsight(blocks: NotebookBlock[], forecast: Extract<NotebookBlock, { type: "forecast" }>): NotebookBlock[] {
+  const withoutForecast = blocks.filter((b) => b.type !== "forecast");
+  let insightIndex = -1;
+  for (let i = withoutForecast.length - 1; i >= 0; i -= 1) {
+    if (withoutForecast[i]?.type === "insight") {
+      insightIndex = i;
+      break;
+    }
+  }
+  if (insightIndex === -1) {
+    return [...withoutForecast, forecast];
+  }
+  return [...withoutForecast.slice(0, insightIndex + 1), forecast, ...withoutForecast.slice(insightIndex + 1)];
+}
+
+function humanizeHorizonLabel(raw: string | undefined, fallbackDays: number): string {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (!v) return `${fallbackDays} дней`;
+  const m = v.match(/^(\d+)\s*([dwmy])$/i);
+  if (!m) return raw?.trim() || `${fallbackDays} дней`;
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === "d") return `${n} дн.`;
+  if (unit === "w") return `${n} нед.`;
+  if (unit === "m") return `${n} мес.`;
+  if (unit === "y") return `${n} лет`;
+  return raw?.trim() || `${fallbackDays} дней`;
+}
+
+/** Существительное для подписи к числу заказов: «1 заказ», «3 заказа», «5 заказов». */
+function ruOrdersNounForCount(n: number): string {
+  const k = Math.abs(Math.round(Number(n))) % 100;
+  const k10 = k % 10;
+  if (k >= 11 && k <= 14) return "заказов";
+  if (k10 === 1) return "заказ";
+  if (k10 >= 2 && k10 <= 4) return "заказа";
+  return "заказов";
+}
+
+function pickForecastStrategy(run: Awaited<ReturnType<typeof runForecast>>): string | null {
+  const summary = (run.strategy_summary ?? {}) as Record<string, unknown>;
+  const direct = summary.selected_strategy;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const byMetric = summary.selected_strategies;
+  if (byMetric && typeof byMetric === "object") {
+    const first = Object.values(byMetric as Record<string, unknown>).find((x) => typeof x === "string" && x.trim());
+    if (typeof first === "string" && first.trim()) return first.trim();
+  }
+  return null;
+}
+
+function humanizeStrategyLabel(raw: string): string {
+  const key = raw.trim().toLowerCase();
+  const map: Record<string, string> = {
+    linear_regression: "Линейная регрессия",
+    trend_extrapolation: "Трендовая экстраполяция",
+    rolling_average: "Скользящее среднее",
+    baseline_flat_last: "Плоский baseline (последнее значение ряда)",
+    baseline_linear_trend: "Линейный тренд (baseline)",
+    none: "Без выбранной стратегии"
+  };
+  return map[key] ?? raw;
+}
+
+function humanizeMetricLabel(raw: string): string {
+  const key = raw.trim().toLowerCase();
+  const map: Record<string, string> = {
+    orders_count: "Заказы",
+    done_rides: "Завершенные поездки",
+    cancellations_total: "Отмены",
+    revenue: "Выручка"
+  };
+  return map[key] ?? raw;
+}
+
+function forecastBlockFromRun(notebookId: string, run: Awaited<ReturnType<typeof runForecast>>): Extract<NotebookBlock, { type: "forecast" }> | null {
+  const scenario = Array.isArray(run.scenarios) && run.scenarios.length ? run.scenarios[0] : null;
+  let baseline =
+    scenario?.baseline !== undefined
+      ? scenario.baseline
+      : typeof run.forecasts === "object" && run.forecasts
+        ? Number((run.forecasts as Record<string, unknown>).baseline ?? NaN)
+        : undefined;
+  let optimistic = scenario?.optimistic;
+  let pessimistic = scenario?.pessimistic;
+  let headline = scenario?.name ?? "DS-прогноз метрики";
+  let horizonLabel = scenario?.horizon_label;
+  let unit = scenario?.unit;
+
+  if (baseline === undefined || Number.isNaN(Number(baseline))) {
+    const forecasts = (run.forecasts ?? {}) as Record<string, unknown>;
+    const perMetric = (forecasts.per_metric ?? {}) as Record<string, unknown>;
+    const metricEntry = Object.entries(perMetric).find(([, v]) => v && typeof v === "object");
+    if (metricEntry) {
+      const [metricKey, payload] = metricEntry;
+      const p = payload as Record<string, unknown>;
+      const eow = (p.expected_until_end_of_week ?? {}) as Record<string, unknown>;
+      const numericEow = Object.values(eow)
+        .map((x) => Number(x))
+        .filter((x) => Number.isFinite(x));
+      if (numericEow.length) {
+        const selected = typeof p.selected_strategy === "string" ? p.selected_strategy : null;
+        const selectedVal = selected ? Number(eow[selected]) : NaN;
+        baseline = Number.isFinite(selectedVal) ? selectedVal : numericEow[0];
+        optimistic = Math.max(...numericEow);
+        pessimistic = Math.min(...numericEow);
+      }
+      const nextDaysByMethod = (p.next_7_days ?? {}) as Record<string, unknown>;
+      const firstSeries = Object.values(nextDaysByMethod).find((x) => Array.isArray(x)) as Array<unknown> | undefined;
+      if (firstSeries?.length) {
+        horizonLabel = `${firstSeries.length}d`;
+      }
+      headline = `Прогноз: ${humanizeMetricLabel(metricKey)}`;
+      unit = metricKey === "revenue" ? "RUB" : ruOrdersNounForCount(Math.round(Number(baseline)));
+    }
+  }
+
+  if (baseline === undefined || Number.isNaN(Number(baseline))) return null;
+  const roundedBase = Math.round(Number(baseline));
+  const uRaw = (unit ?? "").trim();
+  const uLower = uRaw.toLowerCase();
+  const isRub = uRaw === "RUB" || uRaw === "₽" || uLower.includes("rub");
+  const looksLikeOrdersUnit =
+    !uRaw ||
+    uRaw === "заказов" ||
+    uRaw === "заказ" ||
+    uRaw === "заказа" ||
+    uLower === "orders" ||
+    uLower === "order";
+  if (!isRub && looksLikeOrdersUnit) {
+    unit = ruOrdersNounForCount(roundedBase);
+  }
+  const strategy = pickForecastStrategy(run);
+  const baseNarrative = run.narrative?.trim() || "Прогноз рассчитан моделью Data Science на основе истории.";
+  const subtext = strategy ? `${baseNarrative} Стратегия: ${humanizeStrategyLabel(strategy)}.` : baseNarrative;
+  return {
+    id: `${notebookId}-fc-${Date.now()}`,
+    type: "forecast",
+    headline,
+    subtext,
+    horizon: humanizeHorizonLabel(horizonLabel, DEFAULT_FORECAST_HORIZON_DAYS),
+    baseline: Number(baseline),
+    optimistic: optimistic !== undefined ? Number(optimistic) : undefined,
+    pessimistic: pessimistic !== undefined ? Number(pessimistic) : undefined,
+    unit
+  };
 }
 
 function stabilizeScenarioBlocks(
@@ -293,7 +516,7 @@ function buildDemoBlocks(notebookId: string, promptOverride?: string): NotebookB
       type: "trace",
       summary: "Намерение: ranking отмен по городам · метрика: cancelled_orders · период: текущая неделя",
       intent: "top_cancelled_cities_weekly",
-      tables: ["anonymized_incity_orders"]
+      tables: ["train"]
     },
     {
       id: `${notebookId}-sql1`,
@@ -364,16 +587,22 @@ export default function NotebookDetailsPage() {
   const [promptHistory, setPromptHistory] = useState<NotebookHistoryItem[]>([]);
   const [downloadingPdfMode, setDownloadingPdfMode] = useState<ReportPdfMode | null>(null);
   const [clarificationRunVersion, setClarificationRunVersion] = useState(0);
+  const [interpretationAccepted, setInterpretationAccepted] = useState(false);
+  const [interpretationActionBusy, setInterpretationActionBusy] = useState(false);
+  const templatePromptHydratedRef = useRef(false);
+  const forecastRunSeqRef = useRef(0);
   const pendingAnalyticsOptsRef = useRef<NotebookAnalyticsRunOptions>({});
   const [backendHealth, setBackendHealth] = useState<"checking" | "up" | "down">("checking");
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
   const createReport = useCreateReport();
+  const meQuery = useCurrentUser();
+  const { session } = useSession();
   const workspaceQuery = useWorkspaceId();
   const isLocalDemoNotebook = useMemo(() => notebookId.startsWith("demo-"), [notebookId]);
   const notebookMetaQuery = useNotebook(isUuidString(notebookId) ? notebookId : undefined);
   const useDeterministicFallback = useMemo(
-    () => isLocalDemoNotebook || isApiMockOnly() || shouldForceAnalyticsMock(),
-    [isLocalDemoNotebook]
+    () => isApiMockOnly() || shouldForceAnalyticsMock(),
+    []
   );
 
   useEffect(() => {
@@ -390,20 +619,31 @@ export default function NotebookDetailsPage() {
       try {
         await new Promise((r) => setTimeout(r, 420));
         if (cancelled) return;
-        const bootBlocks = buildDemoBlocks(notebookId);
-        const bootPrompt = bootBlocks.find((b) => b.type === "prompt")?.text ?? "Сценарий";
-        setBlocks(
-          stabilizeScenarioBlocks(bootBlocks, notebookId, bootPrompt, {
-            resetClarification: true,
-            useDeterministicFallback
-          })
-        );
+        if (useDeterministicFallback) {
+          const bootBlocks = buildDemoBlocks(notebookId);
+          const bootPrompt = bootBlocks.find((b) => b.type === "prompt")?.text ?? "Сценарий";
+          setBlocks(
+            stabilizeScenarioBlocks(bootBlocks, notebookId, bootPrompt, {
+              resetClarification: true,
+              useDeterministicFallback
+            })
+          );
+        } else {
+          setBlocks([
+            {
+              id: `${notebookId}-prompt-init`,
+              type: "prompt",
+              text: "Покажи топ-5 городов по отменам за последние 7 дней",
+              status: "idle"
+            }
+          ]);
+        }
         setTraceModel({
           ...EMPTY_TRACE,
-          confidence: 0.86,
-          validationStatus: "passed",
-          interpretedIntent: "анализ · revenue_gap_analysis",
-          tablesUsed: ["anonymized_incity_orders"],
+          confidence: 0,
+          validationStatus: "unknown",
+          interpretedIntent: "",
+          tablesUsed: [],
           chartRecommendation: {
             chartType: "line",
             rationale: "Сопоставление временного ряда и цели лучше читать на линейном графике.",
@@ -415,12 +655,13 @@ export default function NotebookDetailsPage() {
             dataQuality: {},
             backtestSummary: {}
           },
+          forecastExplainability: {},
           qualityGate: {
             status: "passed",
             reasons: []
           },
           steps: [
-            { id: "s1", label: "Инициализация канвы", detail: "Блоки загружены", status: "done" },
+            { id: "s1", label: "Инициализация канвы", detail: "Готово к запуску pipeline", status: "done" },
             { id: "s2", label: "Ожидание запуска", detail: "Запустите ячейки или добавьте промпт", status: "pending" }
           ],
           logs: [{ level: "info", message: "Оболочка сценария готова.", at: "t+0s" }]
@@ -468,16 +709,42 @@ export default function NotebookDetailsPage() {
 
   const runAnalyticsWithLocalFallback = useCallback(
     async (prompt: string, options?: NotebookAnalyticsRunOptions) => {
-      if (isLocalDemoNotebook) {
-        return mockRunAnalytics({
-          notebook_id: notebookId,
-          prompt,
-          ...(options ?? {})
-        });
-      }
       return runAnalyticsPipeline(notebookId, prompt, options);
     },
-    [isLocalDemoNotebook, notebookId]
+    [notebookId]
+  );
+
+  const applyRuntimeModeNotice = useCallback((mode: "live" | "fallback" | "mock-only" | undefined) => {
+    if (mode === "fallback") {
+      setPageNotice("Показаны fallback-данные: live pipeline временно недоступен.");
+      return;
+    }
+    if (mode === "mock-only") {
+      setPageNotice("Активен mock-only режим: включите live backend для реального pipeline.");
+      return;
+    }
+    setPageNotice(null);
+  }, []);
+
+  const runForecastAfterInsight = useCallback(async () => {
+      const seq = ++forecastRunSeqRef.current;
+      try {
+        const workspaceId = workspaceQuery.data;
+        if (!workspaceId) return;
+        const forecastRun = await runForecast({
+          ...(isUuidString(notebookId) ? { notebook_id: notebookId } : {}),
+          workspace_id: workspaceId,
+          horizon_days: DEFAULT_FORECAST_HORIZON_DAYS
+        });
+        if (forecastRunSeqRef.current !== seq) return;
+        const forecastBlock = forecastBlockFromRun(notebookId, forecastRun);
+        if (!forecastBlock) return;
+        setBlocks((prev) => upsertForecastAfterInsight(prev, forecastBlock));
+      } catch {
+        // Forecast is optional; the main analytics chain stays successful even when DS forecast is unavailable.
+      }
+    },
+    [notebookId, workspaceQuery.data]
   );
 
   const emptyAnalyticTable = useMemo(
@@ -490,6 +757,56 @@ export default function NotebookDetailsPage() {
     const t = [...blocks].reverse().find((b) => b.type === "table");
     return Boolean(t && t.type === "table" && t.columns.length > 0 && Array.isArray(t.rows) && t.rows.length > 0);
   }, [blocks]);
+
+  const interpretationView = useMemo(() => {
+    const s = (traceModel.structuredInterpretation ?? {}) as Record<string, unknown>;
+    const metric =
+      (typeof s.metric === "string" && s.metric.trim()) ||
+      (Array.isArray(s.metrics) && typeof s.metrics[0] === "string" ? (s.metrics[0] as string) : "") ||
+      "";
+    const dimensions = Array.isArray(s.dimensions) ? s.dimensions.map(String) : [];
+    const grouping = Array.isArray(s.grouping) ? s.grouping.map(String) : [];
+    const ambiguityFlags = Array.isArray(s.ambiguity_flags) ? s.ambiguity_flags.map(String) : [];
+    const filtersRaw = s.filters && typeof s.filters === "object" ? (s.filters as Record<string, unknown>) : {};
+    const filters = Object.entries(filtersRaw)
+      .filter(([, v]) => v !== undefined && v !== null && `${v}`.trim() !== "")
+      .map(([k, v]) => `${k}: ${String(v)}`);
+    const timeRange = s.time_range && typeof s.time_range === "object" ? (s.time_range as Record<string, unknown>) : {};
+    const timeLabel =
+      (typeof timeRange.label_ru === "string" && timeRange.label_ru.trim()) ||
+      (typeof timeRange.preset === "string" && timeRange.preset.trim()) ||
+      "не определен";
+    return {
+      intent: (typeof s.intent === "string" && s.intent) || traceModel.interpretedIntent || "unknown",
+      metric,
+      dimensions,
+      grouping,
+      filters,
+      timeLabel,
+      aggregation: (typeof s.aggregation === "string" && s.aggregation) || "",
+      chartHint: (typeof s.chart_hint === "string" && s.chart_hint) || traceModel.chartRecommendation.chartType || "",
+      ambiguityFlags,
+      summary: traceModel.interpretationSummaryRu ?? "",
+      notes: traceModel.interpretationNotes ?? []
+    };
+  }, [traceModel]);
+
+  useEffect(() => {
+    setInterpretationAccepted(false);
+  }, [traceModel.interpretedIntent, notebookId]);
+
+  useEffect(() => {
+    templatePromptHydratedRef.current = false;
+  }, [notebookId]);
+
+  useEffect(() => {
+    if (boot !== "ready" || templatePromptHydratedRef.current) return;
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search).get("template_prompt")?.trim();
+    if (!q) return;
+    templatePromptHydratedRef.current = true;
+    setComposer((prev) => (prev.trim() ? prev : q));
+  }, [boot, notebookId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -692,6 +1009,11 @@ export default function NotebookDetailsPage() {
             validation_status: traceModel.validationStatus
           },
           chart_type: chartBlock && chartBlock.type === "chart" ? chartBlock.chartType : traceModel.chartRecommendation.chartType,
+          chart_config: buildReportChartConfigForPayload(
+            chartBlock ?? undefined,
+            traceModel.chartRecommendation.chartType
+          ),
+          result_snapshot: buildReportResultSnapshotForPayload(tableBlock ?? undefined),
           trace_summary: traceModel.steps.map((s) => `${s.label}: ${s.status}`).join(" · ") || null,
           confidence: traceModel.confidence,
           warnings: traceModel.warnings,
@@ -797,14 +1119,17 @@ export default function NotebookDetailsPage() {
     const basePromptBlock = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim().length > 0);
     const basePrompt =
       basePromptBlock && basePromptBlock.type === "prompt" ? basePromptBlock.text : "Уточнение сценария";
+    forecastRunSeqRef.current += 1;
     setBlocks((prev) =>
-      prev.map((b) => {
-        if (b.type === "clarification" && b.id === clarificationId) {
-          selectedLabel = b.options?.find((o) => o.id === optionId)?.label ?? optionId;
-          return { ...b, selectedOptionId: optionId, status: "running", errorMessage: undefined };
-        }
-        return b;
-      })
+      prev
+        .filter((b) => b.type !== "forecast")
+        .map((b) => {
+          if (b.type === "clarification" && b.id === clarificationId) {
+            selectedLabel = b.options?.find((o) => o.id === optionId)?.label ?? optionId;
+            return { ...b, selectedOptionId: optionId, status: "running", errorMessage: undefined };
+          }
+          return b;
+        })
     );
 
     if (!selectedLabel) return;
@@ -823,7 +1148,8 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       const mapped = cellDtosToBlocks(result.cells);
       const clarificationRequested = traceClarificationRequested(result.trace);
-      const traceBase = traceFromAnalytics(result.trace);
+      const traceBase = traceFromAnalyticsRun(result.trace, result.resolved_source_table);
+      applyRuntimeModeNotice(result.runtime_mode);
       setBlocks((prev) => {
         const incoming = mapped.filter((b) => b.type !== "prompt");
         const updated = prev.map((b) =>
@@ -873,17 +1199,21 @@ export default function NotebookDetailsPage() {
       });
       setAuthRequired(false);
       setClarificationRunVersion((v) => v + 1);
+      void runForecastAfterInsight();
     } catch (error) {
       if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
+        forecastRunSeqRef.current += 1;
+        setBlocks((prev) => stripStaleBlocksAfterAuthFailure(prev));
       }
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
-      const detail = analyticsRunFailureMessage(error);
-      setPageError(
-        isTimeout
-          ? "Не удалось продолжить цепочку после уточнения: timeout."
-          : `Не удалось продолжить цепочку после уточнения: ${detail}`
+      const { cell, page } = analyticsErrorBanner(
+        error,
+        isTimeout,
+        "Не удалось продолжить цепочку после уточнения: timeout.",
+        "Не удалось продолжить цепочку после уточнения: "
       );
+      setPageError(page);
       setBlocks((prev) =>
         prev.map((b) =>
           b.id === clarificationId && b.type === "clarification"
@@ -891,7 +1221,7 @@ export default function NotebookDetailsPage() {
                 ...b,
                 selectedOptionId: optionId,
                 status: "error" as const,
-                errorMessage: isTimeout ? "Timeout." : detail.slice(0, 200)
+                errorMessage: cell.slice(0, 200)
               }
             : b
         )
@@ -900,7 +1230,16 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [blocks, isLocalDemoNotebook, notebookId, popPendingAnalyticsOpts, runAnalyticsWithLocalFallback, useDeterministicFallback]);
+  }, [
+    blocks,
+    isLocalDemoNotebook,
+    notebookId,
+    popPendingAnalyticsOpts,
+    runAnalyticsWithLocalFallback,
+    runForecastAfterInsight,
+    useDeterministicFallback,
+    applyRuntimeModeNotice
+  ]);
 
   const runSingleCell = useCallback(async (id: string) => {
     setBlocks((prev) =>
@@ -942,13 +1281,14 @@ export default function NotebookDetailsPage() {
       setPageError(null);
       setComposerBusy(true);
       setClarificationRunVersion(0);
+      forecastRunSeqRef.current += 1;
 
       const promptBlock: NotebookBlock = {
         id: `prompt-${Date.now()}`,
         type: "prompt",
         text
       };
-      setBlocks((prev) => [...prev, promptBlock]);
+      setBlocks((prev) => [...prev.filter((b) => b.type !== "forecast"), promptBlock]);
 
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       try {
@@ -961,7 +1301,8 @@ export default function NotebookDetailsPage() {
         if (timeoutId) clearTimeout(timeoutId);
         const mapped = cellDtosToBlocks(result.cells);
         const clarificationRequested = traceClarificationRequested(result.trace);
-        const traceNext = traceFromAnalytics(result.trace);
+        const traceNext = traceFromAnalyticsRun(result.trace, result.resolved_source_table);
+        applyRuntimeModeNotice(result.runtime_mode);
         setBlocks((prev) => {
           const merged = mergeBlocksById(prev, mapped, { skipPromptText: text });
           return finalizeScenarioBlocks(
@@ -983,21 +1324,25 @@ export default function NotebookDetailsPage() {
           return next;
         });
         setAuthRequired(false);
+        void runForecastAfterInsight();
       } catch (error) {
         if (isAuthError(error) && !isLocalDemoNotebook) {
           setAuthRequired(true);
+          forecastRunSeqRef.current += 1;
+          setBlocks((prev) => stripStaleBlocksAfterAuthFailure(prev));
         }
         const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
-        const detail = analyticsRunFailureMessage(error);
-        setPageError(
-          isTimeout
-            ? "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента."
-            : `Ошибка запроса к pipeline: ${detail}`
+        const { cell, page } = analyticsErrorBanner(
+          error,
+          isTimeout,
+          "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента.",
+          "Ошибка запроса к pipeline: "
         );
+        setPageError(page);
         setBlocks((prev) =>
           prev.map((b) =>
             b.type === "prompt" && b.text.trim() === text
-              ? { ...b, status: "error" as const, errorMessage: isTimeout ? "Не удалось выполнить промпт." : detail }
+              ? { ...b, status: "error" as const, errorMessage: cell.slice(0, 320) }
               : b
           )
         );
@@ -1006,7 +1351,15 @@ export default function NotebookDetailsPage() {
         setComposerBusy(false);
       }
     },
-    [isLocalDemoNotebook, notebookId, popPendingAnalyticsOpts, runAnalyticsWithLocalFallback, useDeterministicFallback]
+    [
+      isLocalDemoNotebook,
+      notebookId,
+      popPendingAnalyticsOpts,
+      runAnalyticsWithLocalFallback,
+      runForecastAfterInsight,
+      useDeterministicFallback,
+      applyRuntimeModeNotice
+    ]
   );
 
   const handleComposerSubmit = useCallback(async () => {
@@ -1022,7 +1375,12 @@ export default function NotebookDetailsPage() {
     setPageError(null);
     setComposerBusy(true);
     setClarificationRunVersion(0);
-    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, status: "running" as const, errorMessage: undefined } : b)));
+    forecastRunSeqRef.current += 1;
+    setBlocks((prev) =>
+      prev
+        .filter((b) => b.type !== "forecast")
+        .map((b) => (b.id === id ? { ...b, status: "running" as const, errorMessage: undefined } : b))
+    );
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -1035,7 +1393,8 @@ export default function NotebookDetailsPage() {
       if (timeoutId) clearTimeout(timeoutId);
       const mapped = cellDtosToBlocks(result.cells);
       const clarificationRequested = traceClarificationRequested(result.trace);
-      const traceNext = traceFromAnalytics(result.trace);
+      const traceNext = traceFromAnalyticsRun(result.trace, result.resolved_source_table);
+      applyRuntimeModeNotice(result.runtime_mode);
       setBlocks((prev) => {
         const updated = prev.map((b) => (b.id === id ? { ...b, status: "success" as const, errorMessage: undefined } : b));
         const merged = mergeBlocksById(updated, mapped, { skipPromptText: text });
@@ -1058,27 +1417,38 @@ export default function NotebookDetailsPage() {
         return next;
       });
       setAuthRequired(false);
+      void runForecastAfterInsight();
     } catch (error) {
       if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
+        forecastRunSeqRef.current += 1;
+        setBlocks((prev) => stripStaleBlocksAfterAuthFailure(prev));
       }
       const isTimeout = error instanceof Error && error.message === "ANALYTICS_TIMEOUT";
-      const detail = analyticsRunFailureMessage(error);
-      setPageError(
-        isTimeout
-          ? "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента."
-          : `Ошибка запроса к pipeline: ${detail}`
+      const { cell, page } = analyticsErrorBanner(
+        error,
+        isTimeout,
+        "Pipeline отвечает слишком долго. Повторите запрос или увеличьте таймаут клиента.",
+        "Ошибка запроса к pipeline: "
       );
+      setPageError(page);
       setBlocks((prev) =>
         prev.map((b) =>
-          b.id === id ? { ...b, status: "error" as const, errorMessage: isTimeout ? "Не удалось выполнить промпт." : detail } : b
+          b.id === id ? { ...b, status: "error" as const, errorMessage: cell.slice(0, 320) } : b
         )
       );
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
     }
-  }, [isLocalDemoNotebook, notebookId, popPendingAnalyticsOpts, runAnalyticsWithLocalFallback, useDeterministicFallback]);
+  }, [
+    isLocalDemoNotebook,
+    notebookId,
+    popPendingAnalyticsOpts,
+    runAnalyticsWithLocalFallback,
+    runForecastAfterInsight,
+    useDeterministicFallback
+  ]);
 
   const handleTracePanelRerun = useCallback(
     async (opts: NotebookAnalyticsRunOptions) => {
@@ -1112,26 +1482,46 @@ export default function NotebookDetailsPage() {
     }
   }, [blocks, composerBusy, handlePromptSubmit, lastPromptForHistory]);
 
-  const presetPrompts = useMemo(
-    () => [
-      {
-        id: "main",
-        label: "Main demo",
-        text: "Покажи топ-3 города по количеству отменённых заказов на этой неделе"
-      },
-      {
-        id: "clarification",
-        label: "Clarification",
-        text: "Покажи лучшие города за неделю"
-      },
-      {
-        id: "follow-up",
-        label: "Follow-up",
-        text: "Покажи отмены по городам за неделю. А теперь только по Москве."
-      }
-    ],
-    []
-  );
+  const isAdminUser = meQuery.data ? meQuery.data.role === "admin" : session.role === "admin";
+
+  const notebookQuickActions = useMemo(() => {
+    const items = [
+      { label: "Открыть отчеты", href: "/reports", hint: "Сохранить результаты сценария как отчет" },
+      { label: "Открыть историю", href: "/history", hint: "Проверить trace summary запуска" },
+      { label: "Открыть шаблоны", href: "/templates", hint: "Старт из ролевого шаблона" }
+    ];
+    if (isAdminUser) {
+      items.push({ label: "Словарь", href: "/dictionary", hint: "Проверить семантические термины" });
+    }
+    items.push({
+      label: "Прогноз (лаб)",
+      href: "/forecast-lab",
+      hint: "Экран прогнозных моделей и backtest"
+    });
+    return items;
+  }, [isAdminUser]);
+
+  const handleAcceptInterpretation = useCallback(async () => {
+    setInterpretationActionBusy(true);
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+      setInterpretationAccepted(true);
+      setPageNotice("Трактовка принята для текущего результата (MVP: фиксация только в интерфейсе).");
+    } finally {
+      setInterpretationActionBusy(false);
+    }
+  }, []);
+
+  const handleEditInterpretation = useCallback(() => {
+    const line = traceModel.interpretedIntent?.trim() || interpretationView.intent;
+    const seed = line && line !== "unknown" ? line : "уточни метрику и период";
+    setComposer((prev) =>
+      prev.trim()
+        ? `${prev.trim()}\n\nУточнение трактовки: система поняла запрос как «${seed}». Хочу изменить формулировку: `
+        : `Уточнение трактовки: сейчас «${seed}». Исправь понимание на: `
+    );
+    setPageNotice("Текст для уточнения добавлен в композер внизу страницы.");
+  }, [interpretationView.intent, traceModel.interpretedIntent]);
 
   if (boot === "loading") {
     return (
@@ -1248,7 +1638,10 @@ export default function NotebookDetailsPage() {
         {authRequired && !isLocalDemoNotebook ? (
           <section className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <p className="font-semibold">Нужна авторизация</p>
-            <p className="mt-1">Backend вернул 401/403. Войдите в систему, затем повторите действие.</p>
+            <p className="mt-1">
+              Backend вернул 401/403. Войдите в систему, затем повторите действие. Устаревшие прогноз, график и инсайт
+              при ошибке сессии скрываются, чтобы не смешивать их с новым запросом.
+            </p>
             <div className="mt-2">
               <Link
                 href="/login"
@@ -1302,7 +1695,12 @@ export default function NotebookDetailsPage() {
                     : "border-emerald-200 bg-emerald-50 text-emerald-900"
               }`}
             >
-              Quality: {traceModel.qualityGate.status}
+              Качество:{" "}
+              {traceModel.qualityGate.status === "passed"
+                ? "норма"
+                : traceModel.qualityGate.status === "warning"
+                  ? "предупреждение"
+                  : "ошибка"}
             </span>
             {backendCheckedAt ? (
               <span className="text-foreground-muted">
@@ -1363,33 +1761,61 @@ export default function NotebookDetailsPage() {
           </div>
         </section>
 
-        <DemoQuickActions
-          title="Переходы"
-          items={[
-            { label: "Открыть отчеты", href: "/reports", hint: "Сохранить результаты сценария как отчет" },
-            { label: "Открыть историю", href: "/history", hint: "Проверить trace summary запуска" },
-            { label: "Открыть шаблоны", href: "/templates", hint: "Старт из ролевого шаблона" },
-            { label: "Словарь", href: "/dictionary", hint: "Проверить семантические термины" }
-          ]}
-        />
-
         <section className="rounded-card border border-border-subtle bg-surface-card p-4 shadow-xs">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Быстрые действия</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {presetPrompts.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                disabled={composerBusy}
-                title={`Запустить демо-промпт: ${preset.text.slice(0, 80)}${preset.text.length > 80 ? "…" : ""}`}
-                onClick={() => void runNewAnalyticsPrompt(preset.text)}
-                className="rounded-control border border-border-subtle bg-surface-muted px-3 py-1.5 text-xs font-semibold text-foreground-secondary hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800 disabled:opacity-50"
-              >
-                {preset.label}
-              </button>
-            ))}
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Как система поняла запрос</p>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Intent:</span> {interpretationView.intent}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Confidence:</span>{" "}
+              {Math.round((traceModel.confidence ?? 0) * 100)}%
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Metric:</span> {interpretationView.metric || "не определена"}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Aggregation:</span>{" "}
+              {interpretationView.aggregation || "не определена"}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Dimensions:</span>{" "}
+              {interpretationView.dimensions.length ? interpretationView.dimensions.join(", ") : "нет"}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Grouping:</span>{" "}
+              {interpretationView.grouping.length ? interpretationView.grouping.join(", ") : "нет"}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2 sm:col-span-2">
+              <span className="font-semibold text-foreground-muted">Filters:</span>{" "}
+              {interpretationView.filters.length ? interpretationView.filters.join(" · ") : "нет"}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Time range:</span> {interpretationView.timeLabel}
+            </div>
+            <div className="rounded-control border border-border-subtle bg-surface-muted px-3 py-2">
+              <span className="font-semibold text-foreground-muted">Chart hint:</span>{" "}
+              {interpretationView.chartHint || "table"}
+            </div>
           </div>
+          {interpretationView.summary ? (
+            <p className="mt-3 text-xs text-foreground-secondary">{interpretationView.summary}</p>
+          ) : null}
+          {interpretationView.ambiguityFlags.length ? (
+            <p className="mt-2 text-xs text-amber-900">
+              Неоднозначность: {interpretationView.ambiguityFlags.join(", ")}
+            </p>
+          ) : null}
+          {interpretationView.notes.length ? (
+            <div className="mt-2 space-y-1 text-xs text-foreground-secondary">
+              {interpretationView.notes.map((note, idx) => (
+                <p key={`interp-note-${idx}`}>- {note}</p>
+              ))}
+            </div>
+          ) : null}
         </section>
+
+        <DemoQuickActions title="Переходы" items={notebookQuickActions} />
 
         <NotebookHistoryChips
           items={promptHistory}
@@ -1406,6 +1832,12 @@ export default function NotebookDetailsPage() {
           runBusy={composerBusy}
           onChartTypeChange={handleChartTypeChange}
           clarificationPending={clarificationPending}
+          onOpenTrace={() => setTraceOpen(true)}
+          showDictionaryLink={isAdminUser}
+          onAcceptInterpretation={() => void handleAcceptInterpretation()}
+          onEditInterpretation={handleEditInterpretation}
+          interpretationActionsBusy={interpretationActionBusy}
+          interpretationAccepted={interpretationAccepted}
         />
 
         {blocks.length === 0 ? (

@@ -26,3 +26,9 @@ class SemanticService:
 
     def needs_marketing_join(self, query: str) -> bool:
         return self._store.needs_marketing_join(query)
+
+    def resolve_dimensions(self, query: str) -> list[str]:
+        return self._store.resolve_dimensions(query)
+
+    def resolve_filters(self, query: str) -> dict[str, str]:
+        return self._store.resolve_filters(query)

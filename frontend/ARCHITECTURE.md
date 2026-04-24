@@ -7,7 +7,6 @@
 | `/` | `app/page.tsx` | Root (`html` + `Providers` only) | Landing / entry |
 | `/login` | `(auth)/login` | `(auth)/layout` | Auth — no platform chrome |
 | `/register` | `(auth)/register` | `(auth)/layout` | Registration |
-| `/demo-router` | `(platform)/demo-router` | `(platform)/layout` | Role dashboard picker |
 | `/dashboard/admin` | `(platform)/dashboard/admin` | Platform shell | Admin KPIs |
 | `/dashboard/manager` | `(platform)/dashboard/manager` | Platform shell | Manager KPIs |
 | `/dashboard/marketer` | `(platform)/dashboard/marketer` | Platform shell | Marketer KPIs |
@@ -103,7 +102,6 @@ frontend/
 │   │   └── register/page.tsx
 │   └── (platform)/
 │       ├── layout.tsx
-│       ├── demo-router/page.tsx
 │       ├── dashboard/
 │       │   ├── admin/page.tsx
 │       │   ├── manager/page.tsx

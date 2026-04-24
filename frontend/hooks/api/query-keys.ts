@@ -14,11 +14,8 @@ export const queryKeys = {
   reports: {
     all: ["reports"] as const,
     saved: () => [...queryKeys.reports.all, "saved"] as const,
+    detail: (id: string) => [...queryKeys.reports.all, "detail", id] as const,
     scenarios: () => [...queryKeys.reports.all, "scenarios"] as const
-  },
-  schedules: {
-    all: ["schedules"] as const,
-    list: () => [...queryKeys.schedules.all, "list"] as const
   },
   templates: {
     all: ["templates"] as const,
@@ -36,10 +33,11 @@ export const queryKeys = {
   },
   dashboard: {
     all: ["dashboard"] as const,
-    suggestions: (role?: UserRole) => [...queryKeys.dashboard.all, "suggestions", role ?? "any"] as const
+    suggestions: (workspaceId: string | undefined, role?: UserRole) =>
+      [...queryKeys.dashboard.all, "suggestions", workspaceId ?? "none", role ?? "any"] as const
   },
   corrections: {
     all: ["corrections"] as const,
-    list: () => [...queryKeys.corrections.all, "list"] as const
+    list: (workspaceId: string | undefined) => [...queryKeys.corrections.all, "list", workspaceId ?? "none"] as const
   }
 } as const;

@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const loginSchema = z.object({
   email: z.string().min(1, "Введите email").email("Введите корректный email"),
-  password: z.string().min(8, "Используйте не менее 8 символов")
+  /** Логин не должен дублировать правила регистрации: демо-пароль из сида — `demo123` (7 символов). */
+  password: z.string().min(1, "Введите пароль")
 });
 
 export const registerSchema = z

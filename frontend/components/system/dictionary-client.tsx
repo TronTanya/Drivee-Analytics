@@ -4,9 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
-import { fetchDictionaryEntries } from "@/lib/api/dictionary";
+import {
+  bootstrapDictionaryFromTrain,
+  createDictionaryEntry,
+  deleteDictionaryEntry,
+  fetchDictionaryEntries,
+  fetchDictionaryMeta,
+  updateDictionaryEntry
+} from "@/lib/api/dictionary";
 import type { DictionaryRow } from "@/lib/system/mock-data";
-import type { DictionaryEntryDto } from "@/types/api/dictionary";
+import type { DictionaryEntryDto, UpsertDictionaryEntryDto } from "@/types/api/dictionary";
 import type { UserRole } from "@/lib/types";
 
 const DOMAIN_LABEL: Record<string, string> = {
@@ -26,6 +33,10 @@ function dtoToRow(e: DictionaryEntryDto): DictionaryRow {
     sourceTable: e.source_table,
     sourceColumn: e.source_column ?? undefined,
     aggregationType: e.aggregation_type,
+    termType: e.term_type,
+    targetField: e.target_field ?? undefined,
+    filterValue: e.filter_value ?? undefined,
+    descriptionRu: e.description_ru,
     constraints: e.constraints,
     exampleQueries: e.example_queries,
     systemInterpretationRu: e.system_interpretation_ru
@@ -41,57 +52,86 @@ export function DictionaryClient() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [scope, setScope] = useState<"all" | "custom_train">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [term, setTerm] = useState("");
+  const [synonymsText, setSynonymsText] = useState("");
+  const [sqlExpression, setSqlExpression] = useState("");
+  const [domain, setDomain] = useState("custom_train");
+  const [canonicalMetricKey, setCanonicalMetricKey] = useState("");
+  const [sourceColumn, setSourceColumn] = useState("");
+  const [aggregationType, setAggregationType] = useState("custom");
+  const [exampleQueriesText, setExampleQueriesText] = useState("");
+  const [interpretationRu, setInterpretationRu] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [mode, setMode] = useState<"create" | "edit">("create");
+  const [dictionaryVersion, setDictionaryVersion] = useState<string>("");
+  const [termType, setTermType] = useState("metric");
+  const [targetField, setTargetField] = useState("");
+  const [filterValue, setFilterValue] = useState("");
+  const [descriptionRu, setDescriptionRu] = useState("");
+
+  const loadEntries = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const data = await fetchDictionaryEntries();
+      setRows(data.map(dtoToRow));
+      const meta = await fetchDictionaryMeta();
+      setDictionaryVersion(meta.version);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Не удалось загрузить словарь");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        const data = await fetchDictionaryEntries();
-        if (!cancelled) {
-          setRows(data.map(dtoToRow));
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setLoadError(e instanceof Error ? e.message : "Не удалось загрузить словарь");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void loadEntries();
   }, []);
 
-  const readOnlySemantic = useMemo(
-    () => rows.length > 0 && rows.some((r) => Boolean(r.canonicalMetricKey)),
-    [rows]
-  );
-
   const filtered = useMemo(() => {
+    const scoped = scope === "custom_train" ? rows.filter((r) => (r.domain ?? "") === "custom_train") : rows;
     const q = search.trim().toLowerCase();
     if (!q) {
-      return rows;
+      return scoped;
     }
-    return rows.filter((r) => rowSearchBlob(r).includes(q));
-  }, [rows, search]);
+    return scoped.filter((r) => rowSearchBlob(r).includes(q));
+  }, [rows, scope, search]);
 
   const selected = useMemo(
     () => (selectedId ? rows.find((r) => r.id === selectedId) ?? null : null),
     [rows, selectedId]
   );
 
+  useEffect(() => {
+    if (!selected) return;
+    setMode("edit");
+    setTerm(selected.term);
+    setSynonymsText((selected.synonyms ?? []).join(", "));
+    setSqlExpression(selected.sqlExpression);
+    setDomain(selected.domain ?? "custom_train");
+    setCanonicalMetricKey(selected.canonicalMetricKey ?? "");
+    setSourceColumn(selected.sourceColumn ?? "");
+    setAggregationType(selected.aggregationType ?? "custom");
+    setTermType(selected.termType ?? "metric");
+    setTargetField(selected.targetField ?? "");
+    setFilterValue(selected.filterValue ?? "");
+    setDescriptionRu(selected.descriptionRu ?? "");
+    setExampleQueriesText((selected.exampleQueries ?? []).join("\n"));
+    setInterpretationRu(selected.systemInterpretationRu ?? "");
+  }, [selected]);
+
   return (
     <div className="space-y-6">
       <SystemPageIntro
         title="Семантический словарь"
-        subtitle="Канонические метрики, синонимы и SQL-фрагменты: как NL→SQL сопоставляет запрос с источником anonymized_incity_orders."
+        subtitle="Канонические метрики, синонимы и SQL-фрагменты: как NL→SQL сопоставляет запрос с источником public.train."
       />
+      {dictionaryVersion ? (
+        <p className="text-xs text-foreground-muted">Версия словаря: {dictionaryVersion}</p>
+      ) : null}
       <DemoQuickActions
         items={[
           {
@@ -108,21 +148,326 @@ export function DictionaryClient() {
         <div className="rounded-card border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{loadError}</div>
       ) : null}
 
-      {readOnlySemantic ? (
-        <div className="rounded-card border border-border-subtle bg-surface-card px-4 py-3 text-sm text-foreground-secondary">
-          Словарь задаётся на сервере (файл <span className="font-mono text-xs">app/data/semantic_dictionary.json</span>
-          ). Редактирование через API в MVP отключено.
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={async () => {
+            setLoadError(null);
+            setSaving(true);
+            try {
+              const res = await bootstrapDictionaryFromTrain();
+              await loadEntries();
+              setSelectedId(null);
+              setMode("create");
+              setTerm("");
+              setSynonymsText("");
+              setSqlExpression("");
+              setDomain("custom_train");
+              setCanonicalMetricKey("");
+              setSourceColumn("");
+              setAggregationType("custom");
+              setExampleQueriesText("");
+              setInterpretationRu("");
+              setLoadError(`Добавлено терминов из train: ${res.added}. Всего: ${res.total}.`);
+            } catch (e) {
+              setLoadError(e instanceof Error ? e.message : "Не удалось синхронизировать словарь с train.");
+            } finally {
+              setSaving(false);
+            }
+          }}
+          className="rounded-control border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-900 hover:bg-brand-100 disabled:opacity-50"
+        >
+          {saving ? "Обновление..." : "Синхронизировать из train"}
+        </button>
+      </div>
+
+      <SectionCard
+        title={mode === "edit" ? "Редактирование термина" : "Добавить термин"}
+        description="Можно добавлять, редактировать и удалять записи словаря."
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Термин</label>
+            <input
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              placeholder="Например: Выручка по тендерам"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Синонимы</label>
+            <input
+              value={synonymsText}
+              onChange={(e) => setSynonymsText(e.target.value)}
+              placeholder="Через запятую: revenue, выручка, сумма"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">SQL выражение</label>
+            <textarea
+              value={sqlExpression}
+              onChange={(e) => setSqlExpression(e.target.value)}
+              rows={3}
+              placeholder="Например: SUM(a.price_tender_local)"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Домен</label>
+            <input
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="orders_rides / cancellations_revenue / custom_train"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Canonical key</label>
+            <input
+              value={canonicalMetricKey}
+              onChange={(e) => setCanonicalMetricKey(e.target.value)}
+              placeholder="Например: avg_price_tender_local"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Source column</label>
+            <input
+              value={sourceColumn}
+              onChange={(e) => setSourceColumn(e.target.value)}
+              placeholder="Например: price_tender_local"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Aggregation</label>
+            <input
+              value={aggregationType}
+              onChange={(e) => setAggregationType(e.target.value)}
+              placeholder="sum / avg / count / ratio / custom"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Term type</label>
+            <select
+              value={termType}
+              onChange={(e) => setTermType(e.target.value)}
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            >
+              <option value="metric">metric</option>
+              <option value="dimension">dimension</option>
+              <option value="filter">filter</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Target field</label>
+            <input
+              value={targetField}
+              onChange={(e) => setTargetField(e.target.value)}
+              placeholder="city_id / order_channel / time_period"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Filter value</label>
+            <input
+              value={filterValue}
+              onChange={(e) => setFilterValue(e.target.value)}
+              placeholder="previous_week"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Описание (RU)</label>
+            <textarea
+              value={descriptionRu}
+              onChange={(e) => setDescriptionRu(e.target.value)}
+              rows={2}
+              placeholder="Человекочитаемое описание бизнес-термина"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Примеры запросов</label>
+            <textarea
+              value={exampleQueriesText}
+              onChange={(e) => setExampleQueriesText(e.target.value)}
+              rows={3}
+              placeholder="Один пример на строку"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Интерпретация RU</label>
+            <textarea
+              value={interpretationRu}
+              onChange={(e) => setInterpretationRu(e.target.value)}
+              rows={2}
+              placeholder="Короткое пояснение для trace/UI"
+              className="interactive-focus mt-1 w-full rounded-control border border-border-subtle px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="md:col-span-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={async () => {
+                const t = term.trim();
+                const sql = sqlExpression.trim();
+                if (!t || !sql) {
+                  setLoadError("Заполните термин и SQL выражение.");
+                  return;
+                }
+                setLoadError(null);
+                setSaving(true);
+                const synonyms = synonymsText
+                  .split(",")
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                const exampleQueries = exampleQueriesText
+                  .split("\n")
+                  .map((x) => x.trim())
+                  .filter(Boolean);
+                const visibilityRoles: UserRole[] = ["admin", "manager", "marketer", "executive"];
+                const payload: UpsertDictionaryEntryDto = {
+                  term: t,
+                  synonyms,
+                  sql_expression: sql,
+                  visibility_roles: visibilityRoles,
+                  domain: domain.trim() || "custom_train",
+                  canonical_metric_key: canonicalMetricKey.trim() || undefined,
+                  source_table: "train",
+                  source_column: sourceColumn.trim() || null,
+                  aggregation_type: aggregationType.trim() || "custom",
+                  term_type: termType.trim() || "metric",
+                  target_field: targetField.trim() || null,
+                  filter_value: filterValue.trim() || null,
+                  description_ru: descriptionRu.trim() || undefined,
+                  example_queries: exampleQueries,
+                  system_interpretation_ru: interpretationRu.trim() || undefined
+                };
+                try {
+                  if (mode === "edit" && selectedId) {
+                    await updateDictionaryEntry(selectedId, payload);
+                  } else {
+                    await createDictionaryEntry(payload);
+                  }
+                  await loadEntries();
+                  setMode("create");
+                  setSelectedId(null);
+                  setTerm("");
+                  setSynonymsText("");
+                  setSqlExpression("");
+                  setDomain("custom_train");
+                  setCanonicalMetricKey("");
+                  setSourceColumn("");
+                  setAggregationType("custom");
+                  setTermType("metric");
+                  setTargetField("");
+                  setFilterValue("");
+                  setDescriptionRu("");
+                  setExampleQueriesText("");
+                  setInterpretationRu("");
+                } catch (e) {
+                  setLoadError(e instanceof Error ? e.message : "Не удалось сохранить термин.");
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className="rounded-control border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-900 hover:bg-brand-100 disabled:opacity-50"
+            >
+              {saving ? "Сохранение..." : mode === "edit" ? "Сохранить изменения" : "Добавить термин"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("create");
+                setSelectedId(null);
+                setTerm("");
+                setSynonymsText("");
+                setSqlExpression("");
+                setDomain("custom_train");
+                setCanonicalMetricKey("");
+                setSourceColumn("");
+                setAggregationType("custom");
+                setExampleQueriesText("");
+                setInterpretationRu("");
+              }}
+              className="rounded-control border border-border-subtle bg-surface-card px-3 py-1.5 text-xs font-semibold text-foreground-secondary hover:bg-surface-muted"
+            >
+              Новый
+            </button>
+            <button
+              type="button"
+              disabled={!selectedId || deleting}
+              onClick={async () => {
+                if (!selectedId) return;
+                setDeleting(true);
+                setLoadError(null);
+                try {
+                  await deleteDictionaryEntry(selectedId);
+                  await loadEntries();
+                  setMode("create");
+                  setSelectedId(null);
+                  setTerm("");
+                  setSynonymsText("");
+                  setSqlExpression("");
+                  setDomain("custom_train");
+                  setCanonicalMetricKey("");
+                  setSourceColumn("");
+                  setAggregationType("custom");
+                  setExampleQueriesText("");
+                  setInterpretationRu("");
+                } catch (e) {
+                  setLoadError(e instanceof Error ? e.message : "Не удалось удалить термин.");
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+              className="rounded-control border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+            >
+              {deleting ? "Удаление..." : "Удалить выбранный"}
+            </button>
+          </div>
         </div>
-      ) : null}
+      </SectionCard>
 
       <SectionCard title="Поиск" description="Фильтр по бизнес-термину, синониму или каноническому ключу.">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Например: отмены, средний чек, done_rides…"
-          className="interactive-focus w-full rounded-control border border-border-subtle px-3 py-2 text-sm focus:border-brand-400"
-        />
+        <div className="space-y-3">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Например: отмены, средний чек, done_rides…"
+            className="interactive-focus w-full rounded-control border border-border-subtle px-3 py-2 text-sm focus:border-brand-400"
+          />
+          <div className="flex rounded-control border border-border-subtle bg-surface-muted p-0.5 w-fit">
+            <button
+              type="button"
+              aria-pressed={scope === "all"}
+              onClick={() => setScope("all")}
+              className={`rounded-[6px] px-2.5 py-1 text-xs font-semibold ${
+                scope === "all" ? "bg-surface-card text-brand-800 shadow-xs" : "text-foreground-secondary"
+              }`}
+            >
+              Все термины
+            </button>
+            <button
+              type="button"
+              aria-pressed={scope === "custom_train"}
+              onClick={() => setScope("custom_train")}
+              className={`rounded-[6px] px-2.5 py-1 text-xs font-semibold ${
+                scope === "custom_train" ? "bg-surface-card text-brand-800 shadow-xs" : "text-foreground-secondary"
+              }`}
+            >
+              Только custom_train
+            </button>
+          </div>
+        </div>
       </SectionCard>
 
       <SectionCard

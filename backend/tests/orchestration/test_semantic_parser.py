@@ -37,6 +37,17 @@ class SemanticParserTests(unittest.TestCase):
         self.assertEqual(r[0].term_key, "done_rides")
         self.assertEqual(r[0].surface_form, "interpretation")
 
+    def test_forecast_query_detects_cancellations_metric(self) -> None:
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="прогноз отменённых заказов по дням",
+            intent="forecast",
+            intent_signals=["keyword:forecast"],
+            entities={},
+        )
+        self.assertIn("cancellations_total", interp.metrics)
+        self.assertIsInstance(interp.chart_hint, str)
+
     def test_revenue_ambiguity_triggers_clarification(self) -> None:
         p = SemanticParser()
         sem = SemanticService()

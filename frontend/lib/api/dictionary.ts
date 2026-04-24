@@ -1,6 +1,6 @@
 import { requestJson } from "@/lib/api/request";
 import { mockListDictionary } from "@/lib/api/mocks";
-import type { DictionaryEntryDto, UpsertDictionaryEntryDto } from "@/types/api/dictionary";
+import type { DictionaryEntryDto, DictionaryMetaDto, UpsertDictionaryEntryDto } from "@/types/api/dictionary";
 
 export async function fetchDictionaryEntries(): Promise<DictionaryEntryDto[]> {
   return requestJson({
@@ -48,5 +48,26 @@ export async function deleteDictionaryEntry(id: string): Promise<void> {
     path: `/api/v1/dictionary/entries/${encodeURIComponent(id)}`,
     init: { method: "DELETE" },
     mock: async () => ({})
+  });
+}
+
+export async function bootstrapDictionaryFromTrain(): Promise<{ added: number; total: number }> {
+  return requestJson({
+    path: "/api/v1/dictionary/entries/bootstrap-train",
+    init: { method: "POST" },
+    mock: async () => ({ added: 0, total: 0 })
+  });
+}
+
+export async function fetchDictionaryMeta(): Promise<DictionaryMetaDto> {
+  return requestJson({
+    path: "/api/v1/meta/dictionary",
+    init: { method: "GET", cache: "no-store" },
+    mock: async () => ({
+      version: "mock",
+      source: "mock",
+      term_count: 0,
+      updated_at: null
+    })
   });
 }

@@ -6,6 +6,8 @@ export type RequestJsonOptions<T> = {
   init?: RequestInit;
   /** Called when mock-only or when fallback catches a failure */
   mock: () => T | Promise<T>;
+  /** Optional runtime hook for explicit fallback/mock telemetry in UI. */
+  onMockUsed?: (mode: "mock-only" | "fallback") => void;
   /** Disable fallback-to-mock for strict live endpoints */
   allowFallback?: boolean;
 };
@@ -25,12 +27,14 @@ function shouldFallbackToMock(error: unknown): boolean {
  */
 export async function requestJson<T>(opts: RequestJsonOptions<T>): Promise<T> {
   if (isApiMockOnly()) {
+    opts.onMockUsed?.("mock-only");
     return opts.mock();
   }
   try {
     return await apiFetchJson<T>(opts.path, opts.init);
   } catch (e) {
     if (opts.allowFallback !== false && shouldFallbackToMock(e)) {
+      opts.onMockUsed?.("fallback");
       if (process.env.NODE_ENV === "development") {
         console.warn("[api] mock fallback:", opts.path, e instanceof ApiError ? e.status : e);
       }

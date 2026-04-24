@@ -35,6 +35,18 @@ Backend startup sequence:
 3. run idempotent demo seed
 4. start FastAPI with uvicorn
 
+`CORS_ORIGINS` для backend можно задавать как CSV или JSON-массив (оба формата поддерживаются конфигом).
+
+### Обновление существующей БД: представление `train`
+
+Если база создана до появления `public.train`, один раз в `psql`:
+
+```sql
+CREATE OR REPLACE VIEW public.train AS SELECT * FROM public.anonymized_incity_orders;
+```
+
+Свежий `bootstrap_drivee.sql` создаёт VIEW автоматически. Запросы notebook / NL→SQL и whitelist валидатора опираются на **`public.train`**; имя факт-таблицы под VIEW нужно только для DDL, ORM и сидов.
+
 ## 3) Optional pgAdmin
 
 ```bash
@@ -57,4 +69,5 @@ Or directly:
 ```bash
 docker compose run --rm backend alembic upgrade head
 docker compose run --rm backend python scripts/seed_demo_data.py
+docker compose run --rm backend python -m pytest tests/unit/test_analytics_run_response_contract.py -q
 ```

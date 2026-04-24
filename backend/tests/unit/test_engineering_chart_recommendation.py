@@ -22,26 +22,59 @@ def test_ranking_cancellations_by_city_horizontal_bar(charts: ChartRecommendatio
     rows = ranking_cancellations_by_city()
     cols = list(rows[0].keys()) if rows else []
     viz = charts.recommend("ranking", cols, rows, effective_query="топ городов по отменам")
-    assert viz.recommended_chart_type in ("horizontal_bar", "bar", "map")
-    assert viz.visualization_confidence >= 0.7
+    assert viz.recommended_chart_type == "horizontal_bar"
+    assert "table" in viz.alternative_chart_types
 
 
 def test_trend_multi_period_line(charts: ChartRecommendationService) -> None:
     rows = multi_period_revenue_rows()
     cols = list(rows[0].keys())
     viz = charts.recommend("trend", cols, rows, effective_query="динамика выручки по дням")
-    assert viz.recommended_chart_type in ("line", "combo", "area", "bar")
+    assert viz.recommended_chart_type == "line"
+    assert "table" in viz.alternative_chart_types
 
 
 def test_share_conversion_donut(charts: ChartRecommendationService) -> None:
     rows = demo_channel_mix()
     cols = list(rows[0].keys())
     viz = charts.recommend("share", cols, rows, effective_query="доля каналов и конверсия")
-    assert viz.recommended_chart_type in ("donut", "pie", "bar", "stacked_bar")
+    assert viz.recommended_chart_type == "donut"
+    assert "pie" in viz.alternative_chart_types
+    assert "table" in viz.alternative_chart_types
 
 
 def test_fixture_orders_profile_numeric_columns(charts: ChartRecommendationService) -> None:
     slim = [{k: v for k, v in row.items() if k in ("order_timestamp", "price_order_local", "status_order")} for row in DEMO_ORDER_ROWS]
     cols = list(slim[0].keys())
     viz = charts.recommend("summary", cols, slim, effective_query="сводка по заказам без гео-измерения")
-    assert viz.recommended_chart_type in ("table", "bar", "line", "heatmap")
+    assert viz.recommended_chart_type in ("table", "bar", "line")
+
+
+def test_geo_query_populates_map_features(charts: ChartRecommendationService) -> None:
+    rows = ranking_cancellations_by_city()
+    cols = list(rows[0].keys())
+    viz = charts.recommend("ranking", cols, rows, effective_query="покажи отмены по городам на карте")
+    assert viz.recommended_chart_type in ("map", "geo_bubble", "horizontal_bar")
+    assert viz.geo_metadata is not None
+    assert viz.geo_metadata.geo_enabled
+    assert len(viz.geo_metadata.map_features) >= 1
+    assert "table" in viz.alternative_chart_types
+
+
+def test_geo_context_table_when_no_metric_for_map(charts: ChartRecommendationService) -> None:
+    """Гео-запрос без числовой метрики — только таблица (карта недоступна честно)."""
+    rows = [{"city_id": "Алматы"}, {"city_id": "Астана"}]
+    cols = ["city_id"]
+    viz = charts.recommend("summary", cols, rows, effective_query="покажи города на карте")
+    assert viz.recommended_chart_type == "table"
+    assert viz.geo_metadata is not None
+    assert viz.geo_metadata.geo_enabled
+    assert "horizontal_bar" in viz.alternative_chart_types
+
+
+def test_scatter_two_numeric_without_time(charts: ChartRecommendationService) -> None:
+    rows = [{"a": 1.0, "b": 2.0}, {"a": 3.0, "b": 5.5}]
+    cols = ["a", "b"]
+    viz = charts.recommend("summary", cols, rows, effective_query="")
+    assert viz.recommended_chart_type == "scatter"
+    assert "table" in viz.alternative_chart_types

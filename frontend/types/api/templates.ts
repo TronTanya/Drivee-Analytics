@@ -11,6 +11,8 @@ export type QueryTemplateDto = {
   nl_prompt_template?: string;
   sql_template?: string | null;
   default_chart_type?: string;
+  /** null / undefined — шаблон общий для всех ролей в каталоге */
+  target_role_key?: string | null;
 };
 
 export type NotebookTemplateDto = {

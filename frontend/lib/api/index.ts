@@ -22,7 +22,6 @@ export * from "@/lib/api/auth";
 export * from "@/lib/api/notebooks";
 export * from "@/lib/api/cells";
 export * from "@/lib/api/reports";
-export * from "@/lib/api/schedules";
 export * from "@/lib/api/templates";
 export * from "@/lib/api/history";
 export * from "@/lib/api/dictionary";

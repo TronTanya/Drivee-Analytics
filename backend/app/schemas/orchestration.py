@@ -46,6 +46,12 @@ class OrchestrationInput(BaseModel):
         None,
         description="Подмена типа графика в trace/cells после рекомендации (bar, line, table, …).",
     )
+    forecast_horizon_steps: Optional[int] = Field(
+        None,
+        ge=1,
+        le=90,
+        description="Число шагов baseline-прогноза (перекрывает эвристику из текста, если задано).",
+    )
 
 
 class PipelineStepTrace(BaseModel):

@@ -1,14 +1,67 @@
-import type { Route } from "next";
-import Link from "next/link";
-import { AutoMLBulkApplyCard } from "@/components/dashboard/automl-bulk-apply-card";
-import { AdminTilesGrid } from "@/components/dashboard/admin-tiles-grid";
+"use client";
+
 import { AdminDemoFlows } from "@/components/dashboard/admin-demo-flows";
 import { DashboardHero } from "@/components/dashboard/dashboard-hero";
+import { KpiStatCard, type KpiMetric } from "@/components/dashboard/kpi-stat-card";
+import { RecentLinksList, type RecentListItem } from "@/components/dashboard/recent-links-list";
 import { SectionCard } from "@/components/dashboard/section-card";
-import { DemoQuickActions } from "@/components/system/demo-quick-actions";
-import { ADMIN_TILES } from "@/lib/dashboard/mock-data";
+import { TrainDatasetSummarySection } from "@/components/dashboard/train-dataset-summary-section";
+import { useWorkspaceId } from "@/hooks/use-workspace-id";
+import { useNotebooks } from "@/hooks/api/use-notebooks";
+import { useSavedReports } from "@/hooks/api/use-reports";
+import { useQueryHistory } from "@/hooks/api/use-history";
+import type { Route } from "next";
+import Link from "next/link";
+import { useMemo } from "react";
+
+function fmtNumber(n: number): string {
+  return new Intl.NumberFormat("ru-RU").format(n);
+}
 
 export default function AdminDashboardPage() {
+  const workspaceQuery = useWorkspaceId();
+  const notebooksQuery = useNotebooks();
+  const reportsQuery = useSavedReports(workspaceQuery.data);
+  const historyQuery = useQueryHistory(workspaceQuery.data, { scope: "workspace" });
+
+  const kpis = useMemo<KpiMetric[]>(() => {
+    const history = historyQuery.data ?? [];
+    const totalQueries = history.length;
+    const failed = history.filter((x) => !x.validation_ok).length;
+    const failedPct = totalQueries > 0 ? (failed / totalQueries) * 100 : 0;
+    return [
+      { id: "nb", label: "Сценарии в workspace", value: fmtNumber((notebooksQuery.data ?? []).length) },
+      { id: "rep", label: "Отчеты в workspace", value: fmtNumber((reportsQuery.data ?? []).length) },
+      {
+        id: "failed",
+        label: "SQL warnings",
+        value: `${failedPct.toFixed(0)}%`,
+        sub: `${failed}/${totalQueries || 0} запросов`,
+        deltaPositive: failedPct < 20
+      },
+      { id: "q", label: "Запросов за период", value: fmtNumber(totalQueries) }
+    ];
+  }, [historyQuery.data, notebooksQuery.data, reportsQuery.data]);
+
+  const recentActivity = useMemo<RecentListItem[]>(
+    () =>
+      (historyQuery.data ?? []).slice(0, 6).map((h) => ({
+        id: h.id,
+        title: h.label || "Запрос",
+        meta: `${h.validation_ok ? "ok" : "warning"} · ${new Date(h.ran_at).toLocaleString("ru-RU")}`,
+        href: h.notebook_id ? (`/notebooks/${h.notebook_id}` as Route) : ("/history" as Route)
+      })),
+    [historyQuery.data]
+  );
+
+  const adminLinks: RecentListItem[] = [
+    { id: "c", title: "Коррекции SQL", meta: "Очередь learned-исправлений", href: "/corrections" as Route },
+    { id: "d", title: "Словарь", meta: "Управление семантическими терминами", href: "/dictionary" as Route },
+    { id: "t", title: "Шаблоны", meta: "Ролевые шаблоны и пресеты", href: "/templates" as Route },
+    { id: "u", title: "Загрузка данных", meta: "Импорт и проверка качества", href: "/data-upload" as Route },
+    { id: "h", title: "История", meta: "Журнал запусков и SQL", href: "/history" as Route }
+  ];
+
   return (
     <div className="layout-page-stack">
       <DashboardHero
@@ -24,29 +77,29 @@ export default function AdminDashboardPage() {
           </Link>
         }
       />
-      <DemoQuickActions
-        items={[
-          { label: "Словарь", href: "/dictionary", hint: "Управление семантическими терминами и видимостью" },
-          { label: "Шаблоны", href: "/templates", hint: "Стартовые наборы по ролям" },
-          { label: "Загрузка данных", href: "/data-upload", hint: "Проверка guardrails загрузки" }
-        ]}
-      />
 
-      <SectionCard
-        title="Зоны администрирования"
-        description="Быстрые переходы к ключевым разделам enterprise AI-аналитики."
-      >
-        <AdminTilesGrid tiles={ADMIN_TILES} />
-      </SectionCard>
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {kpis.map((m) => (
+          <KpiStatCard key={m.id} metric={m} />
+        ))}
+      </section>
+
+      <TrainDatasetSummarySection workspaceId={workspaceQuery.data} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SectionCard title="Разделы администрирования">
+          <RecentLinksList items={adminLinks} />
+        </SectionCard>
+        <SectionCard title="Последняя активность workspace">
+          <RecentLinksList items={recentActivity} />
+        </SectionCard>
+      </div>
 
       <AdminDemoFlows />
 
-      <AutoMLBulkApplyCard compact />
-
       <div className="rounded-card border border-border-subtle bg-surface-muted/50 px-4 py-3 text-xs text-foreground-secondary">
-        <span className="font-semibold text-foreground">Workspace</span> · Все ссылки ведут в существующие разделы
-        приложения (настройки, словарь, шаблоны, история, загрузка данных). Замените на role-gated API после готовности
-        backend.
+        <span className="font-semibold text-foreground">Workspace</span> · Виджеты дашборда построены на реальных
+        списках сценариев, отчетов и истории SQL-запросов.
       </div>
     </div>
   );

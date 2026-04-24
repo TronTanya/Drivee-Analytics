@@ -2,9 +2,101 @@
 
 from __future__ import annotations
 
-from typing import Any
+import math
+import re
+from typing import Any, Optional
 
 from app.services.llm.llm_service import LLMService
+
+_TIME_COL = re.compile(
+    r"(^|_)(bucket|week|month|day|date|time|ts|at)$|_date$|_at$|^date_|^datetime|день",
+    re.IGNORECASE,
+)
+_CITY_DIM = re.compile(r"city|region|област|город|segment|channel|категор", re.IGNORECASE)
+_CANCEL_METRIC = re.compile(r"cancel|отмен", re.IGNORECASE)
+_SHARE_HINT = re.compile(r"share|percent|ratio|conversion|дол", re.IGNORECASE)
+
+
+def _to_float(v: Any) -> Optional[float]:
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str) and v.strip():
+        try:
+            return float(v.strip().replace(",", "."))
+        except ValueError:
+            return None
+    return None
+
+
+def _col_numeric_ratio(col: str, rows: list[dict[str, Any]], sample: int = 40) -> float:
+    found = 0
+    ok = 0
+    for r in rows[:sample]:
+        if col not in r:
+            continue
+        found += 1
+        if _to_float(r.get(col)) is not None:
+            ok += 1
+    if found == 0:
+        return 0.0
+    return ok / found
+
+
+def _pick_metric_column(columns: list[str], rows: list[dict[str, Any]]) -> Optional[str]:
+    """Первая в основном числовая колонка, похожая на метрику (не сырой id ряда)."""
+    skip = {"id", "row_number", "rn"}
+    scored: list[tuple[float, int, str]] = []
+    for i, c in enumerate(columns):
+        lc = c.lower()
+        if lc in skip:
+            continue
+        ratio = _col_numeric_ratio(c, rows)
+        if ratio < 0.55:
+            continue
+        bonus = 2 if _CANCEL_METRIC.search(c) else 0
+        bonus += 1 if any(x in lc for x in ("revenue", "orders", "count", "value", "metric", "amount")) else 0
+        scored.append((ratio + bonus * 0.05, -i, c))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    return scored[0][2]
+
+
+def _pick_time_column(columns: list[str]) -> Optional[str]:
+    for c in columns:
+        if _TIME_COL.search(c):
+            return c
+    return None
+
+
+def _pick_dimension_column(columns: list[str], metric: Optional[str], rows: list[dict[str, Any]]) -> Optional[str]:
+    for c in columns:
+        if c == metric:
+            continue
+        if _CITY_DIM.search(c):
+            return c
+    for c in columns:
+        if c == metric:
+            continue
+        if _TIME_COL.search(c):
+            continue
+        if _col_numeric_ratio(c, rows) < 0.45:
+            return c
+    return None
+
+
+def _row_label(row: dict[str, Any], dim: Optional[str], columns: list[str]) -> str:
+    if dim and dim in row:
+        return str(row.get(dim) or "—")
+    for c in columns:
+        if c == dim:
+            continue
+        v = row.get(c)
+        if v is not None and not isinstance(v, (int, float)):
+            return str(v)[:80]
+    return str(row)[:120]
 
 
 class InsightGenerationService:
@@ -25,16 +117,134 @@ class InsightGenerationService:
     def _fallback(intent: str, rows: list[dict[str, Any]], columns: list[str]) -> str:
         if not rows:
             return "Нет строк результата для краткого вывода."
-        if intent == "summary":
+        metric = _pick_metric_column(columns, rows)
+        tcol = _pick_time_column(columns)
+        dim = _pick_dimension_column(columns, metric, rows)
+
+        # --- Явные схемы summary / ranking с dim+value ---
+        if intent == "summary" and "value" in rows[0]:
             v = rows[0].get("value")
             return f"Итоговое значение метрики: {v}."
-        if intent == "ranking":
+
+        if intent == "ranking" and "value" in rows[0] and ("dim" in rows[0] or dim):
             top = rows[0]
-            return f"Лидер: {top.get('dim', top)} со значением {top.get('value')}."
-        if intent == "share" and len(rows[0]) >= 2:
-            return "Доли по сегментам рассчитаны; доминирующий сегмент — первый по value."
-        if "value" in rows[0] and len(rows) >= 2:
-            vals = [r.get("value") for r in rows if isinstance(r.get("value"), (int, float))]
+            label = top.get("dim") if "dim" in top else _row_label(top, dim, columns)
+            return f"Лидер рейтинга: {label} — значение {top.get('value')}."
+
+        # --- Доли / структура ---
+        if intent == "share" or (metric and _SHARE_HINT.search(metric)):
+            if metric:
+                vals = [_to_float(r.get(metric)) for r in rows]
+                vals = [v for v in vals if v is not None]
+                if vals and sum(vals) > 0:
+                    total = sum(vals)
+                    shares = [(i, v / total) for i, v in enumerate(vals)]
+                    shares.sort(key=lambda x: -x[1])
+                    best_i, best_s = shares[0]
+                    label = _row_label(rows[best_i], dim, columns)
+                    return (
+                        f"Крупнейшая доля у «{label}»: около {best_s * 100:.1f}% от суммы метрики по строкам результата; "
+                        f"сегментов в выборке: {len(rows)}."
+                    )
+            return "Доли по сегментам рассчитаны; сравните сегменты по величине метрики в таблице."
+
+        # --- Динамика / рост–падение ---
+        if intent in ("trend", "forecast") or tcol:
+            m = metric or _pick_metric_column(columns, rows)
+            if tcol and m:
+                indexed = [(str(r.get(tcol) or ""), _to_float(r.get(m)), r) for r in rows]
+                indexed = [(a, b, c) for a, b, c in indexed if b is not None]
+                if len(indexed) >= 2:
+                    indexed.sort(key=lambda x: x[0])
+                    first_v = indexed[0][1]
+                    last_v = indexed[-1][1]
+                    if first_v and abs(first_v) > 1e-9:
+                        chg = (last_v - first_v) / abs(first_v) * 100
+                        direction = "рост" if chg > 1 else ("снижение" if chg < -1 else "стабилизация")
+                        return (
+                            f"По оси «{tcol}» метрика «{m}»: {direction} примерно на {abs(chg):.1f}% "
+                            f"между первой и последней точкой ряда ({len(indexed)} наблюдений)."
+                        )
+            if m:
+                seq = [_to_float(r.get(m)) for r in rows]
+                seq = [v for v in seq if v is not None]
+                if len(seq) >= 2:
+                    chg = seq[-1] - seq[0]
+                    return f"Метрика «{m}» меняется по ряду: от {seq[0]} до {seq[-1]} (Δ {chg:+.4g}) на {len(seq)} точках."
+
+        # --- Рейтинг: первая строка как топ (раньше гео/отмен, чтобы не перебивать явный intent) ---
+        if intent == "ranking" and metric:
+            top = rows[0]
+            lab = _row_label(top, dim, columns)
+            mv = _to_float(top.get(metric))
+            if mv is not None:
+                return f"На первой позиции выборки: «{lab}», метрика «{metric}» = {mv:.4g}."
+
+        # --- Гео / выброс по городам ---
+        if intent == "geo" or (dim and _CITY_DIM.search(dim) and metric):
+            vals = [(i, _to_float(r.get(metric))) for i, r in enumerate(rows)]
+            vals = [(i, v) for i, v in vals if v is not None]
+            if len(vals) >= 2:
+                mean = sum(v for _, v in vals) / len(vals)
+                if mean > 0:
+                    mx_i, mx_v = max(vals, key=lambda x: x[1])
+                    ratio = mx_v / mean
+                    if ratio >= 1.4:
+                        city = _row_label(rows[mx_i], dim, columns)
+                        return (
+                            f"Пик по «{metric}» у «{city}»: значение {mx_v:.4g} (~{ratio:.2f}× от среднего по строкам); "
+                            "остальные города ниже — проверьте концентрацию эффекта."
+                        )
+
+        # --- Отмены / риск ---
+        cancel_m = next((c for c in columns if _CANCEL_METRIC.search(c)), None)
+        if cancel_m:
+            vals = [_to_float(r.get(cancel_m)) for r in rows]
+            vals = [v for v in vals if v is not None]
             if vals:
-                return f"Диапазон значений от {min(vals)} до {max(vals)} по {len(rows)} точкам."
-        return f"Получено {len(rows)} строк, столбцы: {', '.join(columns)}."
+                mx = max(vals)
+                mean = sum(vals) / len(vals)
+                if mean > 0 and mx / mean >= 1.35:
+                    hi = next(i for i, r in enumerate(rows) if _to_float(r.get(cancel_m)) == mx)
+                    where = _row_label(rows[hi], dim, columns)
+                    return (
+                        f"Повышенный показатель «{cancel_m}» у «{where}» ({mx:.4g} против среднего {mean:.4g}) — "
+                        "имеет смысл разобрать причины отмен в этом срезе."
+                    )
+
+        # --- Сравнение категорий: лучший / худший сегмент ---
+        if intent == "comparison" or (metric and dim):
+            m = metric or _pick_metric_column(columns, rows)
+            d = dim if dim else _pick_dimension_column(columns, m, rows)
+            if m and d:
+                scored = [( _to_float(r.get(m)), _row_label(r, d, columns), r) for r in rows]
+                scored = [(v, lab, r) for v, lab, r in scored if v is not None]
+                if len(scored) >= 2:
+                    scored.sort(key=lambda x: -x[0])
+                    best_v, best_l, _ = scored[0]
+                    worst_v, worst_l, _ = scored[-1]
+                    return (
+                        f"Лучший сегмент по «{m}»: {best_l} ({best_v:.4g}); "
+                        f"худший: {worst_l} ({worst_v:.4g}) среди {len(scored)} строк."
+                    )
+
+        # --- Две точки / периоды в одной колонке времени ---
+        if len(rows) == 2 and tcol:
+            m = metric or _pick_metric_column(columns, rows)
+            if m:
+                v1, v2 = _to_float(rows[0].get(m)), _to_float(rows[1].get(m))
+                if v1 is not None and v2 is not None:
+                    return (
+                        f"Сравнение двух периодов/точек по «{tcol}»: метрика «{m}» "
+                        f"{v1:.4g} → {v2:.4g} (изменение {v2 - v1:+.4g})."
+                    )
+
+        # --- Запасной числовой диапазон по первой числовой колонке ---
+        m2 = metric or _pick_metric_column(columns, rows)
+        if m2:
+            vals = [_to_float(r.get(m2)) for r in rows]
+            vals = [v for v in vals if v is not None]
+            if len(vals) >= 2:
+                return f"По метрике «{m2}» диапазон от {min(vals):.4g} до {max(vals):.4g} ({len(vals)} значений)."
+
+        return f"Получено {len(rows)} строк; колонки: {', '.join(columns)} — откройте таблицу для деталей."

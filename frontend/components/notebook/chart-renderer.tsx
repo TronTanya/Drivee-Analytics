@@ -24,6 +24,7 @@ import {
   YAxis
 } from "recharts";
 import type { ChartBlock } from "@/lib/notebook/block-types";
+import { UiStateSurface } from "@/components/ui/state-surface";
 
 const axisTick = { fill: "#64748b", fontSize: 11 };
 const grid = { stroke: "#e2e8f0", strokeDasharray: "3 3" as const };
@@ -97,6 +98,13 @@ function MapPlaceholder({ block }: { block: ChartBlock }) {
       </div>
       <div className="rounded-control border border-border-subtle bg-surface-muted/40 px-3 py-2 text-[11px] text-foreground-secondary">
         <span className="font-semibold text-foreground">Geo</span>
+        {Array.isArray(block.geoMetadata?.mapFeatures) && (block.geoMetadata?.mapFeatures?.length ?? 0) > 0 ? (
+          <>
+            {" "}
+            · объектов для карты:{" "}
+            <span className="font-mono text-foreground">{block.geoMetadata?.mapFeatures?.length}</span>
+          </>
+        ) : null}
         {block.geoMetadata?.geoDimension ? (
           <>
             {" "}
@@ -168,6 +176,21 @@ export function ChartRenderer({ block }: { block: ChartBlock }) {
   const comboLine = block.series[1]?.key;
   const pieMetric = block.series[0]?.key;
   const isDonut = block.chartType === "donut";
+
+  const hasRows = Array.isArray(block.data) && block.data.length > 0;
+  if (!hasRows) {
+    return (
+      <div className="flex h-full min-h-[160px] items-center justify-center px-2 py-4">
+        <UiStateSurface
+          variant="empty"
+          title="Нет данных для графика"
+          description="Результат запроса пустой или ещё не пришёл. Проверьте таблицу выше, фильтры и формулировку промпта."
+          dense
+          className="max-w-md border-0 bg-transparent p-0 shadow-none"
+        />
+      </div>
+    );
+  }
 
   if (block.chartType === "table") {
     return <TableFallback block={block} />;

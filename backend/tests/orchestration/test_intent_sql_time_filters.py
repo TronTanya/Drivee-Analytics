@@ -30,6 +30,21 @@ class IntentSqlTimeFilterTests(unittest.TestCase):
         self.assertIn("date_trunc('month', current_date)", sql)
         self.assertIn("LIMIT 1", sql)
 
+    def test_ranking_sql_uses_order_channel_dimension_when_requested(self) -> None:
+        sql = SQLGenerationService().generate(
+            intent="ranking",
+            entities={
+                "top_n": 5,
+                "time_period": "current_month",
+                "dimensions": ["order_channel"],
+            },
+            metric_sql="COUNT(*)",
+            use_campaigns_only=False,
+            workspace_id=None,
+        )
+        self.assertIn("a.order_channel::text AS dim", sql)
+        self.assertIn("LIMIT 5", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

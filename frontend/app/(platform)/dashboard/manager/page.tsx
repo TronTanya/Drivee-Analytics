@@ -1,23 +1,104 @@
-import { CtaNotebookBanner } from "@/components/dashboard/cta-notebook-banner";
-import { AutoMLBulkApplyCard } from "@/components/dashboard/automl-bulk-apply-card";
+"use client";
+
 import { DashboardHero } from "@/components/dashboard/dashboard-hero";
-import { GeoOrdersPreview, HeatmapGridPreview } from "@/components/dashboard/dashboard-mini-charts";
-import { KpiStatCard } from "@/components/dashboard/kpi-stat-card";
+import { KpiStatCard, type KpiMetric } from "@/components/dashboard/kpi-stat-card";
 import { QuickPrompts } from "@/components/dashboard/quick-prompts";
-import { RecentLinksList } from "@/components/dashboard/recent-links-list";
+import { RecentLinksList, type RecentListItem } from "@/components/dashboard/recent-links-list";
 import { SectionCard } from "@/components/dashboard/section-card";
-import { DemoQuickActions } from "@/components/system/demo-quick-actions";
+import { TrainDatasetSummarySection } from "@/components/dashboard/train-dataset-summary-section";
+import { useWorkspaceId } from "@/hooks/use-workspace-id";
+import { useNotebooks } from "@/hooks/api/use-notebooks";
+import { useSavedReports } from "@/hooks/api/use-reports";
+import { useQueryHistory } from "@/hooks/api/use-history";
 import type { Route } from "next";
-import {
-  GEO_REGION_DATA,
-  GEO_HEATMAP_GRID,
-  MANAGER_KPIS,
-  MANAGER_PROMPTS,
-  RECENT_NOTEBOOKS,
-  RECENT_REPORTS
-} from "@/lib/dashboard/mock-data";
+import { useMemo } from "react";
+
+const MANAGER_PROMPTS = [
+  { id: "1", label: "Где растут отмены по складам?", href: "/notebooks/ops-health" as Route },
+  { id: "2", label: "Нарушения SLA за последние 7 дней", href: "/notebooks/ops-health" as Route },
+  { id: "3", label: "Бэклог vs capacity на завтра", href: "/notebooks/ops-health" as Route }
+];
+
+function fmtNumber(n: number): string {
+  return new Intl.NumberFormat("ru-RU").format(n);
+}
 
 export default function ManagerDashboardPage() {
+  const workspaceQuery = useWorkspaceId();
+  const notebooksQuery = useNotebooks();
+  const reportsQuery = useSavedReports(workspaceQuery.data);
+  const historyQuery = useQueryHistory(workspaceQuery.data, { scope: "mine" });
+
+  const kpis = useMemo<KpiMetric[]>(() => {
+    const history = historyQuery.data ?? [];
+    const notebooks = notebooksQuery.data ?? [];
+    const reports = reportsQuery.data ?? [];
+    const totalQueries = history.length;
+    const passed = history.filter((h) => h.validation_ok).length;
+    const successPct = totalQueries > 0 ? (passed / totalQueries) * 100 : 0;
+    const avgMs = totalQueries > 0 ? Math.round(history.reduce((a, h) => a + (h.duration_ms || 0), 0) / totalQueries) : 0;
+    const avgPriceSamples = history
+      .map((h) => {
+        const m = h.sql_preview.match(/avg\([^)]+\)\s+as\s+avg_(?:check|order_price|price)/i);
+        return m ? 1 : 0;
+      })
+      .reduce<number>((a, b) => a + b, 0);
+
+    return [
+      {
+        id: "nb",
+        label: "Сценарии",
+        value: fmtNumber(notebooks.length),
+        sub: "в workspace"
+      },
+      {
+        id: "reports",
+        label: "Отчёты",
+        value: fmtNumber(reports.length),
+        sub: "сохраненные"
+      },
+      {
+        id: "validation",
+        label: "SQL passed",
+        value: `${successPct.toFixed(0)}%`,
+        sub: `${passed}/${totalQueries || 0} запросов`,
+        deltaPositive: successPct >= 80
+      },
+      {
+        id: "latency",
+        label: "Среднее время",
+        value: `${fmtNumber(avgMs)} ms`,
+        sub: avgPriceSamples ? `avg-чек встречался в ${avgPriceSamples} запросах` : "по истории запросов"
+      }
+    ];
+  }, [historyQuery.data, notebooksQuery.data, reportsQuery.data]);
+
+  const recentNotebooks = useMemo<RecentListItem[]>(
+    () =>
+      (notebooksQuery.data ?? [])
+        .slice(0, 5)
+        .map((n) => ({
+          id: n.id,
+          title: n.title,
+          meta: `Обновлено ${new Date(n.updated_at ?? n.created_at).toLocaleString("ru-RU")}`,
+          href: (`/notebooks/${n.id}` as Route)
+        })),
+    [notebooksQuery.data]
+  );
+
+  const recentReports = useMemo<RecentListItem[]>(
+    () =>
+      (reportsQuery.data ?? [])
+        .slice(0, 5)
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          meta: `${(r as { report_format?: string }).report_format?.toUpperCase() ?? "PDF"} · ${new Date(r.updated_at).toLocaleString("ru-RU")}`,
+          href: "/reports" as Route
+        })),
+    [reportsQuery.data]
+  );
+
   return (
     <div className="layout-page-stack">
       <DashboardHero
@@ -25,19 +106,14 @@ export default function ManagerDashboardPage() {
         title="Центр управления менеджера"
         description="Поток заказов, отмены и здоровье исполнения - с быстрым переходом в сценарии и отчеты."
       />
-      <DemoQuickActions
-        items={[
-          { label: "Операционный сценарий", href: "/notebooks/ops-health", hint: "Clarification + follow-up сценарий" },
-          { label: "История запусков", href: "/history", hint: "Проверить последние ошибки и предупреждения" },
-          { label: "Отчеты", href: "/reports", hint: "Поделиться еженедельным KPI-паком" }
-        ]}
-      />
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {MANAGER_KPIS.map((m) => (
+        {kpis.map((m) => (
           <KpiStatCard key={m.id} metric={m} />
         ))}
       </section>
+
+      <TrainDatasetSummarySection workspaceId={workspaceQuery.data} />
 
       <SectionCard title="Быстрые запросы" description="Переход в операционный сценарий с готовыми вопросами.">
         <QuickPrompts items={MANAGER_PROMPTS} />
@@ -45,35 +121,12 @@ export default function ManagerDashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Недавние сценарии">
-          <RecentLinksList items={RECENT_NOTEBOOKS} />
+          <RecentLinksList items={recentNotebooks} />
         </SectionCard>
         <SectionCard title="Недавние отчеты">
-          <RecentLinksList items={RECENT_REPORTS} />
+          <RecentLinksList items={recentReports} />
         </SectionCard>
       </div>
-
-      <CtaNotebookBanner
-        title="Операционный сценарий"
-        description="Исключения в реальном времени, детализация SLA и региональные срезы для ежедневных стендапов."
-        href={"/notebooks/ops-health" as Route}
-        label="Открыть операционный сценарий"
-      />
-
-      <SectionCard
-        title="Предпросмотр гео-визуализации"
-        description="Заказы по макрорегионам (mock). Полноценная карта подключается через GIS-коннектор."
-      >
-        <GeoOrdersPreview data={GEO_REGION_DATA} />
-      </SectionCard>
-
-      <SectionCard
-        title="Heatmap fallback"
-        description="Плотность заказов по ключевым городам, когда картографический слой недоступен."
-      >
-        <HeatmapGridPreview data={GEO_HEATMAP_GRID} />
-      </SectionCard>
-
-      <AutoMLBulkApplyCard compact />
     </div>
   );
 }

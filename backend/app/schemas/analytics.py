@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -29,9 +29,26 @@ class RunAnalyticsRequest(BaseModel):
         None,
         description="Зафиксировать тип графика в ответе (если задан).",
     )
+    forecast_horizon_steps: Optional[int] = Field(
+        None,
+        ge=1,
+        le=90,
+        description="Число шагов baseline-прогноза (перекрывает эвристику из текста).",
+    )
 
 
 class RunAnalyticsResponse(BaseModel):
     notebook_id: str
     cells: list[PipelineCellItem]
     trace: AnalyticsExplainabilityTraceV1
+    question: str
+    interpreted_query: str
+    safe_sql: str
+    table: dict[str, Any]
+    chart: dict[str, Any]
+    insight: str
+    confidence: float
+    resolved_source_table: str = Field(
+        default="",
+        description="Поверхность данных после enrich контекста (например public.train); для UI и согласованности с отчётами.",
+    )

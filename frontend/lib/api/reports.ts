@@ -3,7 +3,7 @@ import { isApiMockFallback, isApiMockOnly } from "@/lib/api/config";
 import type { ReportPdfMode } from "@/lib/preferences/report-pdf";
 export type { ReportPdfMode } from "@/lib/preferences/report-pdf";
 import { requestJson } from "@/lib/api/request";
-import { mockListReports, mockListScenarios } from "@/lib/api/mocks";
+import { mockGetSavedReportDetail, mockListReports, mockListScenarios } from "@/lib/api/mocks";
 import { getReportSnapshot, type ReportSnapshot } from "@/lib/reports/local-snapshots";
 import { fetchNotebooks } from "@/lib/api/notebooks";
 
@@ -36,6 +36,14 @@ export async function fetchSavedReports(workspaceId: string): Promise<SavedRepor
     path: `/api/v1/reports?${qs.toString()}`,
     init: { method: "GET", cache: "no-store" },
     mock: () => mockListReports()
+  });
+}
+
+export async function fetchSavedReportDetail(reportId: string): Promise<SavedReportDetailApiDto> {
+  return requestJson({
+    path: `/api/v1/reports/${encodeURIComponent(reportId)}`,
+    init: { method: "GET", cache: "no-store" },
+    mock: () => mockGetSavedReportDetail(reportId)
   });
 }
 

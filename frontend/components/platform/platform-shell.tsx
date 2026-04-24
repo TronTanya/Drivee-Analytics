@@ -5,17 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type PropsWithChildren } from "react";
+import { useCurrentUser } from "@/hooks/api/use-auth";
 import { useSession } from "@/lib/auth/session-context";
 import { canAccessPath, DASHBOARD_BY_ROLE, filterNavForRole, PLATFORM_NAV } from "@/lib/navigation/config";
-import type { UserRole } from "@/lib/types";
-
-const ROLE_OPTIONS: { key: UserRole; label: string }[] = [
-  { key: "admin", label: "Администратор" },
-  { key: "manager", label: "Менеджер" },
-  { key: "marketer", label: "Маркетолог" },
-  { key: "executive", label: "Руководитель" }
-];
-
 const NAV_ACTIVE =
   "border border-border-subtle bg-brand-50 text-foreground shadow-xs";
 
@@ -38,8 +30,11 @@ function IconMenu(props: { className?: string }) {
 export function PlatformShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, setRole } = useSession();
+  const { session, setRole, setEmail } = useSession();
+  const meQuery = useCurrentUser();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  /** Не монтируем мобильный full-screen слой на lg+: иначе при рассинхроне CSS/вьюпорта он может перехватывать клики. */
+  const [narrowViewport, setNarrowViewport] = useState(true);
   const navItems = filterNavForRole(PLATFORM_NAV, session.role);
   const myDashboard = DASHBOARD_BY_ROLE[session.role];
   const allowed = canAccessPath(session.role, pathname);
@@ -47,6 +42,18 @@ export function PlatformShell({ children }: PropsWithChildren) {
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => {
+      const isLg = mq.matches;
+      setNarrowViewport(!isLg);
+      if (isLg) setMobileNavOpen(false);
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -65,6 +72,17 @@ export function PlatformShell({ children }: PropsWithChildren) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mobileNavOpen]);
+
+  useEffect(() => {
+    const me = meQuery.data;
+    if (!me) return;
+    if (me.role && me.role !== session.role) {
+      setRole(me.role);
+    }
+    if (me.email && me.email !== session.email) {
+      setEmail(me.email);
+    }
+  }, [meQuery.data, session.email, session.role, setEmail, setRole]);
 
   const navLinks = (
     <>
@@ -119,7 +137,7 @@ export function PlatformShell({ children }: PropsWithChildren) {
               <IconMenu className="h-5 w-5" />
             </button>
             <Link
-              href={"/demo-router" as Route}
+              href={"/notebooks" as Route}
               className="interactive-focus inline-flex items-center rounded-control border border-transparent px-1 py-0.5 transition hover:border-border-subtle/70 hover:bg-surface-muted/50"
             >
               <Image
@@ -139,40 +157,19 @@ export function PlatformShell({ children }: PropsWithChildren) {
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <Link
-              href={"/login" as Route}
-              className="interactive-focus rounded-control border border-border-subtle bg-surface-card px-2.5 py-1.5 text-xs font-semibold text-foreground-secondary shadow-xs transition hover:border-border-subtle hover:bg-surface-muted hover:text-foreground"
+            <button
+              type="button"
+              onClick={() => router.push("/login")}
+              className="interactive-focus relative z-10 rounded-control border border-border-subtle bg-surface-card px-2.5 py-1.5 text-xs font-semibold text-foreground-secondary shadow-xs transition hover:border-border-subtle hover:bg-surface-muted hover:text-foreground"
             >
               Вход
-            </Link>
+            </button>
             <Link
               href={"/settings" as Route}
               className="interactive-focus rounded-control border border-border-subtle bg-surface-card px-2.5 py-1.5 text-xs font-semibold text-foreground-secondary shadow-xs transition hover:border-border-subtle hover:bg-surface-muted hover:text-foreground"
             >
               Настройки
             </Link>
-            <label className="flex items-center gap-2 text-xs text-foreground-muted">
-              <span className="hidden sm:inline">Демо-роль</span>
-              <select
-                className="interactive-focus rounded-control border border-border-subtle bg-surface-card px-2.5 py-1.5 text-sm text-foreground shadow-xs transition hover:border-brand-200 focus:border-brand-400"
-                value={session.role}
-                onChange={(e) => {
-                  const nextRole = e.target.value as UserRole;
-                  setRole(nextRole);
-                  const targetDashboard = DASHBOARD_BY_ROLE[nextRole];
-                  if (pathname !== targetDashboard) {
-                    router.push(targetDashboard as Route);
-                  }
-                }}
-                aria-label="Демо-роль"
-              >
-                {ROLE_OPTIONS.map((o) => (
-                  <option key={o.key} value={o.key}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
         </div>
       </header>
@@ -181,7 +178,10 @@ export function PlatformShell({ children }: PropsWithChildren) {
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Навигация</p>
           {navLinks}
         </aside>
-        <main id="main-content" className="order-1 min-h-[50vh] space-y-4 lg:order-2 lg:space-y-6">
+        <main
+          id="main-content"
+          className="order-1 min-h-[50vh] min-w-0 max-w-full space-y-4 lg:order-2 lg:space-y-6"
+        >
           {allowed ? (
             children
           ) : (
@@ -189,7 +189,7 @@ export function PlatformShell({ children }: PropsWithChildren) {
               <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">403 · Доступ ограничен</p>
               <h1 className="mt-2 text-xl font-semibold text-rose-900">У вашей роли нет доступа к этой странице</h1>
               <p className="mt-2 text-sm text-rose-800">
-                Переключите роль в шапке или перейдите на доступный дашборд.
+                Перейдите на доступный дашборд или в раздел «Сценарии» — роль задаётся при входе и в профиле.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Link
@@ -199,18 +199,18 @@ export function PlatformShell({ children }: PropsWithChildren) {
                   Открыть мой дашборд
                 </Link>
                 <Link
-                  href={"/demo-router" as Route}
+                  href={"/notebooks" as Route}
                   className="interactive-focus rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-sm font-semibold text-foreground-secondary hover:bg-surface-muted"
                 >
-                  Вернуться в роутер
+                  К сценариям
                 </Link>
               </div>
             </section>
           )}
         </main>
       </div>
-      {mobileNavOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+      {narrowViewport && mobileNavOpen ? (
+        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
           <button
             type="button"
             className="absolute inset-0 bg-slate-950/35"

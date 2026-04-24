@@ -29,7 +29,7 @@ class IntentService:
         ("ranking", ("топ", "top", "рейтинг", "rank", "лучш", "худш")),
         ("comparison", ("сравни", "compare", "vs", "против", "разниц")),
         ("share", ("дол", "share", "процент", "%", "структур")),
-        ("geo", ("карта", "map", "гео", "geo", "регион", "город", "област")),
+        ("geo", ("карта", "map", "гео", "geo", "регион", "област")),
         ("trend", ("тренд", "trend", "динамик", "динамика", "по недел", "по дн", "временн", "over time")),
         ("summary", ("свод", "summary", "итого", "агрег", "всего", "общ")),
     ]
@@ -92,6 +92,8 @@ class IntentService:
             entities["metric_hint"] = "cancellations_total"
         elif "заверш" in q or "done" in q:
             entities["metric_hint"] = "done_rides"
+        elif "выруч" in q or "revenue" in q or "оборот" in q or "gmv" in q:
+            entities["metric_hint"] = "sum_order_price"
 
         if m := re.search(r"\bтоп[\s\-]*(\d+)\b", q):
             entities["top_n"] = int(m.group(1))
@@ -99,6 +101,30 @@ class IntentService:
             entities["top_n"] = int(m.group(1))
         elif "топ" in q or "top" in q:
             entities["top_n"] = 5
+        elif m := re.search(r"(?:какие|какой|лучшие|best)\s+(\d+)\s+(?:город|канал|cities|channels)", q):
+            entities["top_n"] = int(m.group(1))
+        elif any(x in q for x in ("лучшие", "best")) and any(x in q for x in ("город", "канал", "cities", "channels")):
+            entities["top_n"] = 5
+
+        month_aliases: list[tuple[str, int]] = [
+            ("январ", 1),
+            ("феврал", 2),
+            ("март", 3),
+            ("апрел", 4),
+            ("мая", 5),
+            ("май", 5),
+            ("июн", 6),
+            ("июл", 7),
+            ("август", 8),
+            ("сентябр", 9),
+            ("октябр", 10),
+            ("ноябр", 11),
+            ("декабр", 12),
+        ]
+        for stem, month_num in month_aliases:
+            if stem in q:
+                entities.setdefault("month", month_num)
+                break
 
         llm_entities = self._llm_entities(query)
         for key, val in llm_entities.items():

@@ -31,6 +31,7 @@ from app.schemas.trace_payload import (
     SemanticTermTraceItem,
     ValidationStatusLiteral,
 )
+from app.schemas.clarification import clarification_reason_summary_ru
 from app.schemas.pipeline import PipelineCellItem
 from app.services.orchestration.query_orchestrator import (
     QueryOrchestrator,
@@ -52,6 +53,19 @@ def _coerce_unit_interval(value: Any, *, default: float = 0.0) -> float:
     return max(0.0, min(1.0, x))
 
 
+def _optional_forecast_horizon(value: Any) -> Optional[int]:
+    """Целое 1…90 из контекста ноутбука или None."""
+    if value is None:
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    if n < 1:
+        return None
+    return min(90, n)
+
+
 @dataclass
 class NaturalLanguageAnalysisResult:
     prompt: str
@@ -71,6 +85,7 @@ class NaturalLanguageAnalysisResult:
     execution_status: str = "succeeded"
     clarification_required: bool = False
     clarification_reason: str = ""
+    clarification_reason_summary_ru: str = ""
     clarification_question: str = ""
     clarification_options: list[dict[str, str]] = field(default_factory=list)
     dialogue: dict[str, Any] = field(default_factory=dict)
@@ -79,6 +94,8 @@ class NaturalLanguageAnalysisResult:
     applied_correction_id: Optional[str] = None
     correction_similarity: Optional[float] = None
     correction_match_kind: Optional[str] = None
+    # После enrich_notebook_context: фактическая таблица/вью для SQL (для снимков ячейки и отчётов).
+    resolved_source_table: str = ""
 
 
 _FROM_JOIN_TABLE_RE = re.compile(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)\b", re.IGNORECASE)
@@ -131,7 +148,7 @@ _PHASE_SPECS: list[tuple[str, str, frozenset[str]]] = [
 
 
 def enrich_notebook_context_for_orchestration(notebook_context: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Единая точка: staging-таблица + дефолтный датасет для NL→SQL (run_pipeline и run_cell)."""
+    """Единая точка: явный source_table из контекста иначе канонический датасет (train), опционально — последний staging."""
     ctx = dict(notebook_context or {})
     explicit = ctx.get("source_table") or ctx.get("ds_staging_qualified")
     if isinstance(explicit, str) and explicit.strip():
@@ -139,7 +156,10 @@ def enrich_notebook_context_for_orchestration(notebook_context: Optional[dict[st
         ctx["source_table"] = st
         ctx["ds_staging_qualified"] = st
         return ctx
-    source_table = _latest_staging_source_table() or settings.ds_default_source_table
+    if bool(getattr(settings, "ds_implicit_source_use_latest_staging", False)):
+        source_table = _latest_staging_source_table() or settings.ds_default_source_table
+    else:
+        source_table = settings.ds_default_source_table
     ctx["source_table"] = source_table
     ctx["ds_staging_qualified"] = source_table
     return ctx
@@ -282,10 +302,10 @@ def _forecast_mode(ft: dict[str, Any], result: NaturalLanguageAnalysisResult) ->
         method = fc.get("method")
         method_str = str(method) if method else None
         if not active and result.forecast_records:
-            return ForecastModeTrace(active=True, method=method_str or "linear_trend_ols")
+            return ForecastModeTrace(active=True, method=method_str or "baseline_linear_trend")
         return ForecastModeTrace(active=active, method=method_str)
     if result.forecast_records:
-        return ForecastModeTrace(active=True, method="linear_trend_ols")
+        return ForecastModeTrace(active=True, method="baseline_linear_trend")
     return ForecastModeTrace()
 
 
@@ -349,6 +369,8 @@ def _quality_gate(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> 
 
 def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> AnalyticsExplainabilityTraceV1:
     ft: dict[str, Any] = dict(result.full_trace or {})
+    fe_raw = ft.get("forecast_explainability")
+    forecast_explainability: dict[str, Any] = dict(fe_raw) if isinstance(fe_raw, dict) else {}
     dialogue = result.dialogue if isinstance(result.dialogue, dict) else {}
     sg = ft.get("sql_generation")
     sql_gen = sg if isinstance(sg, dict) else {}
@@ -358,6 +380,10 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
         entities = {}
     return AnalyticsExplainabilityTraceV1(
         interpreted_intent=_interpreted_intent_line(result, ft),
+        structured_interpretation=dict(ft.get("structured_interpretation") or {}),
+        interpretation_summary_ru=str(ft.get("interpretation_summary_ru") or ""),
+        interpretation_notes=[str(x) for x in (ft.get("interpretation_notes") or []) if x is not None],
+        sql_guardrails=dict((ft.get("sql_validation") or {}).get("guardrail_explainability") or {}),
         extracted_entities=entities,
         semantic_terms=_semantic_terms_from_trace(ft),
         tables_used=list(result.used_tables),
@@ -367,11 +393,17 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
         warnings=list(result.warnings),
         confidence=_coerce_unit_interval(result.confidence, default=0.0),
         clarification_requested=bool(result.clarification_required),
+        clarification_reason=str(result.clarification_reason or ""),
+        clarification_reason_summary_ru=str(
+            result.clarification_reason_summary_ru or clarification_reason_summary_ru(result.clarification_reason)
+        ),
+        clarification_question=str(result.clarification_question or ""),
         follow_up_context_used=bool(dialogue.get("is_followup")),
         learned_correction_used=bool(learned),
         chart_recommendation=_chart_rec(result, ft),
         forecast_mode=_forecast_mode(ft, result),
         forecast_selection=_forecast_selection(ft),
+        forecast_explainability=forecast_explainability,
         quality_gate=_quality_gate(result, ft),
         execution_phases=build_execution_phases(result, ft),
         guardrails=_guardrails_trace(ft),
@@ -396,8 +428,12 @@ def analyze_natural_language(
     skip_learned_corrections: bool = False,
     forecast_sidecar: Literal["auto", "on", "off"] = "auto",
     chart_type_override: Optional[str] = None,
+    forecast_horizon_steps: Optional[int] = None,
 ) -> NaturalLanguageAnalysisResult:
     ctx = enrich_notebook_context_for_orchestration(notebook_context)
+    resolved_horizon = forecast_horizon_steps
+    if resolved_horizon is None:
+        resolved_horizon = _optional_forecast_horizon(ctx.get("forecast_horizon_steps"))
     inp = OrchestrationInput(
         raw_query=prompt,
         notebook_context=ctx,
@@ -408,6 +444,7 @@ def analyze_natural_language(
         skip_learned_corrections=skip_learned_corrections,
         forecast_sidecar=forecast_sidecar,
         chart_type_override=chart_type_override,
+        forecast_horizon_steps=resolved_horizon,
     )
     try:
         out = _resolve_orchestrator(db_session).run(inp)
@@ -436,15 +473,18 @@ def analyze_natural_language(
                 "semantic_terms": [],
                 "forecast_mode": {"active": False, "method": None},
                 "forecast_selection": {},
+                "forecast_explainability": {},
             },
             execution_status="failed",
             clarification_required=False,
             clarification_reason="",
+            clarification_reason_summary_ru="",
             clarification_question="",
             clarification_options=[],
             dialogue={},
             visualization={},
             sql_generation_source="none",
+            resolved_source_table=str(settings.ds_default_source_table),
         )
 
     warnings = list(out.validation_warnings)
@@ -488,6 +528,8 @@ def analyze_natural_language(
         "sql_generation_source": out.sql_generation_source,
     }
 
+    resolved_src = str(ctx.get("source_table") or settings.ds_default_source_table).strip()
+
     return NaturalLanguageAnalysisResult(
         prompt=prompt,
         safe_sql=safe_sql,
@@ -506,6 +548,7 @@ def analyze_natural_language(
         execution_status=out.execution_status,
         clarification_required=clarification_required,
         clarification_reason=clarification_reason,
+        clarification_reason_summary_ru=clarification_reason_summary_ru(clarification_reason),
         clarification_question=clarification_question,
         clarification_options=clarification_options,
         dialogue=dialogue_api,
@@ -514,19 +557,134 @@ def analyze_natural_language(
         applied_correction_id=str(out.applied_correction_id) if out.applied_correction_id else None,
         correction_similarity=out.correction_similarity,
         correction_match_kind=out.correction_match_kind,
+        resolved_source_table=resolved_src,
     )
 
 
+def _build_forecast_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str, Any]:
+    """Структурированная ячейка прогноза: baseline + метаданные для UI (честный уровень)."""
+    ft: dict[str, Any] = dict(result.full_trace or {})
+    raw_explain = ft.get("forecast_explainability")
+    explain: dict[str, Any] = dict(raw_explain) if isinstance(raw_explain, dict) else {}
+    records = list(result.forecast_records or [])
+    h = int(explain.get("horizon_steps") or len(records) or 0)
+    horizon_label = f"Следующие {h} шаг(ов) ряда" if h else "Горизонт не задан"
+    last = records[-1] if records else {}
+    parts: list[str] = []
+    if explain.get("warning_ru"):
+        parts.append(str(explain["warning_ru"]))
+    if explain.get("r_squared") is not None:
+        parts.append(f"R²≈{explain['r_squared']}")
+    if explain.get("confidence_score") is not None:
+        try:
+            cs = float(explain["confidence_score"])
+            parts.append(f"Уверенность (эвристика): {cs:.0%}")
+        except (TypeError, ValueError):
+            pass
+    subtext = " · ".join(parts) if parts else None
+    headline = str(explain.get("method_label_ru") or "Baseline-прогноз по ряду")
+    return {
+        "schema_version": 1,
+        "headline": headline,
+        "subtext": subtext,
+        "horizon": horizon_label,
+        "baseline": last.get("forecast_value"),
+        "pessimistic": last.get("forecast_low"),
+        "optimistic": last.get("forecast_high"),
+        "records": records,
+        "explanation_ru": explain.get("explanation_ru"),
+        "warning_ru": explain.get("warning_ru"),
+        "confidence_score": explain.get("confidence_score"),
+        "history": explain.get("history") or [],
+        "r_squared": explain.get("r_squared"),
+        "metric_column": explain.get("metric_column"),
+        "backtest_note_ru": explain.get("backtest_note_ru"),
+        "time_grain": explain.get("time_grain"),
+        "source_table_label": explain.get("source_table_label"),
+        "combined_series": explain.get("combined_series") or [],
+    }
+
+
 def _result_to_pipeline_cells(result: NaturalLanguageAnalysisResult) -> list[PipelineCellItem]:
+    explain_v1 = build_explainability_trace_v1(result)
+    trace_payload: dict[str, Any] = {
+        "summary": result.trace_summary,
+        "interpreted_intent": str((result.full_trace or {}).get("intent") or (result.parsed or {}).get("intent") or ""),
+        "confidence": _coerce_unit_interval(result.confidence, default=0.0),
+        "warnings": list(result.warnings or []),
+        "tables_used": list(result.used_tables or []),
+        "explainability": explain_v1.model_dump(mode="json"),
+    }
+    if result.clarification_required:
+        opts_in = list(result.clarification_options or [])
+        ui_opts: list[dict[str, str]] = []
+        for o in opts_in:
+            if not isinstance(o, dict):
+                continue
+            val = str(o.get("value") or o.get("id") or "").strip()
+            lab = str(o.get("label") or "").strip()
+            if lab:
+                ui_opts.append({"id": val or lab, "label": lab})
+        reason_ru = (result.clarification_reason_summary_ru or "").strip() or clarification_reason_summary_ru(
+            result.clarification_reason
+        )
+        clar_payload = {
+            "prompt": (result.clarification_question or "Нужно уточнение по запросу.").strip(),
+            "reason_code": result.clarification_reason,
+            "reason_summary_ru": reason_ru,
+            "options": ui_opts,
+        }
+        return [
+            PipelineCellItem(id=str(uuid4()), type="prompt", content=result.prompt),
+            PipelineCellItem(
+                id=str(uuid4()),
+                type="trace",
+                content=result.trace_summary,
+                payload=trace_payload,
+            ),
+            PipelineCellItem(
+                id=str(uuid4()),
+                type="clarification",
+                content=json.dumps(clar_payload, ensure_ascii=False),
+                payload=clar_payload,
+            ),
+        ]
+
     chart_payload = _build_chart_cell_payload(result)
+    table_rows = list(result.table_records or [])
+    table_columns = list(table_rows[0].keys()) if table_rows else []
+    table_payload = {
+        "columns": table_columns,
+        "rows": table_rows,
+        "caption": "Результат SQL-запроса",
+    }
     return [
         PipelineCellItem(id=str(uuid4()), type="prompt", content=result.prompt),
-        PipelineCellItem(id=str(uuid4()), type="trace", content=result.trace_summary),
+        PipelineCellItem(
+            id=str(uuid4()),
+            type="trace",
+            content=result.trace_summary,
+            payload=trace_payload,
+        ),
         PipelineCellItem(id=str(uuid4()), type="sql", content=result.safe_sql),
-        PipelineCellItem(id=str(uuid4()), type="table", content=pd.DataFrame(result.table_records).to_json(orient="records", date_format="iso")),
-        PipelineCellItem(id=str(uuid4()), type="chart", content=json.dumps(chart_payload, ensure_ascii=False, default=str)),
+        PipelineCellItem(
+            id=str(uuid4()),
+            type="table",
+            content=json.dumps(table_payload, ensure_ascii=False, default=str),
+            payload=table_payload,
+        ),
+        PipelineCellItem(
+            id=str(uuid4()),
+            type="chart",
+            content=json.dumps(chart_payload, ensure_ascii=False, default=str),
+            payload=chart_payload,
+        ),
         PipelineCellItem(id=str(uuid4()), type="insight", content=result.insight),
-        PipelineCellItem(id=str(uuid4()), type="forecast", content=pd.DataFrame(result.forecast_records).to_json(orient="records")),
+        PipelineCellItem(
+            id=str(uuid4()),
+            type="forecast",
+            content=json.dumps(_build_forecast_cell_payload(result), ensure_ascii=False, default=str),
+        ),
     ]
 
 
@@ -605,22 +763,39 @@ def _build_histogram_data(rows: list[dict[str, Any]], col: str) -> list[dict[str
     return out
 
 
+def _geo_metadata_api_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    feats_in = raw.get("map_features") or []
+    map_features: list[dict[str, Any]] = []
+    if isinstance(feats_in, list):
+        for f in feats_in:
+            if not isinstance(f, dict):
+                continue
+            lat_v, lon_v = f.get("lat"), f.get("lon")
+            map_features.append(
+                {
+                    "id": str(f.get("id", "") or ""),
+                    "label": str(f.get("label", "") or ""),
+                    "value": f.get("value") if isinstance(f.get("value"), (int, float)) or f.get("value") is None else None,
+                    "lat": lat_v if isinstance(lat_v, (int, float)) or lat_v is None else None,
+                    "lon": lon_v if isinstance(lon_v, (int, float)) or lon_v is None else None,
+                }
+            )
+    return {
+        "geoEnabled": bool(raw.get("geo_enabled")),
+        "geoDimension": raw.get("geo_dimension"),
+        "mapScope": raw.get("map_scope"),
+        "fallbackChartType": raw.get("fallback_chart_type"),
+        "mapFeatures": map_features,
+    }
+
+
 def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str, Any]:
     viz = dict(result.visualization or {})
     recommended = str(viz.get("recommended_chart_type") or result.chart_type or "bar").lower()
     alternatives = [str(x).lower() for x in (viz.get("alternative_chart_types") or []) if x is not None]
     explanation = str(viz.get("visualization_explanation") or viz.get("recommendation_reason") or result.chart_hint or "")
     geo_metadata_raw = viz.get("geo_metadata") if isinstance(viz.get("geo_metadata"), dict) else None
-    geo_metadata = (
-        {
-            "geoEnabled": bool(geo_metadata_raw.get("geo_enabled")),
-            "geoDimension": geo_metadata_raw.get("geo_dimension"),
-            "mapScope": geo_metadata_raw.get("map_scope"),
-            "fallbackChartType": geo_metadata_raw.get("fallback_chart_type"),
-        }
-        if geo_metadata_raw
-        else None
-    )
+    geo_metadata = _geo_metadata_api_payload(geo_metadata_raw) if geo_metadata_raw else None
 
     rows = list(result.table_records or [])
     sample_size = len(rows)
@@ -672,7 +847,7 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
         "table",
     }
     if chart_type not in supported:
-        chart_type = "bar"
+        chart_type = "table"
 
     if chart_type in {"line", "bar", "area", "horizontal_bar", "combo", "stacked_bar", "radar", "geo_bubble", "map"}:
         x_key = dim_col or columns[0]
@@ -737,23 +912,25 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
                 if xv is None or yv is None:
                     continue
                 data.append({x_key: xv, y_key: yv})
-            return {
-                "chartType": "scatter",
-                "recommendedChartType": recommended,
-                "alternativeChartTypes": alternatives,
-                "visualizationExplanation": explanation,
-                "geoMetadata": geo_metadata,
-                "title": "Связь метрик",
-                "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
-                "unitLabel": unit_label,
-                "sampleSize": sample_size,
-                "qualityMetricLabel": quality_metric_label,
-                "qualityMetricValue": quality_metric_value,
-                "xKey": x_key,
-                "series": [{"key": y_key, "name": y_key}],
-                "data": data,
-            }
-        chart_type = "bar"
+            if data:
+                return {
+                    "chartType": "scatter",
+                    "recommendedChartType": recommended,
+                    "alternativeChartTypes": alternatives,
+                    "visualizationExplanation": explanation,
+                    "geoMetadata": geo_metadata,
+                    "title": "Связь метрик",
+                    "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+                    "unitLabel": unit_label,
+                    "sampleSize": sample_size,
+                    "qualityMetricLabel": quality_metric_label,
+                    "qualityMetricValue": quality_metric_value,
+                    "xKey": x_key,
+                    "series": [{"key": y_key, "name": y_key}],
+                    "data": data,
+                }
+        chart_type = "table"
+        explanation = f"{explanation} Табличный fallback: для scatter нужны ≥2 числовых колонок.".strip()
 
     if chart_type in {"histogram", "heatmap"}:
         metric = numeric_cols[0] if numeric_cols else None
@@ -775,7 +952,8 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
                 "series": [{"key": "count", "name": "count"}],
                 "data": data,
             }
-        chart_type = "bar"
+        chart_type = "table"
+        explanation = f"{explanation} Табличный fallback: не удалось построить гистограмму/heatmap.".strip()
 
     if chart_type == "table":
         return {
@@ -795,28 +973,22 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "data": rows[:60],
         }
 
-    # safe fallback
-    fallback_x = dim_col or columns[0]
-    fallback_metric = numeric_cols[0] if numeric_cols else (columns[1] if len(columns) > 1 else columns[0])
-    fallback_data: list[dict[str, Any]] = []
-    for row in rows[:60]:
-        value = _as_float(row.get(fallback_metric))
-        fallback_data.append({fallback_x: row.get(fallback_x), fallback_metric: value if value is not None else 0})
+    # Табличный safe fallback (вместо неподдерживаемого bar).
     return {
-        "chartType": "bar",
+        "chartType": "table",
         "recommendedChartType": recommended,
         "alternativeChartTypes": alternatives,
-        "visualizationExplanation": explanation,
+        "visualizationExplanation": f"{explanation} Табличный fallback: тип «{recommended}» не удалось отрисовать надёжно.".strip(),
         "geoMetadata": geo_metadata,
-        "title": "Визуализация результата",
+        "title": "Табличный fallback",
         "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
         "unitLabel": unit_label,
         "sampleSize": sample_size,
         "qualityMetricLabel": quality_metric_label,
         "qualityMetricValue": quality_metric_value,
-        "xKey": fallback_x,
-        "series": [{"key": fallback_metric, "name": fallback_metric}],
-        "data": fallback_data,
+        "xKey": columns[0],
+        "series": [{"key": c, "name": c} for c in (columns[1:3] if len(columns) > 1 else columns[:1])],
+        "data": rows[:60],
     }
 
 
@@ -850,6 +1022,7 @@ def run_pipeline(
     skip_learned_corrections: bool = False,
     forecast_sidecar: Literal["auto", "on", "off"] = "auto",
     chart_type_override: str | None = None,
+    forecast_horizon_steps: int | None = None,
 ) -> RunAnalyticsResponse:
     result = analyze_natural_language(
         prompt,
@@ -858,6 +1031,7 @@ def run_pipeline(
         skip_learned_corrections=skip_learned_corrections,
         forecast_sidecar=forecast_sidecar,
         chart_type_override=chart_type_override,
+        forecast_horizon_steps=forecast_horizon_steps,
     )
     if result_limit is not None:
         rows = list(result.table_records)
@@ -877,7 +1051,27 @@ def run_pipeline(
     prev = MOCK_NOTEBOOK_CELLS.get(notebook_id, [])
     MOCK_NOTEBOOK_CELLS[notebook_id] = prev + cells
     trace = build_explainability_trace_v1(result)
-    return RunAnalyticsResponse(notebook_id=notebook_id, cells=cells, trace=trace)
+    chart_payload = _build_chart_cell_payload(result)
+    table_rows = list(result.table_records or [])
+    table_columns = list(table_rows[0].keys()) if table_rows else []
+    return RunAnalyticsResponse(
+        notebook_id=notebook_id,
+        cells=cells,
+        trace=trace,
+        question=result.prompt,
+        interpreted_query=trace.interpreted_intent,
+        safe_sql=result.safe_sql,
+        table={
+            "columns": table_columns,
+            "rows": table_rows,
+            "caption": "Результат SQL-запроса",
+        },
+        chart=chart_payload,
+        insight=result.insight,
+        confidence=_coerce_unit_interval(result.confidence, default=0.0),
+        resolved_source_table=str(getattr(result, "resolved_source_table", "") or "").strip()
+        or str(settings.ds_default_source_table),
+    )
 
 
 def list_mock_notebooks() -> list[dict[str, object]]:

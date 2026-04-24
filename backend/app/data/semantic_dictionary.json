@@ -3,16 +3,35 @@
     "id": "orders_count",
     "domain": "orders_rides",
     "business_term": "Заказы (количество)",
-    "business_terms": ["Заказы", "Количество заказов", "Число заказов"],
+    "business_terms": [
+      "Заказы",
+      "Количество заказов",
+      "Число заказов"
+    ],
     "canonical_metric_key": "orders_count",
-    "synonyms": ["заказ", "orders", "количество заказов", "число заказов", "order count"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "заказ",
+      "orders",
+      "количество заказов",
+      "число заказов",
+      "order count"
+    ],
+    "source_table": "train",
     "source_column": null,
     "aggregation_type": "count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(*)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
-      "notes": "Строки датасета = заказы; для прогноза DS использует COUNT DISTINCT(order_id) по дням.",
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
+      "notes": "COUNT(*) = число строк заказ–тендер в train; уникальные заказы — метрика distinct_orders (COUNT DISTINCT order_id).",
       "time_column": "order_timestamp"
     },
     "example_queries": [
@@ -24,39 +43,156 @@
     "confidence": 0.9
   },
   {
+    "id": "train_row_count",
+    "domain": "orders_rides",
+    "business_term": "Строки train",
+    "business_terms": [
+      "Количество записей",
+      "Число строк в выборке"
+    ],
+    "canonical_metric_key": "train_row_count",
+    "synonyms": [
+      "количество записей",
+      "число строк",
+      "строк датасета",
+      "row count",
+      "records count"
+    ],
+    "source_table": "train",
+    "source_column": null,
+    "aggregation_type": "count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "COUNT(*) — все строки текущей выборки (заказ×тендер).",
+    "sql_expression": "COUNT(*)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
+      "notes": "Не путать с distinct_orders.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Сколько строк в train за вчера?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.82
+  },
+  {
     "id": "tenders_count",
     "domain": "orders_rides",
     "business_term": "Тендеры",
-    "business_terms": ["Тендеры", "Количество тендеров"],
+    "business_terms": [
+      "Тендеры",
+      "Количество тендеров"
+    ],
     "canonical_metric_key": "tenders_count",
-    "synonyms": ["тендер", "tender", "тендеры"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "тендер",
+      "tender",
+      "тендеры"
+    ],
+    "source_table": "train",
     "source_column": "tender_id",
     "aggregation_type": "count_distinct",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(DISTINCT a.tender_id)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "notes": "Требует непустой tender_id в источнике.",
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Сколько уникальных тендеров за квартал?"],
+    "example_queries": [
+      "Сколько уникальных тендеров за квартал?"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.88
   },
   {
+    "id": "distinct_orders",
+    "domain": "orders_rides",
+    "business_term": "Уникальные заказы",
+    "business_terms": [
+      "Число уникальных заказов",
+      "Количество уникальных заказов"
+    ],
+    "canonical_metric_key": "distinct_orders",
+    "synonyms": [
+      "уникальн заказ",
+      "distinct order",
+      "уникальные order_id",
+      "разных заказов",
+      "число заказов уникальн"
+    ],
+    "source_table": "train",
+    "source_column": "order_id",
+    "aggregation_type": "count_distinct",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "COUNT(DISTINCT order_id) по полю train.order_id.",
+    "sql_expression": "COUNT(DISTINCT a.order_id)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
+      "notes": "Одна строка train может быть заказ+тендер; для KPI «сколько заказов» предпочтительнее distinct_orders.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Сколько уникальных заказов за неделю по городам?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
     "id": "done_rides",
     "domain": "orders_rides",
     "business_term": "Завершённые поездки",
-    "business_terms": ["Завершенные поездки", "Completed rides", "Выполненные заказы"],
+    "business_terms": [
+      "Завершенные поездки",
+      "Completed rides",
+      "Выполненные заказы"
+    ],
     "canonical_metric_key": "done_rides",
-    "synonyms": ["заверш", "done", "выполн", "completed rides", "driver done"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "заверш",
+      "done",
+      "выполн",
+      "completed rides",
+      "driver done"
+    ],
+    "source_table": "train",
     "source_column": "driverdone_timestamp",
     "aggregation_type": "case_count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
       "notes": "Non-null driverdone_timestamp = завершённая поездка.",
       "time_column": "order_timestamp"
     },
@@ -72,40 +208,115 @@
     "id": "done_conversion",
     "domain": "orders_rides",
     "business_term": "Конверсия в завершение",
-    "business_terms": ["Конверсия в завершённую поездку"],
+    "business_terms": [
+      "Конверсия в завершённую поездку"
+    ],
     "canonical_metric_key": "done_conversion",
-    "synonyms": ["конверсия в заверш", "done conversion", "completion rate"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "конверсия в заверш",
+      "done conversion",
+      "completion rate"
+    ],
+    "source_table": "train",
     "source_column": null,
     "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)::float / NULLIF(COUNT(*), 0)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "notes": "Доля завершённых к числу заказов; не смешивать с выручкой без явного запроса.",
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Какая конверсия заказ → завершение по городам за месяц?"],
+    "example_queries": [
+      "Какая конверсия заказ → завершение по городам за месяц?"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.86
   },
   {
+    "id": "cancellation_rate",
+    "domain": "cancellations_revenue",
+    "business_term": "Доля отмен",
+    "business_terms": [
+      "Доля отменённых",
+      "Cancellation rate"
+    ],
+    "canonical_metric_key": "cancellation_rate",
+    "synonyms": [
+      "доля отмен",
+      "процент отмен",
+      "cancel rate",
+      "cancellation rate",
+      "доля отмененных"
+    ],
+    "source_table": "train",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "Отношение отмен (клиент или водитель) к числу строк выборки.",
+    "sql_expression": "COUNT(CASE WHEN a.clientcancel_timestamp IS NOT NULL OR a.drivercancel_timestamp IS NOT NULL THEN 1 END)::float / NULLIF(COUNT(*), 0)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
+      "cancellation_family": true,
+      "notes": "Числитель как cancellations_total; знаменатель COUNT(*) — строки train.",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Какая доля отмен по каналам за 14 дней?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
+  },
+  {
     "id": "client_cancellations",
     "domain": "cancellations_revenue",
     "business_term": "Отмены клиентом",
-    "business_terms": ["Отмена клиентом"],
+    "business_terms": [
+      "Отмена клиентом"
+    ],
     "canonical_metric_key": "client_cancellations",
-    "synonyms": ["отмен клиент", "client cancel", "клиент отмен", "отмена клиентом"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "отмен клиент",
+      "client cancel",
+      "клиент отмен",
+      "отмена клиентом"
+    ],
+    "source_table": "train",
     "source_column": "clientcancel_timestamp",
     "aggregation_type": "case_count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(CASE WHEN a.clientcancel_timestamp IS NOT NULL THEN 1 END)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
       "cancellation_family": true,
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Сколько отмен инициировал клиент за неделю?"],
+    "example_queries": [
+      "Сколько отмен инициировал клиент за неделю?"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.9
@@ -114,19 +325,36 @@
     "id": "driver_cancellations",
     "domain": "cancellations_revenue",
     "business_term": "Отмены водителем",
-    "business_terms": ["Отмена водителем"],
+    "business_terms": [
+      "Отмена водителем"
+    ],
     "canonical_metric_key": "driver_cancellations",
-    "synonyms": ["отмен водител", "driver cancel", "водитель отмен"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "отмен водител",
+      "driver cancel",
+      "водитель отмен"
+    ],
+    "source_table": "train",
     "source_column": "drivercancel_timestamp",
     "aggregation_type": "case_count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(CASE WHEN a.drivercancel_timestamp IS NOT NULL THEN 1 END)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
       "cancellation_family": true,
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Топ городов по отменам со стороны водителя"],
+    "example_queries": [
+      "Топ городов по отменам со стороны водителя"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.9
@@ -135,7 +363,9 @@
     "id": "cancellations_total",
     "domain": "cancellations_revenue",
     "business_term": "Отмены всего",
-    "business_terms": ["Общее число отмен заказов"],
+    "business_terms": [
+      "Общее число отмен заказов"
+    ],
     "canonical_metric_key": "cancellations_total",
     "synonyms": [
       "количество отмен",
@@ -147,12 +377,21 @@
       "total cancellations",
       "число отмен"
     ],
-    "source_table": "anonymized_incity_orders",
+    "source_table": "train",
     "source_column": null,
     "aggregation_type": "case_count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(CASE WHEN a.clientcancel_timestamp IS NOT NULL OR a.drivercancel_timestamp IS NOT NULL THEN 1 END)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
       "notes": "Заказ с любой отменой считается один раз (OR по timestamp).",
       "cancellation_family": true,
       "time_column": "order_timestamp"
@@ -169,19 +408,39 @@
     "id": "sum_order_price",
     "domain": "cancellations_revenue",
     "business_term": "Выручка по заказам",
-    "business_terms": ["Суммарная стоимость заказов", "Сумма чеков"],
+    "business_terms": [
+      "Суммарная стоимость заказов",
+      "Сумма чеков"
+    ],
     "canonical_metric_key": "sum_order_price",
-    "synonyms": ["суммарн стоимость", "сумма заказ", "total price", "выручка", "revenue orders"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "суммарн стоимость",
+      "сумма заказ",
+      "total price",
+      "выручка",
+      "revenue orders"
+    ],
+    "source_table": "train",
     "source_column": "price_order_local",
     "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "SUM(a.price_order_local)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking", "forecast"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
       "unit": "local_currency",
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Какая суммарная выручка по городам за квартал?"],
+    "example_queries": [
+      "Какая суммарная выручка по городам за квартал?"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.9
@@ -190,20 +449,37 @@
     "id": "avg_order_price",
     "domain": "cancellations_revenue",
     "business_term": "Средний чек",
-    "business_terms": ["Средняя стоимость заказа"],
+    "business_terms": [
+      "Средняя стоимость заказа"
+    ],
     "canonical_metric_key": "avg_order_price",
-    "synonyms": ["средн стоимость", "средний чек", "average price", "aov"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "средн стоимость",
+      "средний чек",
+      "average price",
+      "aov"
+    ],
+    "source_table": "train",
     "source_column": "price_order_local",
     "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "AVG(a.price_order_local)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "unit": "local_currency",
       "notes": "Чувствительно к выбросам; см. caps в DS_METRIC_CAPS.",
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Средний чек по городам за последние 30 дней"],
+    "example_queries": [
+      "Средний чек по городам за последние 30 дней"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.9
@@ -212,18 +488,34 @@
     "id": "avg_duration_seconds",
     "domain": "orders_rides",
     "business_term": "Средняя длительность (сек)",
-    "business_terms": ["Средняя длительность заказа"],
+    "business_terms": [
+      "Средняя длительность заказа"
+    ],
     "canonical_metric_key": "avg_duration_seconds",
-    "synonyms": ["средн длитель", "average duration", "длительность заказа"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "средн длитель",
+      "average duration",
+      "длительность заказа"
+    ],
+    "source_table": "train",
     "source_column": "duration_in_seconds",
     "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "AVG(a.duration_in_seconds)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Средняя длительность поездки в секундах по дням"],
+    "example_queries": [
+      "Средняя длительность поездки в секундах по дням"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.85
@@ -232,18 +524,34 @@
     "id": "avg_distance_meters",
     "domain": "orders_rides",
     "business_term": "Средняя дистанция (м)",
-    "business_terms": ["Средняя дистанция заказа"],
+    "business_terms": [
+      "Средняя дистанция заказа"
+    ],
     "canonical_metric_key": "avg_distance_meters",
-    "synonyms": ["средн дистанц", "average distance", "расстояние"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "средн дистанц",
+      "average distance",
+      "расстояние"
+    ],
+    "source_table": "train",
     "source_column": "distance_in_meters",
     "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "AVG(a.distance_in_meters)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Средняя дистанция поездки в метрах"],
+    "example_queries": [
+      "Средняя дистанция поездки в метрах"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.85
@@ -252,19 +560,35 @@
     "id": "time_to_accept_seconds",
     "domain": "orders_rides",
     "business_term": "Время до принятия (сек)",
-    "business_terms": ["Среднее время до принятия водителем"],
+    "business_terms": [
+      "Среднее время до принятия водителем"
+    ],
     "canonical_metric_key": "time_to_accept_seconds",
-    "synonyms": ["время до принят", "time to accept", "accept time"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "время до принят",
+      "time to accept",
+      "accept time"
+    ],
+    "source_table": "train",
     "source_column": null,
     "aggregation_type": "avg_expression",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "AVG(EXTRACT(EPOCH FROM (a.driveraccept_timestamp::timestamp - a.order_timestamp::timestamp)))",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "notes": "Требуются валидные order_timestamp и driveraccept_timestamp.",
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Среднее время от создания заказа до принятия"],
+    "example_queries": [
+      "Среднее время от создания заказа до принятия"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.82
@@ -273,18 +597,33 @@
     "id": "time_to_arrive_seconds",
     "domain": "orders_rides",
     "business_term": "Время до прибытия (сек)",
-    "business_terms": ["Среднее время от принятия до прибытия"],
+    "business_terms": [
+      "Среднее время от принятия до прибытия"
+    ],
     "canonical_metric_key": "time_to_arrive_seconds",
-    "synonyms": ["время до прибыт", "time to arrive"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "время до прибыт",
+      "time to arrive"
+    ],
+    "source_table": "train",
     "source_column": null,
     "aggregation_type": "avg_expression",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "AVG(EXTRACT(EPOCH FROM (a.driverarrived_timestamp::timestamp - a.driveraccept_timestamp::timestamp)))",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Сколько секунд в среднем от accept до arrived?"],
+    "example_queries": [
+      "Сколько секунд в среднем от accept до arrived?"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.82
@@ -293,21 +632,471 @@
     "id": "cancel_before_accept_count",
     "domain": "cancellations_revenue",
     "business_term": "Отмены до принятия",
-    "business_terms": ["Отмена до принятия заказа"],
+    "business_terms": [
+      "Отмена до принятия заказа"
+    ],
     "canonical_metric_key": "cancel_before_accept_count",
-    "synonyms": ["до принят", "before accept", "cancel before accept"],
-    "source_table": "anonymized_incity_orders",
+    "synonyms": [
+      "до принят",
+      "before accept",
+      "cancel before accept"
+    ],
+    "source_table": "train",
     "source_column": "cancel_before_accept_local",
     "aggregation_type": "case_count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
     "sql_expression": "COUNT(CASE WHEN a.cancel_before_accept_local IS NOT NULL THEN 1 END)",
     "constraints": {
-      "intents_allowed": ["summary", "trend", "ranking"],
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
       "cancellation_family": true,
       "time_column": "order_timestamp"
     },
-    "example_queries": ["Сколько отмен произошло до принятия водителем?"],
+    "example_queries": [
+      "Сколько отмен произошло до принятия водителем?"
+    ],
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.84
+  },
+  {
+    "id": "price_tender_sum",
+    "domain": "orders_rides",
+    "business_term": "Сумма тендеров",
+    "business_terms": [
+      "Сумма тендеров"
+    ],
+    "canonical_metric_key": "price_tender_sum",
+    "synonyms": [
+      "сумма тендеров",
+      "tender sum",
+      "total tender price"
+    ],
+    "source_table": "train",
+    "source_column": "price_tender_local",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
+    "sql_expression": "SUM(a.price_tender_local)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
+      "unit": "local_currency",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Покажи сумму тендеров по городам за месяц"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "order_channel_count",
+    "domain": "orders_rides",
+    "business_term": "Заказы по каналу",
+    "business_terms": [
+      "Заказы по каналу"
+    ],
+    "canonical_metric_key": "order_channel_count",
+    "synonyms": [
+      "канал заказа",
+      "order channel",
+      "каналы заказов"
+    ],
+    "source_table": "train",
+    "source_column": "order_channel",
+    "aggregation_type": "count",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
+    "sql_expression": "COUNT(*)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "forecast"
+      ],
+      "notes": "Счётчик строк при группировке по order_channel (как COUNT(*) в разрезе канала).",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Покажи число заказов по каналам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "avg_price_tender_local",
+    "domain": "orders_rides",
+    "business_term": "Средняя цена тендера",
+    "business_terms": [
+      "Средняя цена тендера"
+    ],
+    "canonical_metric_key": "avg_price_tender_local",
+    "synonyms": [
+      "средняя цена тендера",
+      "avg tender price"
+    ],
+    "source_table": "train",
+    "source_column": "price_tender_local",
+    "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
+    "sql_expression": "AVG(a.price_tender_local)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
+      "unit": "local_currency",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Средняя цена тендера по city_id"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "avg_price_start_local",
+    "domain": "orders_rides",
+    "business_term": "Средняя стартовая цена",
+    "business_terms": [
+      "Средняя стартовая цена"
+    ],
+    "canonical_metric_key": "avg_price_start_local",
+    "synonyms": [
+      "стартовая цена",
+      "avg start price",
+      "средняя стартовая стоимость"
+    ],
+    "source_table": "train",
+    "source_column": "price_start_local",
+    "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "",
+    "sql_expression": "AVG(a.price_start_local)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking"
+      ],
+      "unit": "local_currency",
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Покажи среднюю стартовую цену по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "dim_city",
+    "domain": "dimensions_filters",
+    "business_term": "Город",
+    "business_terms": [
+      "Город"
+    ],
+    "canonical_metric_key": "city",
+    "synonyms": [
+      "город",
+      "города",
+      "по городам",
+      "city",
+      "cities",
+      "city_id"
+    ],
+    "source_table": "train",
+    "source_column": "city_id",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "city_id",
+    "filter_value": null,
+    "description_ru": "Измерение city_id для группировок и ранжирования.",
+    "sql_expression": "a.city_id::text",
+    "constraints": {
+      "train_column": "city_id",
+      "notes": "В train нет названия города — только city_id (TEXT)."
+    },
+    "example_queries": [
+      "Покажи выручку по городам за прошлую неделю"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "dim_channel",
+    "domain": "dimensions_filters",
+    "business_term": "Канал",
+    "business_terms": [
+      "Канал"
+    ],
+    "canonical_metric_key": "channel",
+    "synonyms": [
+      "канал",
+      "каналы",
+      "по каналам",
+      "channel",
+      "order channel"
+    ],
+    "source_table": "train",
+    "source_column": "order_channel",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "order_channel",
+    "filter_value": null,
+    "description_ru": "Измерение каналов заказа для сравнений и рейтингов.",
+    "sql_expression": "a.order_channel::text",
+    "constraints": {
+      "train_column": "order_channel"
+    },
+    "example_queries": [
+      "Сравни количество заказов по каналам за март"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "dim_status_order",
+    "domain": "dimensions_filters",
+    "business_term": "Статус заказа",
+    "business_terms": [
+      "Статус заказа train.status_order"
+    ],
+    "canonical_metric_key": "status_order_dim",
+    "synonyms": [
+      "статус заказ",
+      "status order",
+      "по статусу заказ",
+      "lifecycle заказ"
+    ],
+    "source_table": "train",
+    "source_column": "status_order",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "status_order",
+    "filter_value": null,
+    "description_ru": "Колонка status_order (TEXT): done, client_cancelled, driver_cancelled и др. Тарифа/категории в train нет — используйте status_order/status_tender.",
+    "sql_expression": "a.status_order::text",
+    "constraints": {
+      "train_column": "status_order"
+    },
+    "example_queries": [
+      "Распределение заказов по status_order за месяц"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "dim_status_tender",
+    "domain": "dimensions_filters",
+    "business_term": "Статус тендера",
+    "business_terms": [
+      "Статус тендера train.status_tender"
+    ],
+    "canonical_metric_key": "status_tender_dim",
+    "synonyms": [
+      "статус тендер",
+      "status tender",
+      "по статусу тендер"
+    ],
+    "source_table": "train",
+    "source_column": "status_tender",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "status_tender",
+    "filter_value": null,
+    "description_ru": "Колонка status_tender (TEXT), например matched, searching.",
+    "sql_expression": "a.status_tender::text",
+    "constraints": {
+      "train_column": "status_tender"
+    },
+    "example_queries": [
+      "Сколько строк по status_tender в разрезе канала?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
+  },
+  {
+    "id": "dim_offset_hours",
+    "domain": "dimensions_filters",
+    "business_term": "Смещение часового пояса (город)",
+    "business_terms": [
+      "offset_hours по городу"
+    ],
+    "canonical_metric_key": "offset_hours_dim",
+    "synonyms": [
+      "offset hours",
+      "часовой пояс города",
+      "смещение часов"
+    ],
+    "source_table": "train",
+    "source_column": "offset_hours",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "offset_hours",
+    "filter_value": null,
+    "description_ru": "Целочисленное смещение относительно UTC, заданное на строку (train.offset_hours). Региона/области в таблице нет.",
+    "sql_expression": "a.offset_hours::text",
+    "constraints": {
+      "train_column": "offset_hours"
+    },
+    "example_queries": [
+      "Сравни отмены по offset_hours"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.75
+  },
+  {
+    "id": "dim_user_pseudo",
+    "domain": "dimensions_filters",
+    "business_term": "Псевдоним пользователя",
+    "business_terms": [
+      "Идентификатор пользователя в train"
+    ],
+    "canonical_metric_key": "user_id_dim",
+    "synonyms": [
+      "user id",
+      "ид пользовател"
+    ],
+    "source_table": "train",
+    "source_column": "user_id",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "user_id",
+    "filter_value": null,
+    "description_ru": "Техническое измерение train.user_id (TEXT). Не персона и не маркетинговый сегмент — только то, что есть в данных.",
+    "sql_expression": "a.user_id::text",
+    "constraints": {
+      "train_column": "user_id",
+      "sensitive": true,
+      "notes": "Доступ к SELECT/WHERE по user_id ограничен ролями (см. SQL_SENSITIVE_COLUMNS)."
+    },
+    "example_queries": [],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.6
+  },
+  {
+    "id": "dim_driver_pseudo",
+    "domain": "dimensions_filters",
+    "business_term": "Псевдоним водителя",
+    "business_terms": [
+      "Идентификатор водителя в train"
+    ],
+    "canonical_metric_key": "driver_id_dim",
+    "synonyms": [
+      "driver id",
+      "ид водител",
+      "водитель train"
+    ],
+    "source_table": "train",
+    "source_column": "driver_id",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "driver_id",
+    "filter_value": null,
+    "description_ru": "Техническое измерение train.driver_id (TEXT).",
+    "sql_expression": "a.driver_id::text",
+    "constraints": {
+      "train_column": "driver_id",
+      "sensitive": true
+    },
+    "example_queries": [],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.6
+  },
+  {
+    "id": "flt_previous_week",
+    "domain": "dimensions_filters",
+    "business_term": "Прошлая неделя",
+    "business_terms": [
+      "Прошлая неделя"
+    ],
+    "canonical_metric_key": "time_previous_week",
+    "synonyms": [
+      "прошлая неделя",
+      "за прошлую неделю",
+      "previous week",
+      "last week"
+    ],
+    "source_table": "train",
+    "source_column": "order_timestamp",
+    "aggregation_type": "time_filter",
+    "term_type": "filter",
+    "target_field": "time_period",
+    "filter_value": "previous_week",
+    "description_ru": "Фильтр периода: предыдущая календарная неделя.",
+    "sql_expression": "time_period=previous_week",
+    "constraints": {
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Покажи динамику отмен по дням за прошлую неделю"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "flt_yesterday",
+    "domain": "dimensions_filters",
+    "business_term": "Вчера",
+    "business_terms": [
+      "За вчера"
+    ],
+    "canonical_metric_key": "time_yesterday",
+    "synonyms": [
+      "вчера",
+      "за вчера",
+      "yesterday"
+    ],
+    "source_table": "train",
+    "source_column": "order_timestamp",
+    "aggregation_type": "time_filter",
+    "term_type": "filter",
+    "target_field": "time_period",
+    "filter_value": "yesterday",
+    "description_ru": "Фильтр календарного вчера по order_timestamp.",
+    "sql_expression": "time_period=yesterday",
+    "constraints": {
+      "time_column": "order_timestamp"
+    },
+    "example_queries": [
+      "Сколько отмен было вчера?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
   }
 ]

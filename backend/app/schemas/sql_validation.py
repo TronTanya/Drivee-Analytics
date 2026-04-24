@@ -24,3 +24,5 @@ class SQLValidationResult(BaseModel):
     data_correctness: dict[str, Any] = Field(default_factory=dict)
     # Производительность: предупреждения, sample-cap, рекомендации rollup (MVP).
     performance: dict[str, Any] = Field(default_factory=dict)
+    # Explainability блока guardrails: почему SQL разрешён или отклонён, какие правила сработали.
+    guardrail_explainability: dict[str, Any] = Field(default_factory=dict)

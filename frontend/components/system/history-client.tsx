@@ -8,7 +8,7 @@ import { ValidationBadge } from "@/components/notebook/validation-badge";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
 import { useCreateReport } from "@/hooks/api/use-reports";
-import { useNotebookRuns, useQueryHistory, useRerunNotebookRun, useSaveRunAsReport } from "@/hooks/api/use-history";
+import { useNotebookRuns, useQueryHistory } from "@/hooks/api/use-history";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { runAnalyticsPipeline } from "@/lib/api";
 import { upsertReportSnapshot } from "@/lib/reports/local-snapshots";
@@ -33,6 +33,7 @@ function mapRunDtoToRow(run: NotebookRunDto): NotebookRunRow {
     id: run.id,
     ranAt: new Date(run.ran_at).toISOString().slice(0, 16).replace("T", " "),
     notebookTitle: run.notebook_title,
+    notebookId: run.notebook_id,
     notebookHref: (`/notebooks/${run.notebook_id}` as Route),
     status: run.status,
     validationOk: run.validation_ok,
@@ -52,10 +53,15 @@ function mapQueryDtoToRow(query: QueryHistoryDto): QueryHistoryRow {
     notebookId,
     validationOk: query.validation_ok,
     validationHint: query.validation_hint,
+    executionStatus: query.execution_status,
     durationMs: query.duration_ms,
     notebookHref: (`/notebooks/${notebookId}` as Route),
     interpretedSummary: query.interpreted_summary,
     chartType: query.chart_type,
+    parsedIntent: query.parsed_intent_json,
+    confidence: query.confidence ?? undefined,
+    resultSummary: query.result_summary ?? undefined,
+    authorRoleKey: query.author_role_key ?? undefined,
     ownerUserId: query.owner_user_id,
     saveAsReportBodyHint: query.save_as_report_body_hint
   };
@@ -81,16 +87,9 @@ export function HistoryClient() {
   const [queriesState, setQueriesState] = useState<QueryHistoryRow[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
-  const [busyQueryId, setBusyQueryId] = useState<string | null>(null);
-  const rerunRun = useRerunNotebookRun();
-  const saveRunReport = useSaveRunAsReport();
+  const [busyQuery, setBusyQuery] = useState<null | { type: "rerun" | "report"; id: string }>(null);
+  const [busyRun, setBusyRun] = useState<null | { type: "rerun" | "report"; id: string }>(null);
   const createReport = useCreateReport();
-
-  const busyRunId = rerunRun.isPending
-    ? rerunRun.variables
-    : saveRunReport.isPending
-      ? (saveRunReport.variables?.runId ?? null)
-      : null;
 
   useEffect(() => {
     if (notebookRunsQuery.data === undefined) return;
@@ -105,45 +104,13 @@ export function HistoryClient() {
     setQueriesState(queryHistoryQuery.data.map(mapQueryDtoToRow));
   }, [queryHistoryQuery.data]);
 
-  const onRerunScenario = async (row: NotebookRunRow) => {
-    setActionMsg(null);
-    try {
-      await rerunRun.mutateAsync(row.id);
-      setActionMsg(`Сценарий "${row.notebookTitle}" отправлен на перезапуск.`);
-    } catch {
-      setActionMsg(`Не удалось перезапустить сценарий "${row.notebookTitle}".`);
-    }
-  };
-
-  const onSaveScenarioAsReport = async (row: NotebookRunRow) => {
-    setActionMsg(null);
-    try {
-      const name = `Отчет: ${row.notebookTitle} · ${row.ranAt}`;
-      const saved = await saveRunReport.mutateAsync({ runId: row.id, name });
-      const notebookId = row.notebookHref.replace("/notebooks/", "");
-      upsertReportSnapshot({
-        report_id: saved.report_id,
-        report_name: name,
-        notebook_id: notebookId,
-        prompt: `Rerun from history: ${row.notebookTitle}`,
-        insight: row.traceSummary,
-        warnings: row.validationOk ? [] : [row.validationHint],
-        confidence: row.validationOk ? 0.83 : 0.62,
-        created_at: new Date().toISOString()
-      });
-      setActionMsg(`Отчет для сценария "${row.notebookTitle}" сохранен.`);
-    } catch {
-      setActionMsg(`Не удалось сохранить отчет для сценария "${row.notebookTitle}".`);
-    }
-  };
-
   const onRerunQuery = async (row: QueryHistoryRow) => {
     setActionMsg(null);
-    setBusyQueryId(row.id);
+    setBusyQuery({ type: "rerun", id: row.id });
     const notebookId = row.notebookId;
     if (!notebookId) {
       setActionMsg("Не удалось определить сценарий для перезапуска запроса.");
-      setBusyQueryId(null);
+      setBusyQuery(null);
       return;
     }
     try {
@@ -152,13 +119,13 @@ export function HistoryClient() {
     } catch {
       setActionMsg(`Не удалось перезапустить запрос "${row.label}".`);
     } finally {
-      setBusyQueryId(null);
+      setBusyQuery(null);
     }
   };
 
   const onSaveQueryAsReport = async (row: QueryHistoryRow) => {
     setActionMsg(null);
-    setBusyQueryId(row.id);
+    setBusyQuery({ type: "report", id: row.id });
     const notebookId = row.notebookId;
     const ws = workspaceQuery.data;
     const hint = row.saveAsReportBodyHint as Record<string, string> | undefined;
@@ -192,7 +159,67 @@ export function HistoryClient() {
     } catch {
       setActionMsg(`Не удалось сохранить отчет по запросу "${row.label}".`);
     } finally {
-      setBusyQueryId(null);
+      setBusyQuery(null);
+    }
+  };
+
+  const onSaveRunAsReport = async (row: NotebookRunRow) => {
+    setActionMsg(null);
+    const ws = workspaceQuery.data;
+    if (!ws) {
+      setActionMsg("Нужен workspace для сохранения отчёта.");
+      return;
+    }
+    setBusyRun({ type: "report", id: row.id });
+    try {
+      const title = `Запуск: ${row.notebookTitle} · ${row.ranAt}`;
+      const created = await createReport.mutateAsync({
+        workspace_id: ws,
+        title: title.slice(0, 500),
+        notebook_id: row.notebookId,
+        source_cell_id: null,
+        payload: {
+          prompt: `Запуск сценария «${row.notebookTitle}»`,
+          interpreted_query: row.traceSummary.slice(0, 500),
+          result_metadata: {
+            source: "notebook_run_history",
+            run_id: row.id,
+            validation: row.validationHint,
+            status: row.status
+          },
+          trace_summary: row.traceSummary,
+          captured_at: new Date().toISOString()
+        }
+      });
+      upsertReportSnapshot({
+        report_id: created.id,
+        report_name: created.title,
+        notebook_id: row.notebookId,
+        prompt: title,
+        sql: "",
+        insight: row.traceSummary,
+        warnings: row.validationOk ? [] : [row.validationHint],
+        confidence: row.validationOk ? 0.85 : 0.55,
+        created_at: new Date().toISOString()
+      });
+      setActionMsg(`Отчёт по запуску «${row.notebookTitle}» сохранён.`);
+    } catch {
+      setActionMsg("Не удалось сохранить отчёт по запуску сценария.");
+    } finally {
+      setBusyRun(null);
+    }
+  };
+
+  const onRerunRun = async (row: NotebookRunRow) => {
+    setActionMsg(null);
+    setBusyRun({ type: "rerun", id: row.id });
+    try {
+      await runAnalyticsPipeline(row.notebookId, `Перезапуск из истории · ${row.notebookTitle}`);
+      setActionMsg(`Сценарий «${row.notebookTitle}» перезапущен.`);
+    } catch {
+      setActionMsg(`Не удалось перезапустить «${row.notebookTitle}».`);
+    } finally {
+      setBusyRun(null);
     }
   };
 
@@ -225,8 +252,7 @@ export function HistoryClient() {
       <DemoQuickActions
         items={[
           { label: "Открыть сценарии", href: "/notebooks", hint: "Перезапуск из исходного сценария" },
-          { label: "Отчеты", href: "/reports", hint: "Поднять запуск до отчета" },
-          { label: "Роутер", href: "/demo-router", hint: "Переход к ролевым сценариям" }
+          { label: "Отчеты", href: "/reports", hint: "Поднять запуск до отчета" }
         ]}
       />
       {notebookRunsQuery.isLoading || queryHistoryQuery.isLoading ? (
@@ -331,12 +357,10 @@ export function HistoryClient() {
       </div>
 
       <SectionCard title="История запусков сценариев">
-        <p className="mb-3 text-xs text-foreground-muted">
-          Действия для этого блока временно работают в локальном режиме: backend-роуты для rerun/save из истории
-          ещё не добавлены.
-        </p>
         <div className="space-y-3">
-          {runs.map((row) => (
+          {runs.map((row) => {
+            const runBusy = busyRun?.id === row.id;
+            return (
             <div
               key={row.id}
               className="surface-content px-3 py-3 sm:px-4"
@@ -360,19 +384,19 @@ export function HistoryClient() {
                 <div className="flex shrink-0 flex-wrap gap-1">
                   <button
                     type="button"
-                    onClick={() => onRerunScenario(row)}
-                    disabled={busyRunId === row.id}
+                    onClick={() => onRerunRun(row)}
+                    disabled={runBusy}
                     className="interactive-focus rounded-control border border-border-subtle bg-surface-card px-2 py-1 text-xs font-semibold text-foreground-secondary hover:bg-surface-muted disabled:opacity-60"
                   >
-                    {busyRunId === row.id ? "Перезапуск..." : "Перезапустить"}
+                    {runBusy && busyRun?.type === "rerun" ? "Выполняется..." : "Перезапустить"}
                   </button>
                   <button
                     type="button"
-                    onClick={() => onSaveScenarioAsReport(row)}
-                    disabled={busyRunId === row.id}
+                    onClick={() => onSaveRunAsReport(row)}
+                    disabled={runBusy || !workspaceQuery.data}
                     className="interactive-focus rounded-control border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-900 hover:bg-brand-100 disabled:opacity-60"
                   >
-                    Сохранить как отчет
+                    {runBusy && busyRun?.type === "report" ? "Сохранение..." : "Сохранить как отчет"}
                   </button>
                 </div>
               </div>
@@ -394,7 +418,8 @@ export function HistoryClient() {
                 </pre>
               ) : null}
             </div>
-          ))}
+            );
+          })}
           {runs.length === 0 ? <p className="text-sm text-foreground-muted">Нет запусков по заданному фильтру.</p> : null}
         </div>
       </SectionCard>
@@ -412,22 +437,48 @@ export function HistoryClient() {
                 <ValidationBadge ok={row.validationOk} label={row.validationHint} />
                 <span className="text-xs tabular-nums text-foreground-secondary">{row.durationMs} ms</span>
               </div>
+              <div className="space-y-1 text-[11px] text-foreground-muted">
+                {row.chartType ? (
+                  <p>
+                    <span className="font-semibold">График:</span> {row.chartType}
+                  </p>
+                ) : null}
+                <p className="capitalize">
+                  <span className="font-semibold">Исполнение:</span> {row.executionStatus ?? "—"}
+                </p>
+                {row.authorRoleKey ? (
+                  <p>
+                    <span className="font-semibold">Роль:</span> {row.authorRoleKey}
+                  </p>
+                ) : null}
+                {row.confidence != null ? (
+                  <p>
+                    <span className="font-semibold">Confidence:</span> {Math.round(row.confidence * 100)}%
+                  </p>
+                ) : null}
+                {row.resultSummary ? (
+                  <p>
+                    <span className="font-semibold">Инсайт:</span> {row.resultSummary.slice(0, 220)}
+                    {row.resultSummary.length > 220 ? "…" : ""}
+                  </p>
+                ) : null}
+              </div>
               <div className="grid grid-cols-1 gap-1.5">
                 <button
                   type="button"
                   onClick={() => onRerunQuery(row)}
-                  disabled={busyQueryId === row.id}
+                  disabled={busyQuery?.id === row.id}
                   className="interactive-focus rounded-control border border-border-subtle px-2 py-1.5 text-xs font-semibold text-foreground-secondary hover:bg-surface-muted disabled:opacity-60"
                 >
-                  {busyQueryId === row.id ? "Выполняется..." : "Перезапустить"}
+                  {busyQuery?.id === row.id && busyQuery.type === "rerun" ? "Выполняется..." : "Перезапустить"}
                 </button>
                 <button
                   type="button"
                   onClick={() => onSaveQueryAsReport(row)}
-                  disabled={busyQueryId === row.id}
+                  disabled={busyQuery?.id === row.id}
                   className="interactive-focus rounded-control border border-brand-200 bg-brand-50 px-2 py-1.5 text-xs font-semibold text-brand-900 hover:bg-brand-100 disabled:opacity-60"
                 >
-                  {busyQueryId === row.id ? "Сохранение..." : "Сохранить отчет"}
+                  {busyQuery?.id === row.id && busyQuery.type === "report" ? "Сохранение..." : "Сохранить отчет"}
                 </button>
                 <Link
                   href={row.notebookHref as Route}
@@ -441,14 +492,19 @@ export function HistoryClient() {
           {queries.length === 0 ? <p className="py-4 text-center text-sm text-foreground-muted">Нет запросов по заданному фильтру.</p> : null}
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[560px] border-collapse text-left text-body-sm">
+          <table className="w-full min-w-[960px] border-collapse text-left text-body-sm">
             <thead>
               <tr className="border-b border-border-subtle text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
                 <th className="pb-2 pr-4">Время</th>
-                <th className="pb-2 pr-4">Название</th>
+                <th className="pb-2 pr-4">Промпт</th>
+                <th className="pb-2 pr-4">Intent</th>
                 <th className="pb-2 pr-4">SQL</th>
-                <th className="pb-2 pr-4">Валидация</th>
-                <th className="pb-2 pr-4">Ms</th>
+                <th className="pb-2 pr-4">График</th>
+                <th className="pb-2 pr-4">Роль</th>
+                <th className="pb-2 pr-4">Conf</th>
+                <th className="pb-2 pr-4">Инсайт</th>
+                <th className="pb-2 pr-4">Валидация SQL</th>
+                <th className="pb-2 pr-4">Исполнение</th>
                 <th className="pb-2 text-right">Действия</th>
               </tr>
             </thead>
@@ -457,28 +513,46 @@ export function HistoryClient() {
                 <tr key={row.id} className="hover:bg-surface-muted/40">
                   <td className="py-3 pr-4 tabular-nums text-foreground-secondary">{row.ranAt}</td>
                   <td className="py-3 pr-4 font-medium text-foreground">{row.label}</td>
+                  <td className="max-w-[120px] py-3 pr-4 truncate text-xs text-foreground-secondary" title={JSON.stringify(row.parsedIntent ?? {})}>
+                    {typeof row.parsedIntent?.intent === "string"
+                      ? row.parsedIntent.intent
+                      : (row.interpretedSummary ?? "—").slice(0, 48)}
+                  </td>
                   <td className="py-3 pr-4 font-mono text-[11px] text-foreground-secondary">{row.sqlPreview}</td>
+                  <td className="py-3 pr-4 text-xs text-foreground-secondary">{row.chartType ?? "—"}</td>
+                  <td className="py-3 pr-4 text-xs text-foreground-secondary">{row.authorRoleKey ?? "—"}</td>
+                  <td className="py-3 pr-4 tabular-nums text-xs text-foreground-secondary">
+                    {row.confidence != null ? `${Math.round(row.confidence * 100)}%` : "—"}
+                  </td>
+                  <td
+                    className="max-w-[160px] truncate py-3 pr-4 text-xs text-foreground-secondary"
+                    title={row.resultSummary ?? ""}
+                  >
+                    {row.resultSummary ?? "—"}
+                  </td>
                   <td className="py-3 pr-4">
                     <ValidationBadge ok={row.validationOk} label={row.validationHint} />
                   </td>
-                  <td className="py-3 pr-4 tabular-nums text-foreground-secondary">{row.durationMs}</td>
+                  <td className="py-3 pr-4 text-xs capitalize text-foreground-secondary">
+                    {row.executionStatus ?? "—"}
+                  </td>
                   <td className="py-3 text-right">
                     <div className="flex justify-end gap-1">
                       <button
                         type="button"
                         onClick={() => onRerunQuery(row)}
-                        disabled={busyQueryId === row.id}
+                        disabled={busyQuery?.id === row.id}
                         className="interactive-focus rounded-control border border-border-subtle px-2 py-1 text-xs font-semibold text-foreground-secondary hover:bg-surface-muted disabled:opacity-60"
                       >
-                        {busyQueryId === row.id ? "Выполняется..." : "Перезапустить"}
+                        {busyQuery?.id === row.id && busyQuery.type === "rerun" ? "Выполняется..." : "Перезапустить"}
                       </button>
                       <button
                         type="button"
                         onClick={() => onSaveQueryAsReport(row)}
-                        disabled={busyQueryId === row.id}
+                        disabled={busyQuery?.id === row.id}
                         className="interactive-focus rounded-control border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-semibold text-brand-900 hover:bg-brand-100 disabled:opacity-60"
                       >
-                        {busyQueryId === row.id ? "Сохранение..." : "Сохранить отчет"}
+                        {busyQuery?.id === row.id && busyQuery.type === "report" ? "Сохранение..." : "Сохранить отчет"}
                       </button>
                       <Link
                         href={row.notebookHref as Route}

@@ -1,6 +1,6 @@
 -- Drivee demo seed aligned to confirmed anonymized in-city orders schema.
 -- Prerequisite: run bootstrap_drivee.sql first.
--- Uses public.anonymized_incity_orders as canonical analytics source.
+-- Uses public.train as canonical analytics source.
 
 BEGIN;
 
@@ -30,23 +30,23 @@ INSERT INTO notebook_cells (
   ('b1111111-1111-1111-1111-111111111101', 'a1111111-1111-1111-1111-111111111111', 'prompt', 1,
    'Покажи количество отмен по city_id за прошлую неделю', '{"intent":"comparison","metric":"client_cancellations"}',
    '{"window_days":7}', '["client_cancellations"]',
-   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.anonymized_incity_orders WHERE order_timestamp >= current_date - interval ''7 day'' GROUP BY 1 ORDER BY 2 DESC',
+   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= current_date - interval ''7 day'' GROUP BY 1 ORDER BY 2 DESC',
    'passed', 'succeeded', 'Есть city_id с повышенной долей отмен.', 0.86, false, '[]',
-   '{"geo_fallback":"bar_for_city_id"}', '{"used_tables":["anonymized_incity_orders"],"used_columns":["city_id","cancellations"]}', '{}',
+   '{"geo_fallback":"bar_for_city_id"}', '{"used_tables":["train"],"used_columns":["city_id","cancellations"]}', '{}',
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2'),
   ('b2222222-2222-2222-2222-222222222201', 'a2222222-2222-2222-2222-222222222222', 'prompt', 1,
    'Сравни количество завершенных поездок по дням', '{"intent":"trend","metric":"done_rides"}',
    '{"window_days":14}', '["done_rides"]',
-   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.anonymized_incity_orders WHERE order_timestamp >= current_date - interval ''14 day'' GROUP BY 1 ORDER BY 1',
+   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= current_date - interval ''14 day'' GROUP BY 1 ORDER BY 1',
    'passed', 'succeeded', 'Серия завершенных поездок стабильна с локальными колебаниями.', 0.88, false, '[]',
-   '{}', '{"used_tables":["anonymized_incity_orders"],"used_columns":["day","driverdone_timestamp"]}', '{}',
+   '{}', '{"used_tables":["train"],"used_columns":["day","driverdone_timestamp"]}', '{}',
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3'),
   ('b3333333-3333-3333-3333-333333333301', 'a3333333-3333-3333-3333-333333333333', 'prompt', 1,
    'Построй прогноз количества заказов на 8 недель', '{"intent":"forecast","metric":"orders_count"}',
    '{"horizon_weeks":8}', '["orders_count"]',
-   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.anonymized_incity_orders GROUP BY 1 ORDER BY 1',
+   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train GROUP BY 1 ORDER BY 1',
    'passed', 'succeeded', 'Базовый прогноз показывает умеренный рост заказов.', 0.79, false, '[]',
-   '{}', '{"used_tables":["anonymized_incity_orders"],"used_columns":["day","order_id"]}', '{"method":"trend_extrapolation","horizon_steps":8}',
+   '{}', '{"used_tables":["train"],"used_columns":["day","order_id"]}', '{"method":"trend_extrapolation","horizon_steps":8}',
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4')
 ON CONFLICT (id) DO NOTHING;
 
@@ -57,11 +57,11 @@ UPDATE notebooks SET latest_cell_id = 'b3333333-3333-3333-3333-333333333301' WHE
 -- === Semantic dictionary extension ===
 INSERT INTO semantic_terms (id, workspace_id, term_key, term_name, definition, business_domain, term_type, canonical_table, canonical_column, metric_formula_sql, metadata_json, created_by)
 VALUES
-  ('c1000000-0000-0000-0000-000000000010', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'driver_cancellations', 'Отмены водителем', 'Количество строк с drivercancel_timestamp', 'operations', 'metric', 'anonymized_incity_orders', 'drivercancel_timestamp',
+  ('c1000000-0000-0000-0000-000000000010', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'driver_cancellations', 'Отмены водителем', 'Количество строк с drivercancel_timestamp', 'operations', 'metric', 'train', 'drivercancel_timestamp',
    'COUNT(CASE WHEN drivercancel_timestamp IS NOT NULL THEN 1 END)', '{"owner":"ops"}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'),
-  ('c1000000-0000-0000-0000-000000000011', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'cancel_before_accept_count', 'Отмены до принятия', 'Количество строк с cancel_before_accept_local', 'operations', 'metric', 'anonymized_incity_orders', 'cancel_before_accept_local',
+  ('c1000000-0000-0000-0000-000000000011', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'cancel_before_accept_count', 'Отмены до принятия', 'Количество строк с cancel_before_accept_local', 'operations', 'metric', 'train', 'cancel_before_accept_local',
    'COUNT(CASE WHEN cancel_before_accept_local IS NOT NULL THEN 1 END)', '{"owner":"ops"}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'),
-  ('c1000000-0000-0000-0000-000000000012', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'time_to_accept_seconds', 'Время до принятия', 'Среднее время от order_timestamp до driveraccept_timestamp', 'operations', 'metric', 'anonymized_incity_orders', 'driveraccept_timestamp',
+  ('c1000000-0000-0000-0000-000000000012', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'time_to_accept_seconds', 'Время до принятия', 'Среднее время от order_timestamp до driveraccept_timestamp', 'operations', 'metric', 'train', 'driveraccept_timestamp',
    'AVG(EXTRACT(EPOCH FROM (driveraccept_timestamp::timestamp - order_timestamp::timestamp)))', '{"owner":"ops"}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1')
 ON CONFLICT (workspace_id, term_key) DO NOTHING;
 
@@ -78,12 +78,12 @@ VALUES
   ('d1000000-0000-0000-0000-000000000010', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222',
    'avg_price_by_city_id', 'Средняя стоимость заказа по city_id', 'Сравнение средней стоимости заказа по city_id',
    'Покажи среднюю стоимость заказа по городам',
-   'SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.anonymized_incity_orders GROUP BY 1 ORDER BY 2 DESC',
+   'SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.train GROUP BY 1 ORDER BY 2 DESC',
    'bar', '{"group_by":"city_id"}', '["avg_order_price","city_id"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'),
   ('d1000000-0000-0000-0000-000000000011', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222',
    'top_city_cancellations', 'Топ city_id по отменам', 'Топ-3 city_id по количеству отмен',
    'Топ-3 города по количеству отмененных заказов',
-   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.anonymized_incity_orders GROUP BY 1 ORDER BY 2 DESC LIMIT 3',
+   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train GROUP BY 1 ORDER BY 2 DESC LIMIT 3',
    'horizontal_bar', '{"limit":3}', '["client_cancellations","city_id"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1')
 ON CONFLICT (workspace_id, template_key) DO NOTHING;
 

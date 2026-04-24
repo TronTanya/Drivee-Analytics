@@ -6,7 +6,7 @@ from datetime import datetime, time, timezone
 from typing import Optional
 
 from sqlalchemy import desc, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.notebook import Notebook, NotebookCell
 from app.schemas.reporting import HistoryItemResponse
@@ -88,6 +88,7 @@ def list_query_history(
     stmt = (
         select(NotebookCell)
         .join(Notebook, NotebookCell.notebook_id == Notebook.id)
+        .options(joinedload(Notebook.owner))
         .where(
             Notebook.workspace_id == workspace_id,
             NotebookCell.cell_type.in_(("prompt", "analysis")),
@@ -130,6 +131,12 @@ def list_query_history(
         title_guess = (cell.prompt_text or "Отчёт")[:80]
         nb = cell.notebook
         owner = nb.owner_user_id if nb else None
+        author_role = None
+        if nb and nb.owner and nb.owner.role:
+            author_role = nb.owner.role.role_key
+        conf_raw = cell.confidence_score
+        conf_f = float(conf_raw) if conf_raw is not None else None
+        insight = (cell.insight_text or "").strip() or None
         out.append(
             HistoryItemResponse(
                 id=cell.id,
@@ -143,6 +150,9 @@ def list_query_history(
                 table_row_count=_row_count_hint(cell),
                 validation_status=cell.validation_status,
                 execution_status=cell.execution_status,
+                confidence=conf_f,
+                result_summary=insight,
+                author_role_key=author_role,
                 created_at=ts,
                 rerun_notebook_id=cell.notebook_id,
                 rerun_cell_id=cell.id,

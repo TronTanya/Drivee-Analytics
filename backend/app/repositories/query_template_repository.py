@@ -4,6 +4,7 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
 
 from app.models.query_template import QueryTemplate
 from app.repositories.base import BaseRepository
@@ -17,6 +18,7 @@ class QueryTemplateRepository(BaseRepository):
     ) -> list[QueryTemplate]:
         stmt = (
             select(QueryTemplate)
+            .options(selectinload(QueryTemplate.target_role))
             .where(
                 QueryTemplate.workspace_id == workspace_id,
                 or_(
@@ -29,8 +31,12 @@ class QueryTemplateRepository(BaseRepository):
         return list(self.session.execute(stmt).scalars().all())
 
     def get_in_workspace(self, template_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[QueryTemplate]:
-        stmt = select(QueryTemplate).where(
-            QueryTemplate.id == template_id,
-            QueryTemplate.workspace_id == workspace_id,
+        stmt = (
+            select(QueryTemplate)
+            .options(selectinload(QueryTemplate.target_role))
+            .where(
+                QueryTemplate.id == template_id,
+                QueryTemplate.workspace_id == workspace_id,
+            )
         )
         return self.session.execute(stmt).scalar_one_or_none()

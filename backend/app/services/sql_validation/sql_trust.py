@@ -57,6 +57,11 @@ def scan_dangerous_constructs(padded: str) -> tuple[list[str], list[str]]:
         (" into dumpfile", "Экспорт INTO DUMPFILE запрещён."),
         (" load_file(", "LOAD_FILE запрещён."),
         (" copy (", "COPY … TO PROGRAM / нестандартный COPY запрещён."),
+        (" into ", "SELECT INTO / запись результата запрещены; разрешены только read-only SELECT."),
+        (";--", "Обнаружен паттерн SQL-инъекции с комментарием после точки с запятой."),
+        (" --", "Подозрительный inline-комментарий; такие конструкции в пользовательском SQL запрещены."),
+        ("/*", "Подозрительный блочный комментарий; такие конструкции в пользовательском SQL запрещены."),
+        ("*/", "Подозрительный блочный комментарий; такие конструкции в пользовательском SQL запрещены."),
     ]
     for needle, msg in needles_error:
         if needle in padded:
@@ -68,6 +73,11 @@ def scan_dangerous_constructs(padded: str) -> tuple[list[str], list[str]]:
         warnings.append("NATURAL JOIN скрывает соответствие колонок; для продуктивных запросов не рекомендуется.")
     if padded.count(" join ") >= 3:
         warnings.append("Много JOIN подряд — повышенная сложность плана и риск декартова произведения.")
+    if " union " in padded:
+        warnings.append("UNION увеличивает риск объединения несвязанных наборов данных; будет проверен источник данных.")
+        suspicious_sources = ("information_schema", "pg_catalog", "pg_user", "pg_roles", "mysql.", "sqlite_master")
+        if any(src in padded for src in suspicious_sources):
+            errors.append("UNION с системными/служебными источниками запрещён политикой безопасности.")
 
     return errors, warnings
 
@@ -115,7 +125,7 @@ def check_global_column_whitelist(
 def check_time_filter_heuristic(normalized: str, physical_tables: set[str]) -> list[str]:
     """Предупреждение, если по основной факт-таблице нет явного упоминания времени в запросе."""
     notes: list[str] = []
-    if not physical_tables & {"anonymized_incity_orders", "user_staging"}:
+    if not physical_tables & {"train", "user_staging"}:
         return notes
     if "order_timestamp" in normalized or "tender_timestamp" in normalized:
         return notes
@@ -418,8 +428,8 @@ def collect_schema_and_table_ref_errors(
             errors.append(f"Схема «{sch}» не в whitelist разрешённых схем.")
             continue
         if tbl in global_tables:
-            if tbl == "anonymized_incity_orders" and sch != implicit:
-                errors.append("Таблица anonymized_incity_orders разрешена только в схеме по умолчанию (public).")
+            if tbl == "train" and sch != implicit:
+                errors.append("Таблица train разрешена только в схеме по умолчанию (public).")
             continue
         if sch == staging_schema and staging_re.fullmatch(tbl):
             continue

@@ -57,11 +57,38 @@
   }
 
   .layout-shell-grid {
-    @apply grid grid-cols-1 gap-4 py-4 sm:gap-6 sm:py-6 lg:grid-cols-[240px_1fr];
+    /* minmax(0,1fr) — основная колонка может сжиматься ниже min-content; иначе длинные pre/таблицы рвут layout */
+    @apply grid grid-cols-1 gap-4 py-4 sm:gap-6 sm:py-6 lg:grid-cols-[240px_minmax(0,1fr)];
   }
 
   .layout-page-stack {
     @apply space-y-4 sm:space-y-6;
+  }
+
+  /* Enterprise UI states — единая сетка для trace, ячеек, дашборда */
+  .enterprise-state-empty {
+    @apply rounded-panel border border-dashed border-border-subtle bg-surface-muted/50 px-5 py-8 shadow-xs;
+  }
+
+  .enterprise-state-loading {
+    @apply rounded-panel border border-border-subtle bg-surface-card px-5 py-6 shadow-xs;
+  }
+
+  .enterprise-state-error {
+    @apply rounded-panel border border-danger/30 bg-danger-soft px-4 py-3 shadow-xs;
+  }
+
+  .enterprise-state-success {
+    @apply rounded-panel border border-emerald-200/90 bg-success-soft px-4 py-2.5 shadow-xs;
+  }
+
+  /** Неоднозначность / уточнение — бренд-акцент по краю, без сплошного лайма */
+  .enterprise-state-ambiguity {
+    @apply rounded-panel border border-amber-200/80 border-l-4 border-l-brand-500 bg-brand-50/50 px-4 py-3 shadow-xs;
+  }
+
+  .enterprise-table-shell {
+    @apply overflow-x-auto rounded-control border border-border-subtle bg-surface-card shadow-xs;
   }
 }
 

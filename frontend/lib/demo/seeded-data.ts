@@ -148,7 +148,7 @@ export function deterministicSqlTopCancelledCities(limit = 3): string {
   AVG(price_order_local) AS avg_price_order_local,
   AVG(duration_in_seconds) AS avg_duration_in_seconds,
   AVG(distance_in_meters) AS avg_distance_in_meters
-FROM public.anonymized_incity_orders
+FROM public.train
 WHERE (clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)
   AND order_timestamp >= DATE_TRUNC('week', CURRENT_DATE)
 GROUP BY city_id
@@ -186,7 +186,7 @@ export function deterministicSqlComparativeDoneShare(): string {
   COUNT(DISTINCT order_id) AS total_orders,
   (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric
     / NULLIF(COUNT(DISTINCT order_id), 0) AS done_share
-FROM public.anonymized_incity_orders
+FROM public.train
 WHERE city_id IN ('Алматы','Астана')
   AND order_timestamp >= CURRENT_DATE - INTERVAL '14 day'
 GROUP BY city_id
@@ -213,8 +213,96 @@ export function deterministicSqlDailyCancellations(): string {
   COUNT(*) FILTER (
     WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL
   )::bigint AS cancellations
-FROM public.anonymized_incity_orders
+FROM public.train
 WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day'
 GROUP BY 1
 ORDER BY 1;`;
+}
+
+/** Детерминированные метрики по каналам (fallback; в SEEDED_ORDERS нет канала — фиксированный демо-срез). */
+export type ChannelFunnelRow = {
+  order_channel: string;
+  orders: number;
+  completed: number;
+  conversion: number;
+};
+
+export function demoChannelFunnelRows(): ChannelFunnelRow[] {
+  return [
+    { order_channel: "app", orders: 42, completed: 31, conversion: 0.738 },
+    { order_channel: "web", orders: 28, completed: 19, conversion: 0.679 },
+    { order_channel: "partner", orders: 14, completed: 10, conversion: 0.714 }
+  ];
+}
+
+export function deterministicSqlChannelConversion(): string {
+  return `SELECT order_channel::text AS order_channel,
+  COUNT(*)::bigint AS orders,
+  COUNT(*) FILTER (WHERE status_order = 'done')::bigint AS completed,
+  (COUNT(*) FILTER (WHERE status_order = 'done'))::numeric / NULLIF(COUNT(*), 0) AS conversion
+FROM public.train
+WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day'
+GROUP BY 1
+ORDER BY orders DESC;`;
+}
+
+export type DailyRevenueRow = { day: string; revenue: number };
+
+export function dailyRevenueDoneByDay(): DailyRevenueRow[] {
+  const map = new Map<string, number>();
+  for (const row of SEEDED_ORDERS) {
+    if (row.status_order !== "done") continue;
+    const day = row.order_timestamp.slice(0, 10);
+    map.set(day, (map.get(day) ?? 0) + row.price_order_local);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, revenue]) => ({ day, revenue: Math.round(revenue) }));
+}
+
+export function deterministicSqlDailyRevenue(): string {
+  return `SELECT date_trunc('day', order_timestamp)::date AS day,
+  SUM(price_order_local)::numeric AS revenue
+FROM public.train
+WHERE status_order = 'done'
+  AND order_timestamp >= CURRENT_DATE - INTERVAL '14 day'
+GROUP BY 1
+ORDER BY 1;`;
+}
+
+export type CityShareRow = { city_id: string; orders: number; share: number };
+
+export function shareOrdersByCityForDonut(): CityShareRow[] {
+  const map = new Map<string, number>();
+  for (const row of SEEDED_ORDERS) {
+    map.set(row.city_id, (map.get(row.city_id) ?? 0) + 1);
+  }
+  const total = [...map.values()].reduce((a, b) => a + b, 0) || 1;
+  return [...map.entries()]
+    .map(([city_id, orders]) => ({
+      city_id,
+      orders,
+      share: Math.round((orders / total) * 1000) / 1000
+    }))
+    .sort((a, b) => b.orders - a.orders);
+}
+
+export function deterministicSqlShareByCity(): string {
+  return `SELECT city_id::text AS city_id,
+  COUNT(*)::bigint AS orders,
+  COUNT(*)::numeric / SUM(COUNT(*)) OVER () AS share
+FROM public.train
+WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day'
+GROUP BY 1
+ORDER BY orders DESC;`;
+}
+
+export function deterministicSqlGeoMapCities(): string {
+  return `SELECT city_id::text AS city_id,
+  COUNT(*) FILTER (WHERE status_order = 'cancelled')::bigint AS cancellations_total
+FROM public.train
+WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day'
+GROUP BY 1
+ORDER BY cancellations_total DESC
+LIMIT 12;`;
 }

@@ -7,8 +7,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-drivee_analytics}
       POSTGRES_USER: ${POSTGRES_USER:-drivee}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drivee}
+    # Проброс на хост: 5432/5433 часто заняты локальным Postgres — задайте POSTGRES_PORT в .env при конфликте.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -61,8 +62,9 @@ services:
       NEXT_PUBLIC_API_MOCK: ${NEXT_PUBLIC_API_MOCK:-false}
       CHOKIDAR_USEPOLLING: "true"
     command: npm run dev -- -H 0.0.0.0 -p 3000
+    # 3000 на хосте часто занят локальным `npm run dev` — по умолчанию 3001.
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3001}:3000"
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules

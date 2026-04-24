@@ -1,6 +1,8 @@
-# Демо-набор `anonymized_incity_orders` для аналитики
+# Демо-набор для аналитики (`public.train` = VIEW над заказами)
 
 Цель — чтобы дашборды, NL→SQL и шаблоны опирались на **объёмный**, многомерный срез, а не на четыре строки из bootstrap.
+
+**Поверхность данных:** демо-seed пишет строки в **факт-таблицу** заказов (DDL/ORM в репозитории); **`public.train`** — это VIEW с теми же колонками. В шаблонах, NL→SQL и whitelist валидатора фигурирует только **`train`** (+ staging `user_staging` после импорта CSV). Имя факт-таблицы в пользовательском SQL не используется.
 
 ## Что попадает в БД
 
@@ -40,7 +42,7 @@
 - **Текущая vs прошлая неделя**: шаблон `wow_done_rides_by_city` в `seed_demo_data.py` (`date_trunc('week', CURRENT_DATE)`).
 - **Топы и рейтинги**: `ORDER BY ... DESC` + `LIMIT` (валидатор подставляет лимит для intent `ranking`).
 - **Конверсия**: доля строк с `driverdone_timestamp` к `COUNT(DISTINCT order_id)`; шаблон `conversion_by_channel` и существующий `weekly_conversion`.
-- **Шаблоны**: все SQL-шаблоны из `ensure_query_templates` используют `public.anonymized_incity_orders` и получают ненулевые ряды при свежем seed.
+- **Шаблоны**: SQL-шаблоны из `ensure_query_templates` используют **`public.train`** и получают ненулевые ряды при свежем seed.
 
 ## Ограничения
 
@@ -50,4 +52,4 @@
 
 ## Whitelist NL→SQL
 
-Колонка `order_channel` добавлена в `sql_whitelist_columns` (`app/core/config.py`) и в набор для роли **executive** (`sql_validation_constants.py`), чтобы сгенерированный SQL проходил валидацию.
+Разрешённые **таблицы** для пользовательского SQL: **`train`** и таблицы staging по паттерну из конфига (`user_staging` / `t_*`). Колонка `order_channel` добавлена в `sql_whitelist_columns` (`app/core/config.py`) и в набор для роли **executive** (`sql_validation_constants.py`), чтобы сгенерированный SQL проходил валидацию.

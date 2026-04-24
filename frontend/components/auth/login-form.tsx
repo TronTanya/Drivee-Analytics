@@ -9,6 +9,8 @@ import { useForm } from "react-hook-form";
 import { FormField } from "@/components/auth/form-field";
 import { InlineAlert } from "@/components/auth/inline-alert";
 import { Button } from "@/components/ui/button";
+import { useLogin } from "@/hooks/api/use-auth";
+import { ApiError } from "@/lib/api/client";
 import { useSession } from "@/lib/auth/session-context";
 import { loginSchema, type LoginFormValues } from "@/lib/validation/auth-schemas";
 
@@ -17,7 +19,8 @@ const INPUT_CLASS =
 
 export function LoginForm() {
   const router = useRouter();
-  const { setEmail } = useSession();
+  const { setEmail, setRole } = useSession();
+  const loginMutation = useLogin();
   const [formError, setFormError] = useState<string | null>(null);
 
   const {
@@ -31,15 +34,17 @@ export function LoginForm() {
 
   const onSubmit = async (data: LoginFormValues) => {
     setFormError(null);
-    await new Promise((r) => setTimeout(r, 900));
-
-    if (data.password === "wrong") {
-      setFormError("Неверный email или пароль. Повторите попытку, либо используйте любой пароль кроме «wrong».");
-      return;
+    try {
+      const session = await loginMutation.mutateAsync({
+        email: data.email.trim(),
+        password: data.password
+      });
+      setEmail(session.user.email);
+      setRole(session.user.role);
+      router.push("/notebooks" as Route);
+    } catch {
+      setFormError("Неверный email или пароль. Повторите попытку.");
     }
-
-    setEmail(data.email.trim());
-    router.push("/demo-router" as Route);
   };
 
   return (
@@ -56,8 +61,9 @@ export function LoginForm() {
         <FormField id="login-email" label="Рабочий email" error={errors.email?.message}>
           <input
             id="login-email"
-            type="email"
-            autoComplete="email"
+            type="text"
+            inputMode="email"
+            autoComplete="username"
             className={`${INPUT_CLASS} ${errors.email ? "border-danger" : "border-border-subtle"}`}
             placeholder="you@company.com"
             aria-invalid={!!errors.email}
@@ -69,7 +75,7 @@ export function LoginForm() {
           id="login-password"
           label="Пароль"
           error={errors.password?.message}
-          hint="Подходит любой пароль, кроме «wrong» - он показывает состояние ошибки."
+          hint="Используются реальные данные входа backend."
         >
           <input
             id="login-password"
@@ -82,7 +88,7 @@ export function LoginForm() {
           />
         </FormField>
 
-        <Button type="submit" className="w-full py-3" loading={isSubmitting} loadingLabel="Вход…">
+        <Button type="submit" className="w-full py-3" loading={isSubmitting || loginMutation.isPending} loadingLabel="Вход…">
           Войти
         </Button>
       </form>

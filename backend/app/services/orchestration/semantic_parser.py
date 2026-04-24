@@ -13,13 +13,17 @@ from app.schemas.nl_interpretation import (
     TimeRangeSpec,
 )
 from app.schemas.orchestration import IntentKind
+from app.services.semantic_layer.store import get_semantic_dictionary_store
 # RU / EN → канонические ключи метрик (совпадают с canonical_metric_key в semantic_dictionary.json)
 _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
     ("cancellations_total", ("отмен", "отменён", "отменен", "cancel", "cancellation")),
     ("client_cancellations", ("отмен клиент", "клиентск", "client cancel")),
     ("driver_cancellations", ("отмен водител", "driver cancel")),
+    ("cancellation_rate", ("доля отмен", "процент отмен", "cancellation rate", "cancel rate")),
     ("done_rides", ("выполнен", "заверш", "done ride", "завершённ поезд", "завершенн поезд")),
+    ("distinct_orders", ("уникальн заказ", "distinct order", "разных заказ")),
     ("orders_count", ("заказ", "order", "количество заказ")),
+    ("train_row_count", ("количество запис", "число строк", "row count", "строк датасет", "records count")),
     ("sum_order_price", ("выручк", "revenue", "сумм", "оборот", "gmv")),
     ("avg_order_price", ("средн чек", "средн стоимость", "average price", "avg price")),
     ("done_conversion", ("конверс", "conversion")),
@@ -29,8 +33,12 @@ _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
 
 _DIMENSION_PHRASES: list[tuple[str, tuple[str, ...]]] = [
     ("city_id", ("по город", "городам", "city", "город")),
+    ("order_channel", ("по канал", "каналам", "канал", "channel")),
     ("status_order", ("статус заказ", "status order", "по статус")),
     ("status_tender", ("статус тендер", "tender")),
+    ("offset_hours", ("offset_hours", "смещен часов", "часовой пояс города")),
+    ("user_id", ("user id", "ид пользовател")),
+    ("driver_id", ("driver id", "ид водител")),
 ]
 
 _TIME_PRESETS: frozenset[str] = frozenset(get_args(TimePreset))
@@ -51,6 +59,23 @@ def _canonical_time_preset(raw: str) -> Optional[str]:
     return key if key in _TIME_PRESETS else None
 
 
+_MONTH_RU_TO_NUM: dict[str, int] = {
+    "январ": 1,
+    "феврал": 2,
+    "март": 3,
+    "апрел": 4,
+    "мая": 5,
+    "май": 5,
+    "июн": 6,
+    "июл": 7,
+    "август": 8,
+    "сентябр": 9,
+    "октябр": 10,
+    "ноябр": 11,
+    "декабр": 12,
+}
+
+
 class SemanticParser:
     """Слой нормализации: синонимы, периоды, лимиты; поля LLM уже в `entities` (IntentService)."""
 
@@ -65,6 +90,8 @@ class SemanticParser:
         q = effective_query.strip()
         ql = q.lower()
         signals: list[str] = ["rules:base"]
+        entities = dict(entities)
+        entities.setdefault("__effective_query__", q)
 
         metrics = self._detect_metrics(ql, entities)
         dimensions = self._detect_dimensions(ql, entities)
@@ -73,10 +100,15 @@ class SemanticParser:
             filters["city_id"] = entities["city_id"]
         if entities.get("status_order"):
             filters["status_order"] = entities["status_order"]
+        for fk, fv in get_semantic_dictionary_store().resolve_filters(q).items():
+            filters.setdefault(fk, fv)
 
         time_range = self._detect_time_range(ql, entities)
         comparison = self._detect_comparison(ql, entities)
         sort = self._detect_sort(ql, intent, entities)
+        aggregation = self._detect_aggregation(intent, metrics, ql)
+        grouping = self._detect_grouping(dimensions, entities, time_range)
+        chart_hint = self._detect_chart_hint(intent, time_range, comparison, dimensions, ql)
         limit = entities.get("top_n")
         if isinstance(limit, int):
             signals.append("rules:top_n")
@@ -96,6 +128,10 @@ class SemanticParser:
         if ("по город" in ql or "городам" in ql) and intent in ("comparison", "ranking") and not filters.get("city_id"):
             if "city_scope" not in ambiguities:
                 ambiguities.append("city_scope_all_vs_one")
+        if intent == "ranking" and not metrics:
+            ambiguities.append("ranking_metric_missing")
+        if "лучш" in ql and "канал" in ql and not metrics:
+            ambiguities.append("best_metric_unspecified")
 
         self._merge_entities_llm_fields(entities, metrics, dimensions, time_range, ambiguities, signals)
 
@@ -114,18 +150,25 @@ class SemanticParser:
             llm_confidence=float(llm_conf) if llm_conf is not None else None,
         )
 
+        entities.pop("__effective_query__", None)
         merged_entities = dict(entities)
+        primary_metric = metrics[0] if metrics else str(entities.get("metric_hint") or "").strip()
         interp = NLQueryInterpretation(
             intent=intent,
+            metric=primary_metric,
             entities=merged_entities,
             metrics=metrics,
             dimensions=dimensions,
             filters=filters,
             time_range=time_range,
             comparison=comparison,
+            aggregation=aggregation,
+            grouping=grouping,
             sort=sort,
             limit=limit if isinstance(limit, int) else None,
+            chart_hint=chart_hint,
             ambiguities=ambiguities,
+            ambiguity_flags=list(ambiguities),
             confidence_score=confidence,
             confidence_band=band,
             source_signals=signals,
@@ -152,6 +195,11 @@ class SemanticParser:
             if any(p in ql for p in phrases):
                 if key not in out:
                     out.append(key)
+        query = str(entities.get("__effective_query__") or "").strip()
+        if query:
+            for dim in get_semantic_dictionary_store().resolve_dimensions(query):
+                if dim not in out:
+                    out.append(dim)
         return out[:5]
 
     @staticmethod
@@ -190,6 +238,10 @@ class SemanticParser:
             return TimeRangeSpec(preset="current_month", label_ru="текущий месяц")
         if "прошл" in ql and "месяц" in ql:
             return TimeRangeSpec(preset="last_month", label_ru="прошлый месяц")
+        for stem, month_num in _MONTH_RU_TO_NUM.items():
+            if stem in ql:
+                entities["month"] = month_num
+                return TimeRangeSpec(preset="current_year", label_ru=f"месяц={month_num:02d}")
         ww = entities.get("window_weeks")
         if isinstance(ww, int) and ww > 0:
             return TimeRangeSpec(
@@ -226,7 +278,70 @@ class SemanticParser:
             if any(x in ql for x in ("худш", "миним", "меньш", "asc", "ниж")):
                 return SortSpec(field="value", direction="asc")
             return SortSpec(field="value", direction="desc")
+        if intent == "comparison" and any(x in ql for x in ("лучш", "топ", "top", "max")):
+            return SortSpec(field="value", direction="desc")
         return SortSpec(field="", direction="desc")
+
+    @staticmethod
+    def _detect_aggregation(intent: IntentKind, metrics: list[str], ql: str) -> str:
+        if any("avg" in m or "average" in ql or "средн" in ql for m in metrics):
+            return "avg"
+        if intent == "share":
+            return "share"
+        if intent == "trend":
+            return "trend"
+        if intent == "ranking":
+            return "ranking"
+        if any("sum_" in m for m in metrics) or "выручк" in ql:
+            return "sum"
+        if any(
+            "count" in m
+            or m
+            in (
+                "orders_count",
+                "train_row_count",
+                "distinct_orders",
+                "done_rides",
+                "cancellations_total",
+            )
+            for m in metrics
+        ):
+            return "count"
+        if any(m in ("cancellation_rate", "done_conversion") for m in metrics):
+            return "ratio"
+        return "count" if metrics else ""
+
+    @staticmethod
+    def _detect_grouping(dimensions: list[str], entities: dict[str, Any], time_range: TimeRangeSpec) -> list[str]:
+        out = list(dimensions)
+        tg = str(entities.get("time_grain") or "").strip().lower()
+        if tg in ("day", "week", "month") and tg not in out:
+            out.append(tg)
+        if time_range.preset in ("current_week", "last_week", "previous_week", "rolling_window") and "day" in out:
+            return out
+        return out
+
+    @staticmethod
+    def _detect_chart_hint(
+        intent: IntentKind,
+        time_range: TimeRangeSpec,
+        comparison: ComparisonSpec,
+        dimensions: list[str],
+        ql: str,
+    ) -> str:
+        if "order_channel" in dimensions and intent in ("ranking", "comparison"):
+            return "bar"
+        if intent == "trend" or "по дням" in ql or "динамик" in ql:
+            return "line"
+        if intent == "share":
+            return "pie"
+        if comparison.mode in ("wow", "mom", "yoy"):
+            return "bar"
+        if intent == "ranking":
+            return "bar"
+        if time_range.preset in ("current_week", "last_week", "previous_week", "rolling_window"):
+            return "line"
+        return "table"
 
     @staticmethod
     def _merge_entities_llm_fields(

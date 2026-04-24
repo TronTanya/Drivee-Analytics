@@ -11,9 +11,9 @@ from app.services.sql_validation.utils import extract_from_join_tables, normaliz
 class SqlTrustTests(unittest.TestCase):
     def test_schema_table_extracted(self) -> None:
         sql = normalize_for_checks(
-            "SELECT COUNT(*) AS value FROM public.anonymized_incity_orders a WHERE a.city_id::text = '67'"
+            "SELECT COUNT(*) AS value FROM public.train a WHERE a.city_id::text = '67'"
         )
-        self.assertIn("anonymized_incity_orders", extract_from_join_tables(sql))
+        self.assertIn("train", extract_from_join_tables(sql))
 
     def test_select_star_rejected_when_forbid(self) -> None:
         s = Settings(
@@ -22,22 +22,23 @@ class SqlTrustTests(unittest.TestCase):
             sql_enforce_global_column_whitelist=False,
         )
         v = SQLValidatorService(s)
-        r = v.validate("SELECT * FROM anonymized_incity_orders a LIMIT 10", role_key="admin", intent="ranking")
+        r = v.validate("SELECT * FROM train a LIMIT 10", role_key="admin", intent="ranking")
         self.assertFalse(r.is_valid)
         self.assertTrue(any("SELECT *" in e for e in r.errors))
 
     def test_pg_sleep_rejected(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
         r = v.validate(
-            "SELECT 1 FROM anonymized_incity_orders a WHERE pg_sleep(1) IS NULL LIMIT 1",
+            "SELECT 1 FROM train a WHERE pg_sleep(1) IS NULL LIMIT 1",
             role_key="admin",
         )
         self.assertFalse(r.is_valid)
+        self.assertEqual(r.guardrail_explainability.get("decision"), "rejected")
 
     def test_query_explanation_populated(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
         sql = (
-            "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM anonymized_incity_orders a "
+            "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM train a "
             "WHERE a.order_timestamp::timestamp >= current_date - interval '7 day' "
             "GROUP BY 1 ORDER BY value DESC LIMIT 5"
         )
@@ -53,10 +54,49 @@ class SqlTrustTests(unittest.TestCase):
         self.assertFalse(r.is_valid)
         self.assertTrue(any("Схема" in e for e in r.errors))
 
+    def test_forbidden_mutation_verbs_rejected(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        bad = [
+            "DELETE FROM train",
+            "UPDATE train SET city_id='1'",
+            "DROP TABLE train",
+            "ALTER TABLE train ADD COLUMN x int",
+            "TRUNCATE TABLE train",
+        ]
+        for sql in bad:
+            r = v.validate(sql, role_key="admin", intent="summary")
+            self.assertFalse(r.is_valid)
+            self.assertEqual(r.guardrail_explainability.get("decision"), "rejected")
+
+    def test_union_with_system_catalog_rejected(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        sql = (
+            "SELECT a.city_id::text AS dim FROM train a "
+            "UNION SELECT table_name FROM information_schema.tables LIMIT 5"
+        )
+        r = v.validate(sql, role_key="admin", intent="comparison")
+        self.assertFalse(r.is_valid)
+        self.assertTrue(any("UNION" in e for e in r.errors))
+
+    def test_sql_comment_injection_pattern_rejected(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        sql = "SELECT a.city_id FROM train a -- bypass\n LIMIT 5"
+        r = v.validate(sql, role_key="admin", intent="ranking")
+        self.assertFalse(r.is_valid)
+        self.assertTrue(any("комментарий" in e.lower() for e in r.errors))
+
+    def test_explainability_block_present_for_allowed_sql(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        sql = "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM train a GROUP BY 1 LIMIT 5"
+        r = v.validate(sql, role_key="admin", intent="ranking")
+        self.assertTrue(r.is_valid, r.errors)
+        self.assertEqual(r.guardrail_explainability.get("decision"), "allowed")
+        self.assertIn("triggered_rules", r.guardrail_explainability)
+
     def test_sensitive_column_marketer_blocked(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=True))
         r = v.validate(
-            "SELECT a.user_id FROM anonymized_incity_orders a LIMIT 1",
+            "SELECT a.user_id FROM train a LIMIT 1",
             role_key="marketer",
             intent="summary",
         )
@@ -71,7 +111,7 @@ class SqlTrustTests(unittest.TestCase):
 
     def test_estimate_window_days_from_interval(self) -> None:
         sql = normalize_for_checks(
-            "SELECT 1 FROM anonymized_incity_orders a WHERE a.order_timestamp >= current_date - interval '120 day'"
+            "SELECT 1 FROM train a WHERE a.order_timestamp >= current_date - interval '120 day'"
         )
         self.assertEqual(estimate_window_days_from_sql(sql), 120)
 
@@ -84,7 +124,7 @@ class SqlTrustTests(unittest.TestCase):
         )
         v = SQLValidatorService(s)
         sql = (
-            "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM anonymized_incity_orders a "
+            "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM train a "
             "WHERE a.order_timestamp::timestamp >= current_date - interval '7 day' "
             "GROUP BY 1 ORDER BY value DESC LIMIT 50"
         )

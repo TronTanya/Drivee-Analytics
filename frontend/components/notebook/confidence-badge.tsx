@@ -1,6 +1,6 @@
 import type { ConfidenceBadgeProps } from "@/lib/notebook/block-types";
 
-export function ConfidenceBadge({ value, className = "" }: ConfidenceBadgeProps) {
+export function ConfidenceBadge({ value, className = "", compact = false }: ConfidenceBadgeProps) {
   const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
   const tone =
     pct >= 85
@@ -8,6 +8,17 @@ export function ConfidenceBadge({ value, className = "" }: ConfidenceBadgeProps)
       : pct >= 65
         ? "border-brand-200 bg-brand-50 text-brand-900"
         : "border-amber-200 bg-amber-50 text-amber-900";
+
+  if (compact) {
+    return (
+      <span
+        className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] ${tone} ${className}`}
+        title="Уверенность модели"
+      >
+        {pct}%
+      </span>
+    );
+  }
 
   return (
     <span

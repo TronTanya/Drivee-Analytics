@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+    cors_origins: list[str] | str = ["http://localhost:3000", "http://localhost:3001"]
 
     # В prod задайте через окружение; пустое значение в dev обрабатывается в app.core.security.
     jwt_secret: str = ""
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # Все обращения alias.col к физическим таблицам — только из sql_whitelist_columns.
     sql_enforce_global_column_whitelist: bool = True
     # Для этих intent LIMIT обязателен (подставляется валидатором, если отсутствует).
-    sql_intents_require_limit: list[str] = [
+    sql_intents_require_limit: list[str] | str = [
         "ranking",
         "geo",
         "comparison",
@@ -53,16 +53,16 @@ class Settings(BaseSettings):
         "trend",
         "forecast",
     ]
-    sql_whitelist_tables: list[str] = [
-        "anonymized_incity_orders",
+    sql_whitelist_tables: list[str] | str = [
+        "train",
         "user_staging",
     ]
     # Схемы, в которых разрешены физические таблицы в FROM/JOIN (unqualified → sql_implicit_schema).
-    sql_whitelist_schemas: list[str] = ["public", "user_staging"]
+    sql_whitelist_schemas: list[str] | str = ["public", "user_staging"]
     sql_implicit_schema: str = "public"
     # Имена загруженных staging-таблиц (см. csv_workflow: t_ + 12 hex).
     sql_staging_upload_table_pattern: str = r"^t_[a-f0-9]{12}$"
-    sql_whitelist_columns: list[str] = [
+    sql_whitelist_columns: list[str] | str = [
         "city_id",
         "offset_hours",
         "order_id",
@@ -93,7 +93,10 @@ class Settings(BaseSettings):
     csv_max_upload_mb: int = 50
     csv_staging_schema: str = "user_staging"
     csv_inference_max_rows: int = 100_000
-    ds_default_source_table: str = "public.anonymized_incity_orders"
+    ds_default_source_table: str = "public.train"
+    # Если False (по умолчанию), NL→SQL без явного source_table в notebook_context всегда использует ds_default_source_table (train).
+    # True — подставлять последнюю успешную staging-таблицу из data_import_jobs (может расходиться с «всё из train»).
+    ds_implicit_source_use_latest_staging: bool = False
     ds_metric_caps: dict[str, float] = {
         "orders_count": 10_000_000.0,
         "done_rides": 10_000_000.0,
@@ -111,8 +114,8 @@ class Settings(BaseSettings):
     llm_cooldown_seconds: int = 45
 
     # Demo auth bypass (dev/demo only): если нет/некорректен Bearer, использовать демо-пользователя.
-    demo_auth_bypass_enabled: bool = True
-    demo_auth_email: str = "manager@drivee.demo"
+    demo_auth_bypass_enabled: bool = False
+    demo_auth_email: str = "manager@drivee.local"
 
     # Guardrails / anti-abuse (NL→SQL до LLM и после семантики).
     guardrails_max_prompt_chars: int = 8000
@@ -166,6 +169,21 @@ class Settings(BaseSettings):
                     pass
             return [item.strip().lower() for item in value.split(",") if item.strip()]
         return [str(x).strip().lower() for x in value if str(x).strip()]
+
+    @field_validator("sql_intents_require_limit", "sql_whitelist_tables", "sql_whitelist_columns", mode="before")
+    @classmethod
+    def split_list_like_fields(cls, value: list[str] | str) -> list[str]:
+        if isinstance(value, str):
+            raw = value.strip()
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return [str(x).strip() for x in value if str(x).strip()]
 
     @field_validator("ds_metric_caps", mode="before")
     @classmethod

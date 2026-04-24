@@ -11,10 +11,12 @@ from app.models.user import User
 from app.repositories.dashboard_repository import DashboardRepository
 from app.repositories.notebook_repository import NotebookRepository
 from app.repositories.workspace_repository import WorkspaceRepository
+from app.repositories.business_data_repository import BusinessDataRepository
 from app.schemas.dashboard import (
     CreateAutoDashboardRequest,
     DashboardDetailResponse,
     DashboardSuggestionResponse,
+    TrainDatasetSummaryResponse,
 )
 from app.services.auto_dashboard_suggestion_service import build_suggestion_from_history
 
@@ -42,6 +44,21 @@ def suggest_auto_dashboard(
         days_back=days_back,
     )
     return build_suggestion_from_history(history)
+
+
+@router.get("/train-summary", response_model=TrainDatasetSummaryResponse)
+def train_dataset_summary(
+    workspace_id: uuid.UUID,
+    user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_db_session),
+) -> TrainDatasetSummaryResponse:
+    """Сводные KPI по каноническому `public.train` (согласованы с NL→SQL и отчётами)."""
+    _require_workspace(session, user.id, workspace_id)
+    raw = BusinessDataRepository(session).fetch_train_global_summary()
+    role_key = (user.role.role_key or "").strip().lower()
+    if role_key == "executive":
+        raw = {**raw, "sum_order_price": None}
+    return TrainDatasetSummaryResponse.model_validate(raw)
 
 
 @router.post("", response_model=DashboardDetailResponse)

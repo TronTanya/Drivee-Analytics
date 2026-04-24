@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from app.core.config import Settings
 from app.services.guardrails.policy_engine import (
     check_prompt_abuse,
@@ -26,3 +28,26 @@ def test_prompt_abuse_respects_newline_setting() -> None:
 def test_rate_limit_can_be_disabled() -> None:
     s = Settings(guardrails_rate_limit_enabled=False)
     assert check_rate_limit(settings=s, user_id="u1", role_key=None) == []
+
+
+def test_prompt_abuse_max_chars() -> None:
+    s = Settings(guardrails_max_prompt_chars=12)
+    assert check_prompt_abuse("x" * 13, s)
+    assert check_prompt_abuse("x" * 12, s) == []
+
+
+def test_rate_limit_blocks_after_max_requests() -> None:
+    import app.services.guardrails.policy_engine as pe
+
+    pe._RATE_BUCKETS.clear()
+    uid = f"rate-{uuid.uuid4()}"
+    s = Settings(
+        guardrails_rate_limit_enabled=True,
+        guardrails_rate_limit_window_seconds=120,
+        guardrails_max_requests_per_window=2,
+    )
+    assert check_rate_limit(settings=s, user_id=uid, role_key=None) == []
+    assert check_rate_limit(settings=s, user_id=uid, role_key=None) == []
+    err = check_rate_limit(settings=s, user_id=uid, role_key=None)
+    assert err and "лимит" in err[0].lower()
+    pe._RATE_BUCKETS.pop(uid, None)

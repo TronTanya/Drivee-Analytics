@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -22,3 +22,4 @@ class PipelineCellItem(BaseModel):
     id: str
     type: NotebookCellTypeLiteral
     content: str
+    payload: Optional[dict[str, Any]] = None

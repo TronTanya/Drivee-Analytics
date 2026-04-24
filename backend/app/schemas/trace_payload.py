@@ -64,6 +64,16 @@ class AnalyticsExplainabilityTraceV1(BaseModel):
 
     schema_version: Literal[1] = 1
     interpreted_intent: str = ""
+    structured_interpretation: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Normalized NL interpretation payload (intent/metric/dimensions/filters/time_range/aggregation/etc).",
+    )
+    interpretation_summary_ru: str = ""
+    interpretation_notes: list[str] = Field(default_factory=list)
+    sql_guardrails: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Guardrails explainability: allow/reject decision, triggered rules, reasons.",
+    )
     extracted_entities: dict[str, Any] = Field(default_factory=dict)
     semantic_terms: list[SemanticTermTraceItem] = Field(default_factory=list)
     tables_used: list[str] = Field(default_factory=list)
@@ -76,11 +86,27 @@ class AnalyticsExplainabilityTraceV1(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     clarification_requested: bool = False
+    clarification_reason: str = Field(
+        default="",
+        description="Почему запрос неоднозначен (без угадывания смысла).",
+    )
+    clarification_reason_summary_ru: str = Field(
+        default="",
+        description="Краткое пояснение причины на русском для ячейки уточнения и trace.",
+    )
+    clarification_question: str = Field(
+        default="",
+        description="Что именно нужно уточнить у пользователя.",
+    )
     follow_up_context_used: bool = False
     learned_correction_used: bool = False
     chart_recommendation: ChartRecommendationTrace = Field(default_factory=ChartRecommendationTrace)
     forecast_mode: ForecastModeTrace = Field(default_factory=ForecastModeTrace)
     forecast_selection: ForecastSelectionTrace = Field(default_factory=ForecastSelectionTrace)
+    forecast_explainability: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Baseline-прогноз: объяснение, предупреждения, краткая история для UI (MVP, не production ML).",
+    )
     quality_gate: QualityGateTrace = Field(default_factory=QualityGateTrace)
     execution_phases: list[ExecutionPhaseTrace] = Field(
         default_factory=list,

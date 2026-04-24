@@ -44,8 +44,8 @@ export function normalizeChartKind(raw: string | undefined | null): ChartKind | 
 }
 
 /**
- * Автовыбор визуализации по тексту намерения / SQL (MVP-эвристики).
- * Порядок: география → доли → рейтинг → сравнение категорий → динамика.
+ * Эвристики только по тексту (промпт/SQL), если с бэка нет `chart_recommendation`.
+ * Порядок согласован с доменными правилами: гео → доли → рейтинг → сравнение → динамика.
  */
 export function inferChartKindFromIntentText(text: string): ChartKind | null {
   const t = text.toLowerCase();
@@ -80,16 +80,19 @@ export function inferChartKindFromIntentText(text: string): ChartKind | null {
   return null;
 }
 
+/**
+ * Канонический автотип: сначала рекомендация API (intent + структура результата на сервере),
+ * затем локальные эвристики по тексту; `table` не подменяем на line.
+ */
 export function resolveAutoChartKind(trace: {
   interpretedIntent: string;
   generatedSql: string;
   chartRecommendation: { chartType: string; alternatives?: string[] };
 }): ChartKind {
+  const fromRec = normalizeChartKind(trace.chartRecommendation.chartType);
+  if (fromRec) return fromRec;
   const haystack = `${trace.interpretedIntent}\n${trace.generatedSql}`;
   const fromIntent = inferChartKindFromIntentText(haystack);
   if (fromIntent) return fromIntent;
-  const fromRec = normalizeChartKind(trace.chartRecommendation.chartType);
-  if (fromRec && fromRec !== "table") return fromRec;
-  if (fromRec === "table") return "line";
   return "line";
 }

@@ -36,6 +36,14 @@ from app.services.report_service import (
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+def _creator_role_from_payload(payload: dict) -> str | None:
+    raw = payload.get("creator_role_key")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
+
+
 def _infer_report_format(payload: dict) -> str:
     raw = (
         payload.get("format")
@@ -60,6 +68,9 @@ def create_report(
     payload, nb_id = resolve_report_payload(session, user, body)
     payload = dict(payload or {})
     payload.setdefault("saved_at", datetime.now(timezone.utc).replace(microsecond=0).isoformat())
+    if user.role and user.role.role_key:
+        payload.setdefault("creator_role_key", user.role.role_key)
+    payload.setdefault("creator_user_id", str(user.id))
     row = SavedReport(
         workspace_id=body.workspace_id,
         notebook_id=nb_id or body.notebook_id,
@@ -92,6 +103,7 @@ def list_reports(
             description=r.description,
             notebook_id=r.notebook_id,
             created_by=r.created_by,
+            creator_role_key=_creator_role_from_payload(dict(r.report_payload_json or {})),
             is_shared=r.is_shared,
             created_at=r.created_at,
             updated_at=r.updated_at,

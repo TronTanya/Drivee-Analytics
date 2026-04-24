@@ -21,11 +21,21 @@ export type ChartKind =
   | "histogram"
   | "table";
 
+export type GeoMapFeatureDto = {
+  id?: string;
+  label?: string;
+  value?: number | null;
+  lat?: number | null;
+  lon?: number | null;
+};
+
 export interface ChartGeoMetadata {
   geoEnabled?: boolean;
   geoDimension?: string | null;
   mapScope?: string | null;
   fallbackChartType?: ChartKind | null;
+  /** Нормализованные точки для будущей карты (MVP). */
+  mapFeatures?: GeoMapFeatureDto[];
 }
 
 export interface BlockBase {
@@ -88,6 +98,30 @@ export interface ClarificationBlock extends BlockBase {
   prompt: string;
   options?: { id: string; label: string }[];
   selectedOptionId?: string;
+  /** Код причины с API (например city_scope_ambiguous). */
+  reasonCode?: string;
+  /** Краткое пояснение «почему неоднозначно» (рус.). */
+  reasonSummaryRu?: string;
+}
+
+export interface ForecastHistoryPoint {
+  period: string;
+  value: number;
+}
+
+/** Серия «история + прогноз» для одного графика (payload с бэкенда). */
+export interface ForecastCombinedPoint {
+  idx: number;
+  value: number;
+  segment: "history" | "forecast";
+  label: string;
+}
+
+export interface ForecastRecordPoint {
+  step: number;
+  forecast_value: number;
+  forecast_low?: number;
+  forecast_high?: number;
 }
 
 export interface ForecastBlock extends BlockBase {
@@ -99,6 +133,20 @@ export interface ForecastBlock extends BlockBase {
   optimistic?: number;
   pessimistic?: number;
   unit?: string;
+  /** Серия baseline-прогноза (если пришла с бэкенда). */
+  records?: ForecastRecordPoint[];
+  explanationRu?: string;
+  warningRu?: string | null;
+  confidenceScore?: number;
+  history?: ForecastHistoryPoint[];
+  rSquared?: number;
+  metricColumn?: string;
+  backtestNoteRu?: string;
+  /** day | week | month — как агрегирован ряд перед baseline. */
+  timeGrain?: string;
+  /** Подпись источника ряда (например public.train). */
+  sourceTableLabel?: string;
+  combinedSeries?: ForecastCombinedPoint[];
 }
 
 /** Compact inline trace / plan cell (full detail lives in TracePanel) */
@@ -152,6 +200,10 @@ export interface TraceChartRecommendation {
 export interface TracePanelModel {
   schemaVersion: 1;
   interpretedIntent: string;
+  structuredInterpretation: Record<string, unknown>;
+  interpretationSummaryRu?: string;
+  interpretationNotes: string[];
+  sqlGuardrails: Record<string, unknown>;
   extractedEntities: Record<string, unknown>;
   semanticTerms: TraceSemanticTerm[];
   tablesUsed: string[];
@@ -161,6 +213,9 @@ export interface TracePanelModel {
   warnings: string[];
   confidence: number;
   clarificationRequested: boolean;
+  clarificationReason?: string;
+  clarificationReasonSummaryRu?: string;
+  clarificationQuestion?: string;
   followUpContextUsed: boolean;
   learnedCorrectionUsed: boolean;
   chartRecommendation: TraceChartRecommendation;
@@ -172,6 +227,8 @@ export interface TracePanelModel {
     dataQuality: Record<string, unknown>;
     backtestSummary: Record<string, unknown>;
   };
+  /** Сырой блок explainability прогноза (snake_case с API). */
+  forecastExplainability: Record<string, unknown>;
   qualityGate: {
     status: "passed" | "warning" | "failed";
     reasons: string[];
@@ -184,6 +241,8 @@ export interface TracePanelModel {
   /** Optional pipeline timeline (demo / extended diagnostics). */
   steps: TraceStep[];
   logs: TraceLogLine[];
+  /** Поверхность данных после enrich контекста (см. POST /analytics/run `resolved_source_table`). */
+  resolvedSourceTable?: string;
 }
 
 /** NotebookHeader */
@@ -268,12 +327,18 @@ export interface TracePanelProps {
 export interface ConfidenceBadgeProps {
   value: number;
   className?: string;
+  /** Компактный вид: только проценты, меньше отступы (для сводок trace). */
+  compact?: boolean;
 }
 
 export interface ValidationBadgeProps {
   ok: boolean;
   label?: string;
   className?: string;
+  /** Компактный вид для плотных карточек. */
+  compact?: boolean;
+  /** Для ошибок валидации — красная семантика вместо предупреждающей. */
+  danger?: boolean;
 }
 
 export interface ChartTypeSwitcherProps {

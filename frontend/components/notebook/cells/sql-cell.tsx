@@ -1,7 +1,22 @@
 import type { SqlCellProps } from "@/lib/notebook/block-types";
 import { ValidationBadge } from "@/components/notebook/validation-badge";
+import { UiStateSurface } from "@/components/ui/state-surface";
 
 export function SqlCell({ block }: SqlCellProps) {
+  if (!block.sql?.trim()) {
+    return (
+      <div className="space-y-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Предпросмотр SQL</span>
+        <UiStateSurface
+          variant="empty"
+          title="SQL пока нет"
+          description="Запрос не дошёл до генерации SQL (ожидается уточнение, ошибка валидации или сеть). Повторите запуск после исправления условий."
+          dense
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">

@@ -1,4 +1,11 @@
-import type { KpiMetric } from "@/lib/dashboard/mock-data";
+export type KpiMetric = {
+  id: string;
+  label: string;
+  value: string;
+  sub?: string;
+  delta?: string;
+  deltaPositive?: boolean;
+};
 
 export function KpiStatCard({ metric }: { metric: KpiMetric }) {
   const deltaColor =

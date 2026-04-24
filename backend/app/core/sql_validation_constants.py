@@ -119,7 +119,7 @@ ROLE_TABLE_ALLOWLIST: Dict[str, Optional[FrozenSet[str]]] = {
     "admin": None,
     "manager": None,
     "marketer": None,
-    "executive": frozenset({"anonymized_incity_orders"}),
+    "executive": frozenset({"train"}),
 }
 
 # role_key -> table -> allowed columns (None = no extra column restriction for this role)
@@ -128,7 +128,7 @@ ROLE_COLUMN_ALLOWLIST: Dict[str, Optional[Dict[str, FrozenSet[str]]]] = {
     "manager": None,
     "marketer": None,
     "executive": {
-        "anonymized_incity_orders": frozenset(
+        "train": frozenset(
             {
                 "city_id",
                 "offset_hours",

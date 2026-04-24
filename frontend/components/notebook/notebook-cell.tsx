@@ -10,6 +10,7 @@ import { PromptCell } from "@/components/notebook/cells/prompt-cell";
 import { SqlCell } from "@/components/notebook/cells/sql-cell";
 import { TableCell } from "@/components/notebook/cells/table-cell";
 import { TraceSummaryCell } from "@/components/notebook/cells/trace-summary-cell";
+import { Badge } from "@/components/ui/badge";
 
 const TYPE_LABEL: Record<NotebookBlock["type"], string> = {
   prompt: "Промпт",
@@ -95,12 +96,23 @@ export function NotebookCell({
 }: NotebookCellProps) {
   const runnable = canRun(block);
   const running = block.status === "running";
+  /** Уточнение: «running» после клика = второй проход pipeline; без busy это зависшее состояние — не показываем ложный «ожидайте». */
+  const showRunningBanner =
+    running && (block.type !== "clarification" || Boolean(clarificationBusy));
   const failed = block.status === "error";
+  const success = block.status === "success";
+  const runAccent = failed
+    ? "border-l-danger"
+    : running
+      ? "border-l-brand-500"
+      : success
+        ? "border-l-emerald-500"
+        : "border-l-transparent";
 
   return (
     <article
       id={block.type === "clarification" ? "notebook-clarification-cell" : undefined}
-      className="surface-content group p-4 transition hover:border-brand-200/70 hover:shadow-soft"
+      className={`surface-content group border-l-4 ${runAccent} p-4 shadow-xs transition hover:shadow-soft`.trim()}
     >
       <div className="flex gap-3 sm:gap-4">
         <div className="flex w-8 shrink-0 flex-col items-center pt-0.5 sm:w-9">
@@ -111,9 +123,7 @@ export function NotebookCell({
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <span className="rounded-full border border-border-subtle bg-surface-muted px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-foreground-secondary">
-              {TYPE_LABEL[block.type]}
-            </span>
+            <Badge tone="neutral">{TYPE_LABEL[block.type]}</Badge>
             {runnable && onRunCell ? (
               <div className="w-full sm:w-auto">
                 <RunCellButton onClick={() => onRunCell(block.id)} loading={running} disabled={running} />
@@ -122,8 +132,29 @@ export function NotebookCell({
           </div>
 
           {failed && block.errorMessage ? (
-            <div className="rounded-control border border-danger/25 bg-danger-soft px-3 py-2 text-xs text-danger-bold">
-              {block.errorMessage}
+            <div className="enterprise-state-error text-xs text-danger-bold">
+              <p className="font-semibold">Ошибка ячейки</p>
+              <p className="mt-1 text-sm">{block.errorMessage}</p>
+            </div>
+          ) : null}
+
+          {showRunningBanner ? (
+            <div
+              className="rounded-control border border-brand-200/90 bg-brand-50/60 px-3 py-2 text-xs text-brand-950"
+              role="status"
+              aria-live="polite"
+            >
+              {block.type === "clarification" ? (
+                <>
+                  <span className="font-semibold">Продолжаем аналитику</span> — выбранный вариант учтён, выполняется
+                  повторный запуск pipeline (SQL, таблица, график). При работе через LLM это часто{" "}
+                  <span className="whitespace-nowrap">30 с — 2 мин.</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">Выполняется</span> — ожидайте ответ pipeline…
+                </>
+              )}
             </div>
           ) : null}
 

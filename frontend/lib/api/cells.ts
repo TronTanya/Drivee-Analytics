@@ -10,6 +10,90 @@ import type {
   RunNotebookAnalyticsResponseDto
 } from "@/types/api/cells";
 
+function normalizeAnalyticsResponse(resp: RunNotebookAnalyticsResponseDto): RunNotebookAnalyticsResponseDto {
+  const cells = Array.isArray(resp.cells) ? [...resp.cells] : [];
+  const hasType = (t: NotebookCellDto["type"]) => cells.some((c) => c.type === t);
+
+  if (!hasType("prompt") && typeof resp.question === "string" && resp.question.trim()) {
+    cells.unshift({
+      id: `prompt-${Date.now()}`,
+      notebook_id: resp.notebook_id,
+      type: "prompt",
+      content: resp.question.trim()
+    });
+  }
+
+  if (!hasType("trace")) {
+    const interpreted = typeof resp.interpreted_query === "string" ? resp.interpreted_query.trim() : "";
+    const summary = interpreted || "Интерпретация запроса";
+    cells.push({
+      id: `trace-${Date.now()}`,
+      notebook_id: resp.notebook_id,
+      type: "trace",
+      content: summary,
+      payload: {
+        summary,
+        interpreted_intent: interpreted,
+        confidence: typeof resp.confidence === "number" ? resp.confidence : undefined,
+        warnings: Array.isArray((resp.trace as { warnings?: string[] } | undefined)?.warnings)
+          ? (resp.trace as { warnings?: string[] }).warnings
+          : []
+      }
+    });
+  }
+
+  if (!hasType("sql") && typeof resp.safe_sql === "string" && resp.safe_sql.trim()) {
+    cells.push({
+      id: `sql-${Date.now()}`,
+      notebook_id: resp.notebook_id,
+      type: "sql",
+      content: resp.safe_sql
+    });
+  }
+
+  if (
+    !hasType("table") &&
+    resp.table &&
+    Array.isArray(resp.table.columns) &&
+    resp.table.columns.length > 0 &&
+    Array.isArray(resp.table.rows)
+  ) {
+    cells.push({
+      id: `table-${Date.now()}`,
+      notebook_id: resp.notebook_id,
+      type: "table",
+      content: JSON.stringify(resp.table),
+      payload: resp.table
+    });
+  }
+
+  const traceClar =
+    resp.trace && typeof resp.trace === "object" && "clarification_requested" in resp.trace
+      ? Boolean((resp.trace as { clarification_requested?: boolean }).clarification_requested)
+      : false;
+
+  if (!hasType("chart") && resp.chart && typeof resp.chart === "object" && !traceClar) {
+    cells.push({
+      id: `chart-${Date.now()}`,
+      notebook_id: resp.notebook_id,
+      type: "chart",
+      content: JSON.stringify(resp.chart),
+      payload: resp.chart as Record<string, unknown>
+    });
+  }
+
+  if (!hasType("insight") && typeof resp.insight === "string" && resp.insight.trim() && !traceClar) {
+    cells.push({
+      id: `insight-${Date.now()}`,
+      notebook_id: resp.notebook_id,
+      type: "insight",
+      content: resp.insight.trim()
+    });
+  }
+
+  return { runtime_mode: "live", ...resp, cells };
+}
+
 export async function fetchNotebookCells(notebookId: string): Promise<NotebookCellDto[]> {
   return requestJson({
     path: `/api/v1/notebooks/${encodeURIComponent(notebookId)}/cells`,
@@ -81,6 +165,7 @@ export async function runNotebookCell(
             backtest_summary: {},
             data_quality: {}
           },
+          forecast_explainability: {},
           quality_gate: {
             status: "passed",
             reasons: []
@@ -103,13 +188,19 @@ export async function runNotebookAnalytics(
   body: RunNotebookAnalyticsRequestDto
 ): Promise<RunNotebookAnalyticsResponseDto> {
   if (shouldForceAnalyticsMock()) {
-    return mockRunAnalytics(body);
+    const mockResp = await mockRunAnalytics(body);
+    return { ...normalizeAnalyticsResponse(mockResp), runtime_mode: "mock-only" };
   }
-  return requestJson({
+  let runtimeMode: "live" | "fallback" | "mock-only" = "live";
+  const liveResp = await requestJson({
     path: "/api/v1/analytics/run",
     init: { method: "POST", body: JSON.stringify(body) },
     mock: () => mockRunAnalytics(body),
+    onMockUsed: (mode) => {
+      runtimeMode = mode;
+    },
     /** При профиле fallback (в т.ч. demo по умолчанию) — только после сетевой/5xx/401 ошибки, не вместо успешного live. */
     allowFallback: isApiMockFallback()
   });
+  return { ...normalizeAnalyticsResponse(liveResp), runtime_mode: runtimeMode };
 }

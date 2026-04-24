@@ -9,5 +9,4 @@ export * from "@/hooks/api/use-forecast";
 export * from "@/hooks/api/use-history";
 export * from "@/hooks/api/use-notebooks";
 export * from "@/hooks/api/use-reports";
-export * from "@/hooks/api/use-schedules";
 export * from "@/hooks/api/use-templates";

@@ -2,7 +2,6 @@
 
 ## Stable (main demo)
 
-- `frontend/app/(platform)/demo-router/page.tsx`
 - `frontend/app/(platform)/notebooks/page.tsx`
 - `frontend/app/(platform)/notebooks/[id]/page.tsx`
 - `frontend/components/notebook/*`
@@ -27,7 +26,7 @@
 
 ## Removed from main path
 
-- AutoML/forecast/data-upload are removed from primary nav entrypoint and moved to advanced links in demo-router.
+- AutoML/forecast/data-upload are removed from primary nav entrypoint and moved to advanced links (`PLATFORM_ADVANCED_NAV` in `frontend/lib/navigation/config.ts`).
 
 ## Demo profile (честный режим)
 
@@ -42,5 +41,5 @@
 
 ## Данные для live-SQL
 
-После **`make seed`** в `anonymized_incity_orders` загружаются тысячи строк с префиксом **`DEMO-`** (несколько `city_id`, окна по датам, `order_channel`, статусы и суммы) — см. **`docs/demo-analytics-dataset.md`**. Это снимает ощущение «игрушечного» графика на четырёх bootstrap-строках при демонстрации агрегатов и шаблонов.
+После **`make seed`** в факт-таблицу заказов (и тем самым в **`public.train`**) загружаются тысячи строк с префиксом **`DEMO-`** (несколько `city_id`, окна по датам, `order_channel`, статусы и суммы) — см. **`docs/demo-analytics-dataset.md`**. Это снимает ощущение «игрушечного» графика на четырёх bootstrap-строках при демонстрации агрегатов и шаблонов.
 

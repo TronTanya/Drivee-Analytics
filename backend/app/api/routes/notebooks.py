@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 
 from app.api.deps import get_current_active_user, get_notebook_service
 from app.models.user import User
@@ -16,6 +16,7 @@ from app.schemas.notebook import (
     NotebookPatchRequest,
     NotebookSaveScenarioRequest,
     RerunNotebookResponse,
+    RunCellRequest,
     RunCellResponse,
     SaveNotebookResponse,
 )
@@ -75,10 +76,11 @@ def add_cell(
 def run_cell(
     notebook_id: uuid.UUID,
     cell_id: uuid.UUID,
+    body: RunCellRequest | None = Body(default=None),
     user: User = Depends(get_current_active_user),
     service: NotebookService = Depends(get_notebook_service),
 ) -> RunCellResponse:
-    return service.run_cell(user, notebook_id, cell_id)
+    return service.run_cell(user, notebook_id, cell_id, body)
 
 
 @router.post("/{notebook_id}/rerun", response_model=RerunNotebookResponse)

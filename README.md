@@ -2,7 +2,20 @@
 
 AI-first analytics workspace в формате notebook: от вопроса на естественном языке до SQL, таблиц, графиков, прогноза и explainability trace. Репозиторий упакован как **demo-ready MVP** с реалистичным демо-датасетом и прозрачным описанием границ продукта.
 
-**Документация:** [Архитектура](docs/architecture.md) · [Демо-скрипт](docs/demo-script.md) · [Демо-датасет](docs/demo-analytics-dataset.md) · [Защита / режимы](docs/demo-defense.md) · [Roadmap улучшений](docs/improvement-roadmap.md) · [Docker](DOCKER.md)
+### Демо-доступ: логины и пароль
+
+После **`make seed`** или `python scripts/seed_demo_data.py` из каталога **`backend/`** на форме входа в поле email вводите адрес ниже. **Пароль для всех учётных записей:** `demo123`.
+
+| Логин (email) | Роль |
+|---------------|------|
+| `admin@drivee.local` | admin |
+| `manager@drivee.local` | manager |
+| `marketer@drivee.local` | marketer |
+| `executive@drivee.local` | executive |
+
+Нюансы (старый bootstrap, обновление хеша пароля): [docs/demo-users-credentials.md](docs/demo-users-credentials.md).
+
+**Документация:** [Архитектура](docs/architecture.md) · [Демо-скрипт](docs/demo-script.md) · [Демо-датасет](docs/demo-analytics-dataset.md) · [Защита / режимы](docs/demo-defense.md) · [Контракты и runtime-режимы](docs/domain-contracts-and-runtime-modes.md) · [Roadmap улучшений](docs/improvement-roadmap.md) · [QA gate](docs/release-gate-checklist.md) · [Docker](DOCKER.md)
 
 ---
 
@@ -43,7 +56,7 @@ Drivee объединяет:
 | Область | Возможности |
 |---------|-------------|
 | **Аналитика в notebook** | Промпт на русском (и др.) → интерпретация intent → семантика → SQL → валидация → выполнение в PostgreSQL → таблица → рекомендация графика → инсайт; опционально forecast sidecar. |
-| **Данные** | Каноническая таблица `public.anonymized_incity_orders` (в т.ч. `order_channel`, города, окна по датам); CSV upload → staging; DS-метрики и прогноз по рядам. |
+| **Данные** | Канонический аналитический источник **`public.train`** (VIEW над факт-таблицей заказов; те же колонки: `order_channel`, города, окна по датам); CSV upload → staging; DS-метрики и прогноз по рядам. |
 | **Демо-объём** | После `make seed` — тысячи синтетических строк `DEMO-*` (~9 недель, несколько городов и каналов); см. [demo-analytics-dataset.md](docs/demo-analytics-dataset.md). |
 | **Роли** | Admin / Manager / Marketer / Executive — разные дашборды и ограничения SQL по роли (см. guardrails). |
 | **Артефакты** | Ноутбуки и ячейки в БД; сохранённые отчёты (`saved_reports`), расписания у отчёта (`report_schedules`), каталог шаблонов (`query_templates`), история NL→SQL (`nl_queries_history`). |
@@ -56,7 +69,7 @@ Drivee объединяет:
 
 | Сценарий | Где в UI | Что проверяется |
 |----------|-----------|-----------------|
-| Быстрый вопрос по операциям | `/demo-router` → `/notebooks/ops-health` | NL→SQL, таблица, график, trace, live или fallback. |
+| Быстрый вопрос по операциям | `/notebooks` → `/notebooks/ops-health` | NL→SQL, таблица, график, trace, live или fallback. |
 | Уточнение (clarification) | `/notebooks/clarification-demo` или явно двусмысленный промпт | Вопрос пользователю, опции, без «угадайки» SQL. |
 | Follow-up в диалоге | `/notebooks/follow-up-demo` | Переписанный запрос, наследование фильтров/окна. |
 | Сохранение отчёта и PDF | Ячейка ноутбука → `/reports` | `saved_reports`, скачивание PDF (в т.ч. локальные снимки при ограничениях). |
@@ -65,7 +78,7 @@ Drivee объединяет:
 | Роли и дашборды | `/dashboard/*` | Навигация и KPI-карточки (часть данных — демо-уровень). |
 | Словарь | `/dictionary` | Чтение терминов (backend: минимальный `meta/dictionary` или мок — см. ограничения). |
 | Загрузка данных | `/data-upload` | Цепочка upload → import → staging. |
-| Защита (четыре опорных кейса) | `/demo-router` + промпты из `frontend/lib/demo/defense-scenarios.ts` | Маркеры в истории `defense_scenario_id`. |
+| Защита (четыре опорных кейса) | `/notebooks` + промпты из `frontend/lib/demo/defense-scenarios.ts` | Маркеры в истории `defense_scenario_id`. |
 
 Пошаговый сценарий экрана: **[docs/demo-script.md](docs/demo-script.md)**. Режимы Live/mock: **[docs/demo-defense.md](docs/demo-defense.md)**.
 
@@ -75,6 +88,8 @@ Drivee объединяет:
 - **Manager** — ops / KPI, гео и SLA-вопросы.
 - **Marketer** — заказы, отмены, завершения, цены по `city_id` / каналам.
 - **Executive** — обзор KPI; SQL ограничен набором колонок для роли (см. `sql_validation_constants.py`).
+
+**Демо-логины и пароль** — см. блок в начале README; подробнее (bootstrap, caveats): [docs/demo-users-credentials.md](docs/demo-users-credentials.md).
 
 ## 8) Архитектура
 
@@ -90,7 +105,7 @@ flowchart TB
     EXE[SQLExecution → PostgreSQL]
   end
   subgraph db["PostgreSQL"]
-    ORD[(anonymized_incity_orders)]
+    ORD[(public.train)]
     ART[(notebooks · reports · templates · history)]
   end
   NB --> R
@@ -118,7 +133,7 @@ flowchart TB
 5. **Clarification** — если запрос неоднозначен, ветка уточнения **до** генерации финального SQL (`ClarificationEngine`).
 6. **SQL generation** — сборка SELECT по intent, `source_table`, метрикам (`SQLGenerationService`).
 7. **Corrections** — при наличии подходящего исправления в `query_corrections` возможна подмена SQL с пометкой в trace.
-8. **Validation** — policy: whitelist таблиц/схем/колонок, запреты (в т.ч. `SELECT *` при настройке), обязательный LIMIT для части intent, проверка JOIN/рисков (`SQLValidatorService`).
+8. **Validation** — policy: whitelist таблиц (**`train`**, staging **`user_staging`** по паттерну из конфига), схем/колонок, запреты (в т.ч. `SELECT *` при настройке), обязательный LIMIT для части intent, проверка JOIN/рисков (`SQLValidatorService`).
 9. **Execution** — PostgreSQL с таймаутом и лимитом строк либо mock (`SQLExecutionService`, `MOCK_MODE`).
 10. **Chart recommendation** — эвристики по форме результата и intent (`ChartRecommendationService`).
 11. **Insight + forecast** — LLM-инсайт с fallback; при необходимости sidecar прогноза по рядам.
@@ -126,7 +141,7 @@ flowchart TB
 
 ## 10) Как устроены guardrails
 
-- **Whitelist** физических таблиц (`anonymized_incity_orders`, staging `user_staging.t_*`) и **колонок** в SQL (глобальный список + ужатие для executive): конфиг `app/core/config.py`, константы `sql_validation_constants.py`.
+- **Whitelist** физических таблиц для пользовательского SQL: **`train`**, staging `user_staging.t_*` (паттерн из конфига); факт-хранилище под VIEW `train` не входит в whitelist и не фигурирует в NL→SQL. Детали: `app/core/config.py`, `sql_validation_constants.py`.
 - **Роль** передаётся в валидатор: разные профили доступа к колонкам/таблицам.
 - **Лимиты** — `sql_default_limit`, обязательный LIMIT для ряда intent (`ranking`, `comparison`, …).
 - **Таймаут** выполнения SQL в БД (`sql_timeout_seconds`).
@@ -146,6 +161,31 @@ flowchart TB
 В БД при seed создаются **`semantic_terms` / синонимы** для demo-workspace (согласованность с onboarding и админскими сценариями).
 
 Ограничения отображения словаря в UI см. в разделе **«Ограничения MVP»** ниже.
+
+### Семантика `train`: канонические метрики → SQL-фрагмент → колонки
+
+Источник правды для синонимов и примеров — **`backend/app/data/semantic_dictionary.json`**. Ниже — сжатая карта ключевых метрик (алиас в запросах — **`a`**). Колонок, которых нет в `train` (регион, тариф, название города и т.п.), в слое нет.
+
+| Ключ метрики | SQL-выражение (фрагмент) | Колонки / смысл |
+|--------------|---------------------------|-------------------|
+| `train_row_count` | `COUNT(*)` | все строки выборки (заказ×тендер) |
+| `orders_count` | `COUNT(*)` | то же число строк; для «уникальных заказов» см. `distinct_orders` |
+| `distinct_orders` | `COUNT(DISTINCT a.order_id)` | `order_id` |
+| `tenders_count` | `COUNT(DISTINCT a.tender_id)` | `tender_id` |
+| `done_rides` | `COUNT(CASE WHEN a.driverdone_timestamp IS NOT NULL THEN 1 END)` | `driverdone_timestamp` |
+| `done_conversion` | завершённые / `COUNT(*)` | см. notes в JSON |
+| `client_cancellations` / `driver_cancellations` / `cancellations_total` | CASE по `clientcancel_timestamp` / `drivercancel_timestamp` / OR | соответствующие timestamp |
+| `cancellation_rate` | отмены / `COUNT(*)` | как `cancellations_total` к числу строк |
+| `sum_order_price` | `SUM(a.price_order_local)` | `price_order_local` |
+| `avg_order_price` | `AVG(a.price_order_local)` | `price_order_local` |
+| `avg_duration_seconds` | `AVG(a.duration_in_seconds)` | `duration_in_seconds` |
+| `avg_distance_meters` | `AVG(a.distance_in_meters)` | `distance_in_meters` |
+
+**Измерения (GROUP BY):** `city_id`, `order_channel`, `status_order`, `status_tender`, `offset_hours`; при необходимости техники — `user_id`, `driver_id` (для ролей вне admin/manager в SELECT действуют ограничения, см. `SQL_SENSITIVE_COLUMNS`).
+
+**Период:** задаётся интерпретацией запроса (`order_timestamp`) и фильтрами вроде `previous_week` / `yesterday` (см. `SQLGenerationService._build_time_filter`).
+
+Дополнение пустого словаря из кода: **`SemanticDictionaryStore.bootstrap_from_train()`** — кортеж **`_TRAIN_BOOTSTRAP_TERMS`** в `backend/app/services/semantic_layer/store.py` (синхронизирован с основными терминами `train`).
 
 ## 12) Как работают clarification и confidence
 
@@ -177,6 +217,7 @@ flowchart TB
 - **DS:** профилирование загрузок, агрегаты, прогноз, текстовые инсайты; связь с notebook workflow.
 - **Правила честности рядов (forecast):** `orders_count` как `COUNT(DISTINCT order_id)` по дням; `done_rides` по `driverdone_timestamp`; `cancellations_total` без двойного счёта при двух timestamp; caps и winsorization — см. метаданные trace / `DS_METRIC_CAPS`.
 - **CSV ingestion:** upload → preview → inferred schema → import job → staging → привязка к контексту notebook.
+- **Единый слой для NL→SQL и ячеек:** при отсутствии явного `source_table` в контексте notebook оркестрация использует **`DS_DEFAULT_SOURCE_TABLE`** (по умолчанию `public.train`). Флаг **`DS_IMPLICIT_SOURCE_USE_LATEST_STAGING`** (по умолчанию `false`) отключает автоподстановку «последнего staging» после импорта CSV — иначе цифры могли бы расходиться между страницами без явного выбора источника. В снимок ячейки (`context_snapshot_json`) пишется `source_table` после разрешения контекста, чтобы отчёты и повторные прогоны оставались на том же поверхности. Карточки ролевых дашбордов по умолчанию показывают объёмы артефактов workspace (ноутбуки, отчёты и т.д.), а не отдельный live-SQL KPI по `train`; согласованные KPI по данным заказов получаются через notebook, шаблоны и сохранённые отчёты на `train`.
 - **Forecast:** horizon, baseline/low/high; в trace `forecast_mode`.
 
 ## 17) PostgreSQL: ключевые группы таблиц
@@ -187,15 +228,15 @@ flowchart TB
 - **Шаблоны и отчёты:** `query_templates`, `saved_reports`, `report_schedules`
 - **Дашборды:** `dashboards`, `dashboard_widgets`
 - **DS:** `uploaded_files`, `data_import_jobs`, `inferred_schemas`, `forecast_runs`, `forecast_results`
-- **Канонический источник аналитики:** `anonymized_incity_orders` (+ `order_channel`, см. bootstrap и [demo-analytics-dataset.md](docs/demo-analytics-dataset.md))
+- **Канонический источник аналитики:** **`public.train`** (+ `order_channel`, см. bootstrap и [demo-analytics-dataset.md](docs/demo-analytics-dataset.md))
 
 ## 18) Маршруты frontend
 
 - Auth: `/login`, `/register`
-- Demo hub: `/demo-router`
-- Dashboards: `/dashboard/admin|manager|marketer|executive`
+- После входа: `/notebooks` (список сценариев)
+- Dashboards: `/dashboard/admin|manager|marketer|executive` (блок KPI по **`public.train`**: `GET /api/v1/workspaces/{id}/dashboards/train-summary`)
 - Notebook: `/notebooks`, `/notebooks/[id]`
-- Система: `/reports`, `/history`, `/templates`, `/dictionary`, `/data-upload`, `/settings`, `/forecast-lab`
+- Система: `/reports`, `/history`, `/templates`, `/dictionary` (admin), `/corrections` (admin), `/data-upload`, `/settings`, `/forecast-lab`
 
 ## 19) Как запускать локально
 
@@ -297,7 +338,7 @@ Trace panel: intent, entities, semantic terms, SQL, validation, confidence, fore
 
 ### 7. Качество демо (0–5)
 
-`/demo-router`, сценарии защиты, честное описание live vs mock в `demo-defense.md` и §24 настоящего README.
+`/notebooks`, сценарии защиты, честное описание live vs mock в `demo-defense.md` и §24 настоящего README.
 
 ### 8. Отчёты и расписания (0–5)
 
@@ -334,7 +375,7 @@ SELECT
     WHERE clientcancel_timestamp IS NOT NULL
        OR drivercancel_timestamp IS NOT NULL
   )::bigint AS cancellations
-FROM public.anonymized_incity_orders
+FROM public.train
 WHERE order_timestamp >= current_date - interval '7 day'
 GROUP BY 1
 ORDER BY 2 DESC;
@@ -352,7 +393,7 @@ ORDER BY 2 DESC;
 {
   "schema_version": 1,
   "interpreted_intent": "comparison · client_cancellations",
-  "tables_used": ["anonymized_incity_orders"],
+  "tables_used": ["train"],
   "validation_status": "passed",
   "confidence": 0.86,
   "clarification_requested": false,
