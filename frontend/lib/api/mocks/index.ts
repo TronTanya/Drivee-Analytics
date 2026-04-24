@@ -262,7 +262,13 @@ export async function mockListNotebooks(): Promise<NotebookListItemDto[]> {
 export async function mockGetNotebook(id: string): Promise<NotebookDetailDto> {
   const list = await mockListNotebooks();
   const base = list.find((n) => n.id === id) ?? list[0];
-  return { ...base, description: "Детали сценария", tags: ["scenario"] };
+  return {
+    ...base,
+    description: "Детали сценария",
+    tags: ["scenario"],
+    context_chain_json: {},
+    cells: []
+  };
 }
 
 export async function mockListCells(notebookId: string): Promise<NotebookCellDto[]> {

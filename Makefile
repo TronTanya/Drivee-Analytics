@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell restart-stack smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live
 
 up:
 	$(DC) up --build
@@ -31,6 +31,12 @@ frontend-shell:
 
 postgres-shell:
 	$(DC) exec postgres psql -U $${POSTGRES_USER:-drivee} -d $${POSTGRES_DB:-drivee_analytics}
+
+# Без этого при `docker compose restart` фронт поднимается раньше uvicorn (миграции/импорт train) → прокси 500.
+restart-stack:
+	$(DC) stop frontend || true
+	$(DC) restart postgres backend
+	$(DC) up -d frontend
 
 smoke:
 	$(DC) run --rm backend python -m pytest -m smoke -q

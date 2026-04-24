@@ -24,7 +24,6 @@ const RU = {
   nav_dictionary: "Словарь",
   nav_corrections: "Коррекции",
   nav_settings: "Настройки",
-  nav_quality: "Quality Center",
   nav_dashboard: "Дашборд",
 
   settings_page_title: "Настройки",
@@ -80,7 +79,6 @@ const EN: Record<keyof typeof RU, string> = {
   nav_dictionary: "Dictionary",
   nav_corrections: "Corrections",
   nav_settings: "Settings",
-  nav_quality: "Quality Center",
   nav_dashboard: "Dashboard",
 
   settings_page_title: "Settings",
@@ -126,8 +124,7 @@ export const NAV_LABEL_KEY: Partial<Record<string, UiMessageKey>> = {
   "/history": "nav_history",
   "/dictionary": "nav_dictionary",
   "/corrections": "nav_corrections",
-  "/settings": "nav_settings",
-  "/quality": "nav_quality"
+  "/settings": "nav_settings"
 };
 
 export function uiMessage(locale: UiLocale, key: UiMessageKey): string {

@@ -14,9 +14,19 @@ export type NotebookListItemDto = {
   role_hint?: UserRole;
 };
 
+/** Ячейки из GET /notebooks/{id} (серверная модель, не DTO канвы analytics). */
+export type NotebookServerCellDto = {
+  id: string;
+  cell_type: string;
+  position: number;
+  prompt_text?: string | null;
+};
+
 export type NotebookDetailDto = NotebookListItemDto & {
   description?: string;
   tags?: string[];
+  context_chain_json?: Record<string, unknown>;
+  cells?: NotebookServerCellDto[];
 };
 
 export type CreateNotebookRequestDto = {

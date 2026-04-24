@@ -53,6 +53,11 @@ import type { ChartKind, NotebookBlock, PromptBlock, TracePanelModel } from "@/l
 import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
 import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
+import {
+  clearNotebookPromptDraft,
+  loadNotebookPromptDraft,
+  saveNotebookPromptDraft
+} from "@/lib/notebook/notebook-prompt-draft";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
 import { EMPTY_TRACE, traceFromAnalyticsRun } from "@/lib/notebook/trace-model";
 import {
@@ -631,6 +636,7 @@ export default function NotebookDetailsPage() {
   const templatePromptHydratedRef = useRef(false);
   const templateAutorunRef = useRef(false);
   const persistedPromptHydratedRef = useRef(false);
+  const localDraftHydratedRef = useRef(false);
   const forecastRunSeqRef = useRef(0);
   const clarificationSubmitLockRef = useRef(false);
   const pendingAnalyticsOptsRef = useRef<NotebookAnalyticsRunOptions>({});
@@ -638,6 +644,8 @@ export default function NotebookDetailsPage() {
   const [backendHealth, setBackendHealth] = useState<"checking" | "up" | "down">("checking");
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealthModel | null>(null);
+  /** После гидрации с сервера/шаблона/черновика — чтобы не перезаписать localStorage пустым при старте. */
+  const [draftSaveEnabled, setDraftSaveEnabled] = useState(false);
   const createReport = useCreateReport();
   const meQuery = useCurrentUser();
   const { session } = useSession();
@@ -656,12 +664,59 @@ export default function NotebookDetailsPage() {
   const busyAnalyticsHint = useAnalyticsBusyPhaseHint(composerBusy || runAllLoading);
   const headerRunState = pageError ? "failed" : composerBusy || runAllLoading ? "running" : "idle";
   const canPersistNotebook = useMemo(() => isUuidString(notebookId), [notebookId]);
-  const persistedScenarioPrompt = useMemo(() => {
-    const raw = (notebookMetaQuery.data as { context_chain_json?: { scenario?: { description?: string | null } } } | undefined)
-      ?.context_chain_json?.scenario?.description;
-    const text = typeof raw === "string" ? raw.trim() : "";
-    return text || null;
+  /** Промпт с сервера: снимок сценария, последний успешный запрос или последняя prompt-ячейка. */
+  const serverRestoredPrompt = useMemo(() => {
+    const data = notebookMetaQuery.data;
+    if (!data) return null;
+    const chain = data.context_chain_json;
+    const scenarioDesc = chain && typeof chain === "object" ? (chain as { scenario?: { description?: unknown } }).scenario?.description : undefined;
+    if (typeof scenarioDesc === "string" && scenarioDesc.trim()) return scenarioDesc.trim();
+    const lastUser =
+      chain && typeof chain === "object" ? (chain as { last_user_query?: unknown }).last_user_query : undefined;
+    if (typeof lastUser === "string" && lastUser.trim()) return lastUser.trim();
+    const cells = data.cells;
+    if (Array.isArray(cells) && cells.length) {
+      const prompts = cells.filter((c) => c.cell_type === "prompt" && typeof c.prompt_text === "string" && c.prompt_text.trim());
+      const byPos = [...prompts].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const last = byPos[byPos.length - 1];
+      if (last?.prompt_text?.trim()) return last.prompt_text.trim();
+    }
+    return null;
   }, [notebookMetaQuery.data]);
+
+  const firstPromptText = useMemo(() => {
+    const p = blocks.find((b) => b.type === "prompt");
+    return p && p.type === "prompt" ? p.text : "";
+  }, [blocks]);
+
+  useEffect(() => {
+    setDraftSaveEnabled(false);
+  }, [notebookId]);
+
+  useEffect(() => {
+    if (boot !== "ready") return;
+    if (useDeterministicFallback) {
+      setDraftSaveEnabled(false);
+      return;
+    }
+    if (!canPersistNotebook) {
+      const t = window.setTimeout(() => setDraftSaveEnabled(true), 550);
+      return () => window.clearTimeout(t);
+    }
+    if (!notebookMetaQuery.isFetched) return;
+    const t = window.setTimeout(() => setDraftSaveEnabled(true), 550);
+    return () => window.clearTimeout(t);
+  }, [boot, notebookId, canPersistNotebook, notebookMetaQuery.isFetched, useDeterministicFallback]);
+
+  useEffect(() => {
+    if (!draftSaveEnabled) return;
+    if (useDeterministicFallback) return;
+    if (typeof window === "undefined") return;
+    const t = window.setTimeout(() => {
+      saveNotebookPromptDraft(notebookId, { cell: firstPromptText, composer });
+    }, 450);
+    return () => window.clearTimeout(t);
+  }, [draftSaveEnabled, notebookId, firstPromptText, composer, useDeterministicFallback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -683,7 +738,7 @@ export default function NotebookDetailsPage() {
             {
               id: `${notebookId}-prompt-init`,
               type: "prompt",
-              text: "Покажи топ-5 городов по отменам за последние 7 дней",
+              text: "",
               status: "idle"
             }
           ]);
@@ -857,6 +912,7 @@ export default function NotebookDetailsPage() {
     templatePromptHydratedRef.current = false;
     templateAutorunRef.current = false;
     persistedPromptHydratedRef.current = false;
+    localDraftHydratedRef.current = false;
     demoCaseHydratedRef.current = false;
     setPendingTemplateAutorun(null);
   }, [notebookId]);
@@ -864,16 +920,62 @@ export default function NotebookDetailsPage() {
   useEffect(() => {
     if (boot !== "ready" || persistedPromptHydratedRef.current) return;
     if (templatePromptHydratedRef.current) return;
-    if (!persistedScenarioPrompt) return;
+    if (!serverRestoredPrompt) return;
     persistedPromptHydratedRef.current = true;
-    setComposer(persistedScenarioPrompt);
+    setComposer(serverRestoredPrompt);
     setBlocks((prev) => {
       if (prev.length === 1 && prev[0]?.type === "prompt") {
-        return [{ ...prev[0], text: persistedScenarioPrompt, status: "idle" }];
+        return [{ ...prev[0], text: serverRestoredPrompt, status: "idle" }];
       }
       return prev;
     });
-  }, [boot, persistedScenarioPrompt]);
+    clearNotebookPromptDraft(notebookId);
+  }, [boot, notebookId, serverRestoredPrompt]);
+
+  useEffect(() => {
+    if (boot !== "ready") return;
+    if (useDeterministicFallback) return;
+    if (localDraftHydratedRef.current) return;
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("template_prompt")?.trim()) {
+      localDraftHydratedRef.current = true;
+      return;
+    }
+    if (templatePromptHydratedRef.current) {
+      localDraftHydratedRef.current = true;
+      return;
+    }
+    if (persistedPromptHydratedRef.current) {
+      localDraftHydratedRef.current = true;
+      return;
+    }
+    if (serverRestoredPrompt) {
+      localDraftHydratedRef.current = true;
+      return;
+    }
+    if (canPersistNotebook && !notebookMetaQuery.isFetched) return;
+
+    const draft = loadNotebookPromptDraft(notebookId);
+    if (draft && (draft.cell.trim() || draft.composer.trim())) {
+      setBlocks((prev) => {
+        const idx = prev.findIndex((b) => b.type === "prompt");
+        if (idx === -1) return prev;
+        return prev.map((b, i) =>
+          i === idx && b.type === "prompt" ? { ...b, text: draft.cell, status: "idle" as const } : b
+        );
+      });
+      if (draft.composer.trim()) {
+        setComposer(draft.composer);
+      }
+    }
+    localDraftHydratedRef.current = true;
+  }, [
+    boot,
+    notebookId,
+    canPersistNotebook,
+    notebookMetaQuery.isFetched,
+    serverRestoredPrompt,
+    useDeterministicFallback
+  ]);
 
   useEffect(() => {
     if (boot !== "ready" || templatePromptHydratedRef.current) return;
@@ -882,6 +984,7 @@ export default function NotebookDetailsPage() {
     if (!q) return;
     const autorun = new URLSearchParams(window.location.search).get("autorun") === "1";
     templatePromptHydratedRef.current = true;
+    clearNotebookPromptDraft(notebookId);
     // Template navigation must override stale notebook draft text
     // so user always sees prompt from the selected template.
     setComposer(q);
@@ -1210,6 +1313,11 @@ export default function NotebookDetailsPage() {
         });
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.notebooks.list() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notebooks.detail(targetNotebookId) });
+      clearNotebookPromptDraft(notebookId);
+      if (autoCreated) {
+        clearNotebookPromptDraft(targetNotebookId);
+      }
       setAuthRequired(false);
       setPageNotice(
         autoCreated

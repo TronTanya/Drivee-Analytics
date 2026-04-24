@@ -45,6 +45,17 @@ services:
       && python scripts/seed_demo_data.py
       && python scripts/import_train_csv.py --path ${EXTERNAL_TRAIN_CSV_PATH:-/data/train.csv} --replace --limit ${EXTERNAL_TRAIN_CSV_LIMIT:--1}
       && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    # Пока не слушает 8000 (миграции/импорт train), фронт не должен проксировать — иначе ECONNREFUSED → 500 в браузере.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read(64)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 600s
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -61,11 +72,10 @@ services:
     restart: unless-stopped
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     environment:
-      # same-origin: браузер ходит на :3001/api/* → Next проксирует на backend (без CORS в браузере).
-      # Прямой http://localhost:8000 из браузера возможен только при явном NEXT_PUBLIC_API_URL в .env.
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-same-origin}
+      # Для долгих analytics/run избегаем таймаутов Next proxy: браузер ходит в backend напрямую.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       API_PROXY_TARGET: ${API_PROXY_TARGET:-http://backend:8000}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8000}
       NEXT_PUBLIC_API_MOCK: ${NEXT_PUBLIC_API_MOCK:-false}

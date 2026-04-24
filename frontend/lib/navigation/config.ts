@@ -14,7 +14,6 @@ export const PLATFORM_NAV: NavItem[] = [
   { href: "/templates", label: "Шаблоны", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/reports", label: "Отчеты", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/history", label: "История", roles: ["admin", "manager", "marketer", "executive"] },
-  { href: "/quality", label: "Quality Center", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/dictionary", label: "Словарь", roles: ["admin"] },
   { href: "/corrections", label: "Коррекции", roles: ["admin"] },
   { href: "/settings", label: "Настройки" }
@@ -22,6 +21,8 @@ export const PLATFORM_NAV: NavItem[] = [
 
 /** Optional/advanced modules. Keep out of the primary defense path. */
 export const PLATFORM_ADVANCED_NAV: NavItem[] = [
+  /** Не в боковом меню: оценка качества NL→SQL для админа; основной UX — «Сценарии». */
+  { href: "/quality", label: "Quality Center", roles: ["admin"] },
   { href: "/forecast-lab", label: "AutoML Lab", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/data-upload", label: "Загрузка данных", roles: ["admin", "manager", "marketer"] }
 ];

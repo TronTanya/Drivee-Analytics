@@ -9,7 +9,9 @@ const nextConfig = {
   async rewrites() {
     return [
       { source: "/api/:path*", destination: `${proxyTarget}/api/:path*` },
-      { source: "/health", destination: `${proxyTarget}/health` }
+      { source: "/health", destination: `${proxyTarget}/health` },
+      /** Ноутбук дергает `/health/runtime` с same-origin (`getApiBaseUrl()` пустой) — без rewrite Next отдаёт 404. */
+      { source: "/health/runtime", destination: `${proxyTarget}/health/runtime` }
     ];
   }
 };
