@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends
 
-from app.api.deps import get_current_active_user
+from app.api.deps import require_capability
 from app.models.user import User
 from app.schemas.evaluation_drivee_quality import (
     PromptStabilityRequest,
@@ -51,7 +51,7 @@ router = APIRouter(prefix="/evaluation", tags=["evaluation"])
 
 @router.get("/quality/summary", response_model=QualityCenterOverview)
 def quality_center_summary(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     mode: str = "deterministic",
 ) -> QualityCenterOverview:
     _ = user
@@ -63,7 +63,7 @@ def quality_center_summary(
 
 @router.get("/quality/last-run-details")
 def quality_last_run_details(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     mode: str = "deterministic",
 ) -> dict[str, Any]:
     _ = user
@@ -71,7 +71,7 @@ def quality_last_run_details(
 
 
 @router.get("/quality/repair-brief/latest", response_model=RepairBriefLatestResponse)
-def quality_repair_brief_latest(user: User = Depends(get_current_active_user)) -> RepairBriefLatestResponse:
+def quality_repair_brief_latest(user: User = Depends(require_capability("view_quality_center"))) -> RepairBriefLatestResponse:
     _ = user
     raw = get_latest_repair_brief()
     if not raw:
@@ -86,7 +86,7 @@ def quality_repair_brief_latest(user: User = Depends(get_current_active_user)) -
 
 @router.post("/quality/run", response_model=QualityCenterOverview)
 def quality_center_run(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     body: QualityCenterRunRequest = Body(default_factory=QualityCenterRunRequest),
 ) -> QualityCenterOverview:
     _ = user
@@ -123,7 +123,7 @@ def quality_center_run(
 
 @router.get("/understanding/summary", response_model=EvaluationSummary)
 def understanding_summary(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     mode: str = "deterministic",
 ) -> EvaluationSummary:
     _ = user
@@ -134,14 +134,14 @@ def understanding_summary(
 
 
 @router.get("/understanding/cases")
-def understanding_cases(user: User = Depends(get_current_active_user)) -> list[dict[str, str]]:
+def understanding_cases(user: User = Depends(require_capability("view_quality_center"))) -> list[dict[str, str]]:
     _ = user
     return load_understanding_cases_public()
 
 
 @router.post("/understanding/run", response_model=EvaluationRunResponse)
 def understanding_run(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     body: dict = Body(default_factory=dict),
 ) -> EvaluationRunResponse:
     _ = user
@@ -152,7 +152,7 @@ def understanding_run(
 
 @router.get("/visualization/summary", response_model=VisualizationSummary)
 def visualization_summary(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     mode: str = "deterministic",
 ) -> VisualizationSummary:
     _ = user
@@ -163,14 +163,14 @@ def visualization_summary(
 
 
 @router.get("/visualization/cases")
-def visualization_cases(user: User = Depends(get_current_active_user)) -> list[dict[str, str]]:
+def visualization_cases(user: User = Depends(require_capability("view_quality_center"))) -> list[dict[str, str]]:
     _ = user
     return load_visualization_cases_public()
 
 
 @router.post("/visualization/run")
 def visualization_run(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     body: dict = Body(default_factory=dict),
 ) -> dict[str, Any]:
     _ = user
@@ -181,7 +181,7 @@ def visualization_run(
 
 @router.get("/guardrails/summary", response_model=GuardrailsSummary)
 def guardrails_summary(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     mode: str = "deterministic",
 ) -> GuardrailsSummary:
     _ = user
@@ -192,14 +192,14 @@ def guardrails_summary(
 
 
 @router.get("/guardrails/cases")
-def guardrails_cases(user: User = Depends(get_current_active_user)) -> list[dict[str, str]]:
+def guardrails_cases(user: User = Depends(require_capability("view_quality_center"))) -> list[dict[str, str]]:
     _ = user
     return load_guardrails_cases_public()
 
 
 @router.post("/guardrails/run")
 def guardrails_run(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     body: dict = Body(default_factory=dict),
 ) -> dict[str, Any]:
     _ = user
@@ -210,7 +210,7 @@ def guardrails_run(
 
 @router.post("/prompt-stability", response_model=PromptStabilityResponse)
 def prompt_stability(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("view_quality_center")),
     body: PromptStabilityRequest = Body(...),
 ) -> PromptStabilityResponse:
     _ = user

@@ -4,6 +4,8 @@ import { isExplainabilityTraceV1 } from "@/types/api/trace";
 
 export const EMPTY_TRACE: TracePanelModel = {
   schemaVersion: 1,
+  languageDetected: "ru",
+  rolePolicySummaryRu: "",
   interpretedIntent: "",
   structuredInterpretation: {},
   interpretationSummaryRu: "",
@@ -23,7 +25,7 @@ export const EMPTY_TRACE: TracePanelModel = {
   clarificationQuestion: "",
   followUpContextUsed: false,
   learnedCorrectionUsed: false,
-  chartRecommendation: { chartType: "table", rationale: "", alternatives: [] },
+  chartRecommendation: { chartType: "table", rationale: "", alternatives: [], confidence: 0 },
   forecastModeActive: false,
   forecastMethod: null,
   forecastSelection: {
@@ -87,6 +89,8 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
   }));
   return {
     schemaVersion: 1,
+    languageDetected: trace.language_detected ?? "ru",
+    rolePolicySummaryRu: trace.role_policy_result_ru ?? "",
     interpretedIntent: trace.interpreted_intent ?? "",
     structuredInterpretation:
       trace.structured_interpretation && typeof trace.structured_interpretation === "object"
@@ -112,7 +116,10 @@ function mapV1(trace: AnalyticsExplainabilityTraceV1Dto): TracePanelModel {
     chartRecommendation: {
       chartType: chart.chart_type ?? "table",
       rationale: chart.rationale ?? "",
-      alternatives: chart.alternatives ?? []
+      alternatives: chart.alternatives ?? [],
+      confidence: typeof chart.confidence === "number" ? chart.confidence : undefined,
+      axesHint: chart.axes_hint ?? "",
+      seriesKeys: Array.isArray(chart.series_keys) ? chart.series_keys.map(String) : []
     },
     forecastModeActive: !!forecast.active,
     forecastMethod: forecast.method ?? null,

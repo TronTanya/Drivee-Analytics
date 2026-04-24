@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     mock_sql_execution_fallback: bool = False
     sql_default_limit: int = 1000
     sql_timeout_seconds: int = 8
+    # Аналитический MVP: по умолчанию запрещаем UNION (снижает риск обхода allowlist).
+    sql_allow_union: bool = False
     # Продуктивный режим: запрет SELECT * / alias.* (кроме COUNT(*) внутри выражений).
     sql_forbid_select_star: bool = True
     # Все обращения alias.col к физическим таблицам — только из sql_whitelist_columns.

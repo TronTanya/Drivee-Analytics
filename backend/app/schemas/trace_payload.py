@@ -20,6 +20,9 @@ class ChartRecommendationTrace(BaseModel):
     chart_type: str = "table"
     rationale: str = ""
     alternatives: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.85, ge=0.0, le=1.0, description="Уверенность рекомендации визуализации.")
+    axes_hint: str = Field(default="", description="Подсказка осей/группировки для UI.")
+    series_keys: list[str] = Field(default_factory=list, description="Колонки-метрики для серий.")
 
 
 class ForecastModeTrace(BaseModel):
@@ -63,6 +66,14 @@ class AnalyticsExplainabilityTraceV1(BaseModel):
     """Wire contract for TracePanel — versioned for forward-compatible clients."""
 
     schema_version: Literal[1] = 1
+    language_detected: str = Field(
+        default="ru",
+        description="Эвристика языка промпта (ru/en) для аудита и UX.",
+    )
+    role_policy_result_ru: str = Field(
+        default="",
+        description="Краткое резюме применённой role policy (рус.).",
+    )
     interpreted_intent: str = ""
     structured_interpretation: dict[str, Any] = Field(
         default_factory=dict,

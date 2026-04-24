@@ -32,6 +32,14 @@ OPTIONS_EFFECTIVENESS_METRICS: List[ClarificationOption] = [
     ClarificationOption(label="Время до принятия заказа", value="time_to_accept_seconds"),
 ]
 
+# Для формулировок жюри: «эффективные каналы» без явной метрики.
+OPTIONS_CHANNEL_EFFECTIVENESS: List[ClarificationOption] = [
+    ClarificationOption(label="По выручке (сумма цен заказов)", value="sum_order_price"),
+    ClarificationOption(label="По числу заказов", value="orders_count"),
+    ClarificationOption(label="По конверсии в завершённую поездку", value="done_conversion"),
+    ClarificationOption(label="По среднему чеку", value="avg_order_price"),
+]
+
 OPTIONS_TIME_GRAIN: List[ClarificationOption] = [
     ClarificationOption(label="По дням", value="day"),
     ClarificationOption(label="По неделям", value="week"),
@@ -145,6 +153,19 @@ class ClarificationEngine:
                     "Максимальная выручка, конверсия, число заказов или другой показатель из словаря метрик."
                 ),
                 clarification_options=list(OPTIONS_CHANNEL_METRICS),
+            )
+
+        if ("канал" in q or "каналы" in q) and any(
+            x in q for x in ("эффективн", "эффективные", "эффективна", "эффективных")
+        ):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="channel_effectiveness_metric_unclear",
+                clarification_question=(
+                    "Под «эффективностью каналов» что важнее: выручка, число заказов, "
+                    "конверсия в завершённую поездку или средний чек?"
+                ),
+                clarification_options=list(OPTIONS_CHANNEL_EFFECTIVENESS),
             )
 
         if any(x in q for x in ("успешн", "проблемн", "эффективн", "активн")) and nd == 0:

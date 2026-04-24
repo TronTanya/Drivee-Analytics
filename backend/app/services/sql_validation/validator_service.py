@@ -29,6 +29,7 @@ from app.services.sql_validation.sql_trust import (
     mandatory_limit_intent_set,
     scan_dangerous_constructs,
 )
+from app.services.security.sql_safety import collect_sql_mvp_safety_violations
 from app.services.sql_validation.utils import (
     apply_default_limit,
     build_alias_to_table_map,
@@ -129,6 +130,10 @@ class SQLValidatorService:
         warnings.extend(d_warn)
         if d_err:
             applied.append("dangerous_construct_blocked")
+
+        for msg in collect_sql_mvp_safety_violations(single, allow_union=bool(self._s.sql_allow_union)):
+            errors.append(msg)
+            applied.append("mvp_sql_safety")
 
         mutation_hits: List[str] = []
         for verb in sorted(BLOCKED_SQL_VERBS):

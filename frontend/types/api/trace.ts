@@ -11,6 +11,9 @@ export type AnalyticsChartRecommendationDto = {
   chart_type: string;
   rationale: string;
   alternatives: string[];
+  confidence?: number;
+  axes_hint?: string;
+  series_keys?: string[];
 };
 
 export type AnalyticsForecastModeDto = {
@@ -45,6 +48,8 @@ export type AnalyticsGuardrailsDto = {
 
 export type AnalyticsExplainabilityTraceV1Dto = {
   schema_version: 1;
+  language_detected?: string;
+  role_policy_result_ru?: string;
   interpreted_intent: string;
   structured_interpretation?: Record<string, unknown>;
   interpretation_summary_ru?: string;

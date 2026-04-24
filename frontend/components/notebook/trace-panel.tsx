@@ -82,6 +82,8 @@ function validationDerived(validationStatus: TracePanelProps["model"]["validatio
 function traceToExportJson(model: TracePanelModel): string {
   const payload = {
     schema_version: model.schemaVersion,
+    language_detected: model.languageDetected,
+    role_policy_result_ru: model.rolePolicySummaryRu,
     interpreted_intent: model.interpretedIntent,
     structured_interpretation: model.structuredInterpretation,
     interpretation_summary_ru: model.interpretationSummaryRu,
@@ -109,7 +111,10 @@ function traceToExportJson(model: TracePanelModel): string {
     chart_recommendation: {
       chart_type: model.chartRecommendation.chartType,
       rationale: model.chartRecommendation.rationale,
-      alternatives: model.chartRecommendation.alternatives
+      alternatives: model.chartRecommendation.alternatives,
+      confidence: model.chartRecommendation.confidence,
+      axes_hint: model.chartRecommendation.axesHint,
+      series_keys: model.chartRecommendation.seriesKeys
     },
     forecast_mode: { active: model.forecastModeActive, method: model.forecastMethod },
     forecast_selection: {
@@ -390,6 +395,15 @@ export function TracePanel({
   const sqlPreview = hasSql ? model.generatedSql.replace(/\s+/g, " ").trim().slice(0, 220) : "SQL отсутствует";
   const clarificationLabel = model.clarificationRequested ? "Требуется уточнение" : "Уточнение не требуется";
   const chartReason = model.chartRecommendation.rationale?.trim() || "Выбран базовый тип визуализации по форме данных.";
+  const chartAxes = model.chartRecommendation.axesHint?.trim();
+  const chartSeries =
+    model.chartRecommendation.seriesKeys && model.chartRecommendation.seriesKeys.length > 0
+      ? model.chartRecommendation.seriesKeys.join(", ")
+      : "";
+  const chartConf =
+    typeof model.chartRecommendation.confidence === "number" && model.chartRecommendation.confidence > 0
+      ? `${Math.round(model.chartRecommendation.confidence * 100)}%`
+      : "";
   const intentAccent = intentAccentFromSummaryText(summaryIntent);
   const validationAccent = validationAccentFromStatus(model.validationStatus);
   const clarificationAccent: SummaryAccent = model.clarificationRequested ? "warning" : "success";
@@ -843,8 +857,17 @@ export function TracePanel({
                   ) : null}
                 </SummaryTile>
                 <SummaryTile icon={<IconChart />} label="Почему выбран график" accent="info" className="sm:col-span-2">
-                  <p className="text-xs font-mono text-foreground-secondary">{model.chartRecommendation.chartType}</p>
+                  <p className="text-xs font-mono text-foreground-secondary">
+                    {model.chartRecommendation.chartType}
+                    {chartConf ? ` · уверенность ${chartConf}` : ""}
+                  </p>
                   <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">{chartReason}</p>
+                  {chartAxes ? (
+                    <p className="mt-1 text-[11px] leading-relaxed text-foreground-muted">
+                      Оси/серии: {chartAxes}
+                      {chartSeries ? ` · метрики: ${chartSeries}` : ""}
+                    </p>
+                  ) : null}
                 </SummaryTile>
               </div>
             </section>
@@ -869,6 +892,15 @@ export function TracePanel({
             ) : null}
             <CollapsibleSection key={`intent-${expandEpoch}`} title="Интерпретированное намерение" defaultOpen={open}>
               <p className="text-foreground">{model.interpretedIntent || "—"}</p>
+            </CollapsibleSection>
+
+            <CollapsibleSection key={`lang-role-${expandEpoch}`} title="Язык и политика роли" defaultOpen={false} muted>
+              <p className="text-xs text-foreground-secondary">
+                Язык запроса (эвристика): <span className="font-mono text-foreground">{model.languageDetected || "—"}</span>
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-foreground-secondary">
+                {model.rolePolicySummaryRu?.trim() || "Политика роли не передана в этом trace."}
+              </p>
             </CollapsibleSection>
 
             {qualityAttention ? (

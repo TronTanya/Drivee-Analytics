@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_active_user, get_user_repository, require_roles
+from app.auth.dependencies import get_current_active_user, get_user_repository, require_capability, require_roles
 from app.db.session import get_db_session
 from app.repositories.notebook_repository import NotebookRepository
 from app.repositories.role_repository import RoleRepository
@@ -19,6 +19,7 @@ __all__ = [
     "get_auth_service",
     "get_current_active_user",
     "require_roles",
+    "require_capability",
     "get_workspace_repository",
     "get_notebook_repository",
     "get_notebook_service",

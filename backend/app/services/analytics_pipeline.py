@@ -310,17 +310,33 @@ def _forecast_mode(ft: dict[str, Any], result: NaturalLanguageAnalysisResult) ->
 
 
 def _chart_rec(result: NaturalLanguageAnalysisResult, ft: dict[str, Any]) -> ChartRecommendationTrace:
+    viz = ft.get("visualization")
+    if isinstance(viz, dict):
+        return ChartRecommendationTrace(
+            chart_type=str(viz.get("recommended_chart_type") or result.chart_type or "line"),
+            rationale=str(viz.get("visualization_explanation") or result.chart_hint or ""),
+            alternatives=[str(x) for x in (viz.get("alternative_chart_types") or []) if x is not None],
+            confidence=float(viz.get("visualization_confidence") or 0.0),
+            axes_hint=str(viz.get("axes_hint") or ""),
+            series_keys=[str(x) for x in (viz.get("series_keys") or []) if x is not None],
+        )
     ch = ft.get("chart")
     if isinstance(ch, dict):
         return ChartRecommendationTrace(
             chart_type=str(ch.get("chart_type") or result.chart_type or "line"),
             rationale=str(ch.get("rationale") or result.chart_hint or ""),
             alternatives=[str(x) for x in (ch.get("alternatives") or []) if x is not None],
+            confidence=float(ch.get("confidence") or 0.0),
+            axes_hint=str(ch.get("axes_hint") or ""),
+            series_keys=[str(x) for x in (ch.get("series_keys") or []) if x is not None],
         )
     return ChartRecommendationTrace(
         chart_type=result.chart_type or "line",
         rationale=result.chart_hint or "",
         alternatives=[],
+        confidence=0.0,
+        axes_hint="",
+        series_keys=[],
     )
 
 
@@ -379,6 +395,8 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
     if not isinstance(entities, dict):
         entities = {}
     return AnalyticsExplainabilityTraceV1(
+        language_detected=str(ft.get("language_detected") or "ru"),
+        role_policy_result_ru=str(ft.get("role_policy_result_ru") or ""),
         interpreted_intent=_interpreted_intent_line(result, ft),
         structured_interpretation=dict(ft.get("structured_interpretation") or {}),
         interpretation_summary_ru=str(ft.get("interpretation_summary_ru") or ""),
@@ -588,11 +606,15 @@ def _build_forecast_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[
         except (TypeError, ValueError):
             pass
     subtext = " · ".join(parts) if parts else None
-    headline = str(explain.get("method_label_ru") or "Baseline-прогноз по ряду")
+    headline = str(explain.get("method_label_ru") or "Baseline-прогноз по ряду (7d MVP)")
+    mvp_note = (
+        "MVP: линейный baseline по историческому ряду, не production-ML; горизонт и качество зависят от полноты данных."
+    )
+    subtext_final = " · ".join([x for x in (subtext, mvp_note) if x])
     return {
         "schema_version": 1,
         "headline": headline,
-        "subtext": subtext,
+        "subtext": subtext_final,
         "horizon": horizon_label,
         "baseline": last.get("forecast_value"),
         "pessimistic": last.get("forecast_low"),
@@ -1108,6 +1130,7 @@ def run_pipeline_with_analysis(
     notebook_id: str,
     prompt: str,
     *,
+    role_key: str | None = None,
     result_limit: int | None = None,
     result_offset: int | None = None,
     force_fresh_dialogue: bool = False,
@@ -1120,6 +1143,7 @@ def run_pipeline_with_analysis(
     result = analyze_natural_language(
         prompt,
         notebook_context=_build_notebook_context_from_cells(notebook_id),
+        role_key=role_key,
         force_fresh_dialogue=force_fresh_dialogue,
         skip_learned_corrections=skip_learned_corrections,
         forecast_sidecar=forecast_sidecar,
@@ -1170,6 +1194,7 @@ def run_pipeline(
     notebook_id: str,
     prompt: str,
     *,
+    role_key: str | None = None,
     result_limit: int | None = None,
     result_offset: int | None = None,
     force_fresh_dialogue: bool = False,
@@ -1181,6 +1206,7 @@ def run_pipeline(
     resp, _result = run_pipeline_with_analysis(
         notebook_id,
         prompt,
+        role_key=role_key,
         result_limit=result_limit,
         result_offset=result_offset,
         force_fresh_dialogue=force_fresh_dialogue,

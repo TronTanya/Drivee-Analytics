@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell restart-stack smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell restart-stack demo-live smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live test-backend test-frontend test-security test-golden test-demo test-all
 
 up:
 	$(DC) up --build
@@ -38,6 +38,26 @@ restart-stack:
 	$(DC) restart postgres backend
 	$(DC) up -d frontend
 
+# Поднять стек для защиты и быстро проверить health (см. docs/DEMO_LIVE_RUNBOOK.md).
+demo-live:
+	$(DC) up -d
+	@echo ""
+	@echo "=== Drivee Analytics — demo live ==="
+	@echo "Ожидание ответа backend /health (до 120 попыток по 3s)..."
+	@i=0; until curl -sf "http://127.0.0.1:$${BACKEND_PORT:-8000}/health" >/dev/null; do \
+	  i=$$((i+1)); if [ $$i -ge 120 ]; then echo "TIMEOUT: backend /health"; exit 1; fi; \
+	  sleep 3; \
+	done
+	@echo "Backend OK."
+	@echo "Проверка frontend (HTTP HEAD)..."
+	@curl -sfI "http://127.0.0.1:$${FRONTEND_PORT:-3001}/" | head -n1
+	@echo ""
+	@echo "Откройте UI:  http://localhost:$${FRONTEND_PORT:-3001}"
+	@echo "Backend API:   http://localhost:$${BACKEND_PORT:-8000}"
+	@echo "Demo manager:  manager@drivee.local / demo123"
+	@echo "Runbook:       docs/DEMO_LIVE_RUNBOOK.md"
+	@echo ""
+
 smoke:
 	$(DC) run --rm backend python -m pytest -m smoke -q
 
@@ -56,7 +76,7 @@ test-smoke:
 
 # Стабильный NL regression suite для защиты.
 test-nl:
-	$(DC) run --rm backend python -m pytest tests/demo/test_curated_demo_nl_regression.py tests/unit/test_defense_demo_nl_goldens.py tests/unit/test_defense_demo_clarification_goldens.py tests/orchestration/test_nl_interpretation_cases.py -q
+	$(DC) run --rm backend python -m pytest tests/demo/test_curated_demo_nl_regression.py tests/unit/test_defense_demo_nl_goldens.py tests/unit/test_defense_demo_clarification_goldens.py tests/orchestration/test_nl_interpretation_cases.py tests/golden/test_nl_to_sql_golden_cases.py -q
 
 # Guardrails/policy subset (валидатор + policy engine + sql trust).
 test-guardrails:
@@ -99,3 +119,22 @@ test-e2e: e2e
 
 test-e2e-quick:
 	cd frontend && RUN_E2E=1 npm run test:e2e:jury:quick
+
+# --- План хакатона: единые точки входа для CI / жюри ---
+test-backend:
+	$(DC) run --rm backend python -m pytest tests/golden tests/security tests/guardrails tests/sql_validation tests/orchestration tests/api/test_evaluation_api.py -q
+
+test-frontend:
+	cd frontend && npm run lint && npm run test
+
+test-security:
+	$(DC) run --rm backend python -m pytest tests/security tests/sql_validation/test_sql_safety.py -q
+
+test-golden:
+	$(DC) run --rm backend python -m pytest tests/golden tests/unit/test_defense_demo_nl_goldens.py tests/unit/test_defense_demo_clarification_goldens.py -q
+
+test-demo:
+	$(MAKE) demo-live && $(MAKE) test-smoke
+
+test-all:
+	$(MAKE) test-backend && $(MAKE) test-frontend

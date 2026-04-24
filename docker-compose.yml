@@ -60,7 +60,9 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
-      - /Users/tanya/Downloads/train.csv:/data/train.csv:ro
+      # Путь к train CSV на хосте: по умолчанию мини-набор в репозитории (портативно для CI/хакатона).
+      # Для полного датасета: HOST_TRAIN_CSV_PATH=/abs/path/train.csv в .env
+      - ${HOST_TRAIN_CSV_PATH:-./backend/demo_data/train_minimal.csv}:/data/train.csv:ro
     networks:
       - drivee_net
 

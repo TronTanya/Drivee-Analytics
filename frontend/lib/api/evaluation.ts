@@ -55,7 +55,7 @@ export async function runSqlCorrectnessEvaluation(mode: EvaluationMode = "mock")
 
 export async function fetchQualityCenterSummary(mode: EvaluationMode = "deterministic"): Promise<QualityCenterOverview> {
   const q = new URLSearchParams({ mode });
-  return apiFetchJson<QualityCenterOverview>(`/api/v1/evaluation/quality/summary?${q.toString()}`);
+  return apiFetchJson<QualityCenterOverview>(`/api/v1/quality/summary?${q.toString()}`);
 }
 
 export async function runQualityCenterEvaluation(

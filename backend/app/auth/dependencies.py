@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.exceptions import ForbiddenException, UnauthorizedException
+from app.services.guardrails.role_policy import assert_role_capability
 from app.core.security import decode_access_token
 from app.db.session import get_db_session
 from app.models.user import User
@@ -97,6 +98,17 @@ def get_current_active_user(
     if _demo_auth_enabled():
         return _resolve_demo_user(users)
     raise UnauthorizedException("Missing or invalid Authorization header")
+
+
+def require_capability(action: str) -> Callable[..., User]:
+    """Проверка по матрице `role_policy` (не путать с грубым require_roles)."""
+
+    def _dependency(user: Annotated[User, Depends(get_current_active_user)]) -> User:
+        rk = user.role.role_key if user.role else None
+        assert_role_capability(rk, action)
+        return user
+
+    return _dependency
 
 
 def require_roles(*allowed_role_keys: str) -> Callable[..., User]:

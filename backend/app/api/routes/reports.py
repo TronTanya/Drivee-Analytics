@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_active_user, get_db_session
+from app.api.deps import get_current_active_user, get_db_session, require_capability
 from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.saved_report import SavedReport
 from app.models.user import User
@@ -61,7 +61,7 @@ def _infer_report_format(payload: dict) -> str:
 @router.post("", response_model=SavedReportDetail)
 def create_report(
     body: SavedReportCreate,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("save_report")),
     session: Session = Depends(get_db_session),
 ) -> SavedReportDetail:
     _require_workspace(session, user.id, body.workspace_id)
@@ -131,7 +131,7 @@ def get_report(
 @router.post("/{report_id}/run", response_model=RunReportResponse)
 def run_report(
     report_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("save_report")),
     session: Session = Depends(get_db_session),
 ) -> RunReportResponse:
     repo = SavedReportRepository(session)
@@ -153,7 +153,7 @@ def run_report(
 def create_schedule(
     report_id: uuid.UUID,
     body: ScheduleCreate,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("schedule_report")),
     session: Session = Depends(get_db_session),
 ) -> ScheduleResponse:
     repo = SavedReportRepository(session)
@@ -175,7 +175,7 @@ def create_schedule(
 def patch_schedule(
     report_id: uuid.UUID,
     body: SchedulePatch,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("schedule_report")),
     session: Session = Depends(get_db_session),
 ) -> ScheduleResponse:
     repo = SavedReportRepository(session)
@@ -195,7 +195,7 @@ def patch_schedule(
 @router.delete("/{report_id}", status_code=204, response_class=Response)
 def delete_report(
     report_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("save_report")),
     session: Session = Depends(get_db_session),
 ) -> Response:
     repo = SavedReportRepository(session)
@@ -213,7 +213,7 @@ def delete_report(
 @router.delete("/{report_id}/schedule", status_code=204, response_class=Response)
 def delete_schedule(
     report_id: uuid.UUID,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("schedule_report")),
     session: Session = Depends(get_db_session),
 ) -> Response:
     repo = SavedReportRepository(session)

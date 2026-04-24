@@ -105,7 +105,7 @@ def test_sql_correctness_run(eval_client: TestClient) -> None:
 
 
 def test_quality_center_summary(eval_client: TestClient) -> None:
-    r = eval_client.get("/api/v1/evaluation/quality/summary?mode=deterministic")
+    r = eval_client.get("/api/v1/quality/summary?mode=deterministic")
     assert r.status_code == 200
     body = r.json()
     assert "overall_quality_score" in body

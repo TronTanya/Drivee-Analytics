@@ -9,6 +9,7 @@ from app.api.routes.data_layer import data_router, forecast_router
 from app.api.routes.dictionary import router as dictionary_router
 from app.api.routes.evaluation_nl_sql import router as evaluation_nl_sql_router
 from app.api.routes.evaluation_drivee_quality import router as evaluation_drivee_quality_router
+from app.api.routes.quality_center_alias import router as quality_center_alias_router
 from app.api.routes.evaluation_sql_correctness import router as evaluation_sql_correctness_router
 from app.api.routes.history import router as history_router
 from app.api.routes.health import router as health_router
@@ -35,3 +36,4 @@ api_router.include_router(history_router)
 api_router.include_router(evaluation_nl_sql_router)
 api_router.include_router(evaluation_sql_correctness_router)
 api_router.include_router(evaluation_drivee_quality_router)
+api_router.include_router(quality_center_alias_router)

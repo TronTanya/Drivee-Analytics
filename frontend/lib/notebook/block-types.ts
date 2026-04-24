@@ -197,10 +197,18 @@ export interface TraceChartRecommendation {
   chartType: string;
   rationale: string;
   alternatives: string[];
+  /** 0–1, с бэкенда `chart_recommendation.confidence` / visualization_confidence */
+  confidence?: number;
+  axesHint?: string;
+  seriesKeys?: string[];
 }
 
 export interface TracePanelModel {
   schemaVersion: 1;
+  /** ru | en — эвристика с бэкенда */
+  languageDetected?: string;
+  /** Краткое резюме role policy (RU) */
+  rolePolicySummaryRu?: string;
   interpretedIntent: string;
   structuredInterpretation: Record<string, unknown>;
   interpretationSummaryRu?: string;

@@ -57,6 +57,18 @@ def _nondefault_semantic_count(resolutions: list[Any]) -> int:
     return sum(1 for r in resolutions if getattr(r, "surface_form", "") != "default")
 
 
+def _trace_language_and_role_fields(effective: str, inp: OrchestrationInput) -> dict[str, str]:
+    """Язык запроса (эвристика) + краткое резюме role policy для trace/UI."""
+    from app.services.guardrails.role_policy import summarize_role_policy_ru
+
+    text = effective or ""
+    lang = "ru" if any("\u0400" <= ch <= "\u04ff" for ch in text) else "en"
+    return {
+        "language_detected": lang,
+        "role_policy_result_ru": summarize_role_policy_ru(inp.role_key),
+    }
+
+
 def _ambiguity_from_clarification(clar: ClarificationResponse) -> AmbiguityPayload:
     if not clar.clarification_required:
         return AmbiguityPayload()
@@ -236,6 +248,7 @@ class QueryOrchestrator:
                 "forecast_explainability": {},
                 "quality_gate": {"status": "failed", "reasons": ["guardrails"]},
                 **self._interpretation_trace_fields(interp),
+                **_trace_language_and_role_fields(effective, inp),
             },
             pipeline_steps=steps,
             started_at=started,
@@ -307,6 +320,7 @@ class QueryOrchestrator:
             "quality_gate": {"status": "passed", "reasons": []},
             "general_conversation": True,
             **self._interpretation_trace_fields(interp),
+            **_trace_language_and_role_fields(effective, inp),
         }
         out = OrchestrationOutput(
             preprocessed_query=raw,
@@ -607,6 +621,7 @@ class QueryOrchestrator:
                     "forecast_explainability": {},
                     "quality_gate": {"status": "warning", "reasons": ["clarification_required"]},
                     **self._interpretation_trace_fields(interp),
+                    **_trace_language_and_role_fields(effective, inp),
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -723,6 +738,7 @@ class QueryOrchestrator:
                     "forecast_explainability": {},
                     "quality_gate": {"status": "failed", "reasons": ["sql_validation_failed"]},
                     **self._interpretation_trace_fields(interp),
+                    **_trace_language_and_role_fields(effective, inp),
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -811,6 +827,7 @@ class QueryOrchestrator:
                     "forecast_explainability": {},
                     "quality_gate": {"status": "failed", "reasons": ["sql_execution_failed"]},
                     **self._interpretation_trace_fields(interp),
+                    **_trace_language_and_role_fields(effective, inp),
                 },
                 pipeline_steps=steps,
                 started_at=started,
@@ -991,6 +1008,7 @@ class QueryOrchestrator:
             "forecast_explainability": forecast_explainability_payload if want_forecast else {},
             "quality_gate": {"status": qg_status, "reasons": qg_reasons},
             **self._interpretation_trace_fields(interp),
+            **_trace_language_and_role_fields(effective, inp),
         }
 
         out = OrchestrationOutput(

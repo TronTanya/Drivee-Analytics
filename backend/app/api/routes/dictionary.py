@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, require_capability
 from app.core.config import settings
 from app.models.user import User
 from app.schemas.dictionary_terms import DictionaryBootstrapResponse, DictionaryEntryResponse, DictionaryEntryUpsertRequest
@@ -50,7 +50,7 @@ def get_dictionary_entry(entry_id: str) -> DictionaryEntryResponse:
 @router.post("/entries", response_model=DictionaryEntryResponse)
 def create_dictionary_entry(
     body: DictionaryEntryUpsertRequest,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("edit_dictionary")),
 ) -> DictionaryEntryResponse:
     del user
     try:
@@ -66,7 +66,7 @@ def create_dictionary_entry(
 def patch_dictionary_entry(
     entry_id: str,
     body: DictionaryEntryUpsertRequest,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("edit_dictionary")),
 ) -> DictionaryEntryResponse:
     del user
     try:
@@ -81,7 +81,7 @@ def patch_dictionary_entry(
 @router.delete("/entries/{entry_id}", response_model=dict[str, str])
 def delete_dictionary_entry(
     entry_id: str,
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("edit_dictionary")),
 ) -> dict[str, str]:
     del user
     try:
@@ -95,7 +95,7 @@ def delete_dictionary_entry(
 
 @router.post("/entries/bootstrap-train", response_model=DictionaryBootstrapResponse)
 def bootstrap_dictionary_from_train(
-    user: User = Depends(get_current_active_user),
+    user: User = Depends(require_capability("edit_dictionary")),
 ) -> DictionaryBootstrapResponse:
     del user
     stats = get_semantic_dictionary_store().bootstrap_from_train()

@@ -66,7 +66,14 @@ class ChartRecommendationService:
     ) -> VisualizationRecommendation:
         qlow = (effective_query or "").lower()
         if not columns:
-            return self._result("table", ["bar", "line", "horizontal_bar"], "Нет колонок в результате — только таблица.", 0.72)
+            return self._result(
+                "table",
+                ["bar", "line", "horizontal_bar"],
+                "Нет колонок в результате — только таблица.",
+                0.72,
+                profile=None,
+                columns=None,
+            )
 
         prof = self._profile_columns(columns, rows)
         n_num = len(prof.numeric)
@@ -86,6 +93,8 @@ class ChartRecommendationService:
                     "Есть координаты и метрика — рекомендуем geo bubble; карта и таблица доступны как альтернативы.",
                     0.9,
                     geo_meta,
+                    profile=prof,
+                    columns=columns,
                 )
             if n_num >= 1 and (prof.geo_names or prof.categorical):
                 return self._result(
@@ -94,6 +103,8 @@ class ChartRecommendationService:
                     "Географический запрос: структура данных пригодна для карты (MVP: geo card + map_features).",
                     0.86,
                     geo_meta,
+                    profile=prof,
+                    columns=columns,
                 )
             return self._result(
                 "table",
@@ -101,6 +112,8 @@ class ChartRecommendationService:
                 "Гео-контекст, но данных недостаточно для карты — таблица; график можно выбрать вручную.",
                 0.72,
                 geo_meta,
+                profile=prof,
+                columns=columns,
             )
 
         # 2) Доля / композиция.
@@ -110,6 +123,8 @@ class ChartRecommendationService:
                 ["pie", "bar", "horizontal_bar", "table"],
                 "Доля и структура — donut (кольцо); pie и столбцы можно выбрать вручную.",
                 0.9,
+                profile=prof,
+                columns=columns,
             )
 
         # 3) Рейтинг / top-N.
@@ -121,6 +136,8 @@ class ChartRecommendationService:
                 ["bar", "line", "table"],
                 "Рейтинг и top-N — горизонтальные столбцы для сравнения категорий по одной метрике.",
                 0.9,
+                profile=prof,
+                columns=columns,
             )
 
         # 4) Динамика во времени.
@@ -144,6 +161,8 @@ class ChartRecommendationService:
                 ["area", "bar", "horizontal_bar", "table"],
                 "Динамика и временной ряд — линейный график (несколько метрик — несколько серий).",
                 0.92 if prof.time else 0.86,
+                profile=prof,
+                columns=columns,
             )
 
         scatter_q = any(x in qlow for x in ("scatter", "корреляц", "зависимост", " vs ", " против ", "точеч"))
@@ -162,6 +181,8 @@ class ChartRecommendationService:
                 ["bar", "scatter", "line", "table"],
                 "Одна строка с несколькими счётчиками — горизонтальные столбцы для сравнения величин; scatter здесь показал бы одну точку и путает смысл.",
                 0.9,
+                profile=prof,
+                columns=columns,
             )
 
         # 5) Две числовые метрики без временной оси — scatter.
@@ -171,6 +192,8 @@ class ChartRecommendationService:
                 ["line", "bar", "table"],
                 "Две числовые метрики без временной оси — scatter для связи значений.",
                 0.84,
+                profile=prof,
+                columns=columns,
             )
 
         # 6) Сравнение категорий.
@@ -180,6 +203,8 @@ class ChartRecommendationService:
                 ["horizontal_bar", "line", "donut", "table"],
                 "Сравнение категорий — вертикальные столбцы.",
                 0.88,
+                profile=prof,
+                columns=columns,
             )
 
         # 7) Универсальный fallback — только таблица как основной график-слот (данные всё равно в table cell).
@@ -188,6 +213,8 @@ class ChartRecommendationService:
             ["bar", "line", "horizontal_bar", "donut"],
             "Недостаточно сигналов для специализированного графика — таблица как безопасный default; переключение вручную.",
             0.74,
+            profile=prof,
+            columns=columns,
         )
 
     def _build_map_features(self, rows: List[dict[str, Any]], prof: ColumnProfile) -> List[GeoMapFeature]:
@@ -332,13 +359,32 @@ class ChartRecommendationService:
         )
 
     @staticmethod
+    def _axes_series_hints(profile: ColumnProfile, columns: List[str]) -> tuple[str, list[str]]:
+        x_axis = (
+            profile.time[0]
+            if profile.time
+            else (profile.categorical[0] if profile.categorical else (columns[0] if columns else ""))
+        )
+        series = [c for c in profile.numeric if c != x_axis][:8]
+        if not x_axis:
+            return "", series
+        hint = f"Ось: {x_axis}; метрики: {', '.join(series) or '—'}"
+        return hint, series
+
+    @staticmethod
     def _result(
         primary: str,
         alts: List[str],
         explanation: str,
         confidence: float,
         geo_metadata: Optional[GeoVisualizationMetadata] = None,
+        *,
+        profile: Optional[ColumnProfile] = None,
+        columns: Optional[List[str]] = None,
     ) -> VisualizationRecommendation:
+        axes_hint, series_keys = ("", [])
+        if profile is not None:
+            axes_hint, series_keys = ChartRecommendationService._axes_series_hints(profile, columns or [])
         seen: Set[str] = {primary}
         ordered_alts: List[str] = []
         for a in alts:
@@ -355,4 +401,6 @@ class ChartRecommendationService:
             recommendation_reason=explanation,
             visualization_confidence=round(min(1.0, max(0.0, confidence)), 2),
             geo_metadata=geo_metadata,
+            axes_hint=axes_hint,
+            series_keys=series_keys,
         )

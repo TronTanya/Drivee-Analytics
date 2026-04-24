@@ -37,3 +37,5 @@ class VisualizationRecommendation(BaseModel):
 
     # Backward compatibility for older code paths / payloads.
     recommendation_reason: str = ""
+    axes_hint: str = Field(default="", description="Человекочитаемая подсказка по осям (для trace/UI).")
+    series_keys: list[str] = Field(default_factory=list, description="Ключи колонок для серий на графике.")
