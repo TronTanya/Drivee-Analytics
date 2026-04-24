@@ -206,7 +206,34 @@ class SemanticParser:
         return out[:5]
 
     @staticmethod
+    def _try_explicit_calendar_year(ql: str) -> Optional[TimeRangeSpec]:
+        """Явный год в тексте («за 2026 год», «в 2024») — сильнее preset от LLM и window_weeks из «последние…»."""
+        y: int | None = None
+        if m := re.search(r"\b(20[0-9]{2})\s*год", ql):
+            y = int(m.group(1))
+        elif m := re.search(r"\bза\s+(20[0-9]{2})\b", ql):
+            y = int(m.group(1))
+        elif m := re.search(r"\bв\s+(20[0-9]{2})\b", ql):
+            y = int(m.group(1))
+        if y is None or not (2000 <= y <= 2100):
+            return None
+        anchor: Literal["order_timestamp", "driverdone_timestamp"] = (
+            "driverdone_timestamp"
+            if any(p in ql for p in ("заверш", "выполн", "done ride", "completed ride"))
+            else "order_timestamp"
+        )
+        return TimeRangeSpec(
+            preset="calendar_year",
+            label_ru=f"календарный год {y}",
+            calendar_year=y,
+            time_window_anchor=anchor,
+        )
+
+    @staticmethod
     def _detect_time_range(ql: str, entities: dict[str, Any]) -> TimeRangeSpec:
+        cal = SemanticParser._try_explicit_calendar_year(ql)
+        if cal is not None:
+            return cal
         if entities.get("time_period"):
             raw = str(entities["time_period"])
             canon = _canonical_time_preset(raw)
@@ -251,25 +278,6 @@ class SemanticParser:
                 preset="rolling_window",
                 label_ru=f"окно {ww} нед.",
                 window_weeks=ww,
-            )
-        y: int | None = None
-        if m := re.search(r"\b(20[0-9]{2})\s*год", ql):
-            y = int(m.group(1))
-        elif m := re.search(r"\bза\s+(20[0-9]{2})\b", ql):
-            y = int(m.group(1))
-        elif m := re.search(r"\bв\s+(20[0-9]{2})\b", ql):
-            y = int(m.group(1))
-        if y is not None and 2000 <= y <= 2100:
-            anchor: Literal["order_timestamp", "driverdone_timestamp"] = (
-                "driverdone_timestamp"
-                if any(p in ql for p in ("заверш", "выполн", "done ride", "completed ride"))
-                else "order_timestamp"
-            )
-            return TimeRangeSpec(
-                preset="calendar_year",
-                label_ru=f"календарный год {y}",
-                calendar_year=y,
-                time_window_anchor=anchor,
             )
         return TimeRangeSpec(preset="unknown", label_ru="")
 

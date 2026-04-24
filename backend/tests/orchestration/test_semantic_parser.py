@@ -35,6 +35,31 @@ class SemanticParserTests(unittest.TestCase):
         self.assertEqual(patch.get("time_window_anchor"), "driverdone_timestamp")
         self.assertNotIn("time_period", patch)
 
+    def test_explicit_calendar_year_overrides_llm_time_period(self) -> None:
+        """LLM может вернуть time_period=current_year; явный «за 2026 год» в тексте важнее для SQL."""
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="Количество уникальных завершенных поездок за 2026 год",
+            intent="summary",
+            intent_signals=[],
+            entities={"metric_hint": "done_rides", "time_period": "current_year"},
+        )
+        self.assertEqual(interp.time_range.preset, "calendar_year")
+        self.assertEqual(interp.time_range.calendar_year, 2026)
+        self.assertEqual(patch.get("calendar_year"), 2026)
+
+    def test_explicit_calendar_year_overrides_window_weeks(self) -> None:
+        """extract_entities мог положить window_weeks=8 из «последн…» в другом запросе; явный год в тексте важнее."""
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="сколько завершённых поездок за 2025 год",
+            intent="summary",
+            intent_signals=[],
+            entities={"metric_hint": "done_rides", "window_weeks": 8},
+        )
+        self.assertEqual(interp.time_range.preset, "calendar_year")
+        self.assertEqual(interp.time_range.calendar_year, 2025)
+
     def test_llm_this_week_maps_to_current_week(self) -> None:
         p = SemanticParser()
         interp, patch = p.build(
