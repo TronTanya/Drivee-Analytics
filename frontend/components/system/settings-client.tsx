@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AdminSqlPolicySection } from "@/components/system/admin-sql-policy-section";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
 import { useCurrentUser, usePatchMyProfile } from "@/hooks/api/use-auth";
 import { queryKeys } from "@/hooks/api/query-keys";
@@ -290,6 +291,8 @@ export function SettingsClient() {
         <p className="mt-3 text-xs text-foreground-muted">{pdfHelp}</p>
         {savedPdf ? <p className="mt-2 text-sm text-emerald-800">{t("settings_pdf_saved")}</p> : null}
       </section>
+
+      {me.data?.role === "admin" ? <AdminSqlPolicySection /> : null}
     </div>
   );
 }

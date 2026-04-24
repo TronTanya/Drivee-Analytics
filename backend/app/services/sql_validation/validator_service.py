@@ -383,4 +383,6 @@ class SQLValidatorService:
 
 
 def get_sql_validator() -> SQLValidatorService:
-    return SQLValidatorService()
+    from app.services.sql_validation.effective_sql_settings import get_effective_sql_settings
+
+    return SQLValidatorService(get_effective_sql_settings())

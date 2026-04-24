@@ -13,6 +13,7 @@ from app.models.data_pipeline import (
 )
 from app.models.metrics import AnomalyEvent, MetricSnapshot
 from app.models.notebook import CellRun, Notebook, NotebookCell
+from app.models.platform_sql_policy import PlatformSqlPolicy
 from app.models.query_correction import QueryCorrection
 from app.models.query_template import QueryTemplate
 from app.models.saved_report import ReportSchedule, SavedReport
@@ -53,4 +54,5 @@ __all__ = [
     "MetricSnapshot",
     "AnomalyEvent",
     "AnonymizedIncityOrder",
+    "PlatformSqlPolicy",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from app.core.config import settings
+from app.services.sql_validation.effective_sql_settings import get_effective_sql_settings
 from app.schemas.orchestration import IntentKind
 
 
@@ -15,7 +15,8 @@ class SQLGenerationService:
     @staticmethod
     def _resolve_source_table(source_table: Optional[str]) -> str:
         """Таблицы из whitelist по basename или staging `schema.t_*` из настроек."""
-        allowed = {t.lower() for t in settings.sql_whitelist_tables}
+        cfg = get_effective_sql_settings()
+        allowed = {t.lower() for t in cfg.sql_whitelist_tables}
         default = SQLGenerationService.SOURCE_TABLE
         if not source_table:
             return default
@@ -26,10 +27,10 @@ class SQLGenerationService:
         if len(parts) == 2:
             schema, base = parts[0], parts[1]
         else:
-            schema = (settings.sql_implicit_schema or "public").strip().lower()
+            schema = (cfg.sql_implicit_schema or "public").strip().lower()
             base = parts[0]
-        staging_schema = (settings.csv_staging_schema or "user_staging").strip().lower()
-        pat = getattr(settings, "sql_staging_upload_table_pattern", r"^t_[a-f0-9]{12}$") or r"^t_[a-f0-9]{12}$"
+        staging_schema = (cfg.csv_staging_schema or "user_staging").strip().lower()
+        pat = getattr(cfg, "sql_staging_upload_table_pattern", r"^t_[a-f0-9]{12}$") or r"^t_[a-f0-9]{12}$"
         try:
             staging_re = re.compile(pat, re.IGNORECASE)
         except re.error:
