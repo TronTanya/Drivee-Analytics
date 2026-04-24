@@ -130,7 +130,7 @@ export function NotebookPartialResultState({
 }
 
 export function NotebookFallbackModeState({
-  message = "Клиент в демо-режиме: ответы могут быть упрощены или без реального выполнения в вашей БД."
+  message = "Клиент в fallback-режиме: ответы могут быть упрощены или без реального выполнения в вашей БД."
 }: {
   message?: string;
 }) {

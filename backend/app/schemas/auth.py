@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -74,6 +75,30 @@ class UserProfilePatchRequest(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     locale: str | None = Field(default=None, max_length=16)
     default_report_pdf_mode: Literal["compact", "board"] | None = None
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        s = v.strip()
+        if not s:
+            raise ValueError("Укажите часовой пояс")
+        try:
+            ZoneInfo(s)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"Неизвестный часовой пояс (IANA): {s}") from exc
+        return s
+
+    @field_validator("locale")
+    @classmethod
+    def validate_locale(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        s = (v or "").strip().lower()
+        if s not in ("ru", "en"):
+            raise ValueError("Допустимые значения локали: ru, en")
+        return s
 
 
 class UserMeResponse(BaseModel):

@@ -78,23 +78,22 @@ def list_query_history(
     query_type: Optional[str] = None,
     owner_user_id: Optional[uuid.UUID] = None,
     scope: str = "mine",
-    is_workspace_admin: bool = False,
 ) -> list[HistoryItemResponse]:
     """
     scope=mine — только ноутбуки владельца user_id.
-    scope=workspace — все промпт-ячейки в workspace (только при is_workspace_admin).
+    scope=workspace — все промпт-ячейки в workspace (доступ уже ограничен membership в роутере).
     owner_user_id — доп. фильтр по владельцу ноутбука (для админов).
     """
     stmt = (
         select(NotebookCell)
         .join(Notebook, NotebookCell.notebook_id == Notebook.id)
-        .options(joinedload(Notebook.owner))
+        .options(joinedload(NotebookCell.notebook).joinedload(Notebook.owner))
         .where(
             Notebook.workspace_id == workspace_id,
             NotebookCell.cell_type.in_(("prompt", "analysis")),
         )
     )
-    if scope == "workspace" and is_workspace_admin:
+    if scope == "workspace":
         pass
     else:
         stmt = stmt.where(Notebook.owner_user_id == user_id)

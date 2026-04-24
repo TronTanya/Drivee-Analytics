@@ -29,7 +29,7 @@ class IntentService:
         ("ranking", ("топ", "top", "рейтинг", "rank", "лучш", "худш")),
         ("comparison", ("сравни", "compare", "vs", "против", "разниц")),
         ("share", ("дол", "share", "процент", "%", "структур")),
-        ("geo", ("карта", "map", "гео", "geo", "регион", "област")),
+        ("geo", ("карта", "карте", "карту", "map", "гео", "geo", "регион", "област")),
         ("trend", ("тренд", "trend", "динамик", "динамика", "по недел", "по дн", "временн", "over time")),
         ("summary", ("свод", "summary", "итого", "агрег", "всего", "общ")),
     ]
@@ -41,10 +41,16 @@ class IntentService:
     def classify_intent(self, query: str) -> IntentResult:
         llm_interpretation = self._get_llm_interpretation(query)
         if llm_interpretation is not None:
+            extra: dict[str, Any] = {}
+            if getattr(llm_interpretation, "query_scope", None) == "general":
+                extra["query_scope"] = "general"
+            sig = [f"llm:intent:{llm_interpretation.intent}"]
+            if extra.get("query_scope"):
+                sig.append("llm:query_scope:general")
             return IntentResult(
                 intent=llm_interpretation.intent,
-                entities={},
-                signals=[f"llm:intent:{llm_interpretation.intent}"],
+                entities=extra,
+                signals=sig,
             )
         q = query.lower()
         signals: list[str] = []
@@ -59,6 +65,15 @@ class IntentService:
     def extract_entities(self, query: str) -> dict[str, Any]:
         q = query.lower()
         entities: dict[str, Any] = {}
+
+        # Короткое приветствие без признаков аналитики — без LLM тоже уходим в «разговорный» режим.
+        dq = re.sub(r"\s+", " ", q.strip())
+        if len(dq) <= 40 and re.match(
+            r"^(привет|здравствуйте|здравствуй|добрый\s+(день|вечер|утро)|hi|hello)([!\s?.]*)$",
+            dq,
+        ):
+            if not re.search(r"заказ|order|город|city|отмен|cancel|метрик|sql|таблиц|прогноз|тренд", dq):
+                entities["query_scope"] = "general"
 
         if m := re.search(r"(\d+)\s*(недел|weeks?)", q):
             entities["window_weeks"] = int(m.group(1))
@@ -81,10 +96,15 @@ class IntentService:
 
         if m := re.search(r"city[_\s-]?id\s*[:=]?\s*(\d+)", q):
             entities["city_id"] = m.group(1)
-        elif m := re.search(r"\bгород\s+(\d+)\b", q):
+        elif m := re.search(r"\bгород[а-яё]*\s+(\d+)\b", q):
             entities["city_id"] = m.group(1)
 
-        if "отмен" in q and ("клиент" in q or "client" in q):
+        # «Сколько принятых и отменённых» — нужны ДВЕ метрики; не сводим к одной отмене.
+        wants_accept = bool(re.search(r"принят|приняты|accepted|driver\s*accept", q))
+        wants_cancel = bool(re.search(r"отмен|cancell", q))
+        if wants_accept and wants_cancel:
+            entities["dual_accept_cancel_counts"] = True
+        elif "отмен" in q and ("клиент" in q or "client" in q):
             entities["metric_hint"] = "client_cancellations"
         elif "отмен" in q and ("водител" in q or "driver" in q):
             entities["metric_hint"] = "driver_cancellations"
@@ -129,6 +149,11 @@ class IntentService:
         llm_entities = self._llm_entities(query)
         for key, val in llm_entities.items():
             entities.setdefault(key, val)
+
+        # LLM/классификатор intent имеет приоритет над эвристикой приветствия.
+        llm_interp = self._get_llm_interpretation(query)
+        if llm_interp is not None and getattr(llm_interp, "query_scope", "data") == "data":
+            entities.pop("query_scope", None)
 
         return entities
 

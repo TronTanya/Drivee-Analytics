@@ -22,3 +22,13 @@ export type NotebookTemplateDto = {
   role: UserRole;
   notebook_id: string;
 };
+
+export type QuickRunTemplateResultDto = {
+  template_id: string;
+  execution_status: string;
+  safe_sql: string;
+  insight: string;
+  chart_type: string;
+  warnings?: string[];
+  table_records?: Array<Record<string, unknown>>;
+};

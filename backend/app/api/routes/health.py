@@ -4,6 +4,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.db.session import engine
 from app.schemas.health import HealthResponse
+from app.services.llm.factory import build_provider
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -19,4 +20,15 @@ def health_check() -> HealthResponse:
         status = "ok"
     except Exception:  # noqa: BLE001
         db_status = "down"
-    return HealthResponse(status=status, service=settings.app_name, environment=settings.app_env, database=db_status)
+
+    llm_provider = (settings.llm_provider or "").strip()
+    llm_configured = build_provider() is not None
+
+    return HealthResponse(
+        status=status,
+        service=settings.app_name,
+        environment=settings.app_env,
+        database=db_status,
+        llm_provider=llm_provider,
+        llm_configured=llm_configured,
+    )

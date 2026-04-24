@@ -10,10 +10,14 @@ import {
 import { queryKeys } from "@/hooks/api/query-keys";
 import type { QueryHistoryFilters } from "@/types/api/history";
 
-export function useNotebookRuns(workspaceId: string | undefined) {
+export function useNotebookRuns(
+  workspaceId: string | undefined,
+  filters: Pick<QueryHistoryFilters, "scope"> = {}
+) {
+  const scope = filters.scope ?? "workspace";
   return useQuery({
-    queryKey: [...queryKeys.history.notebookRuns(), workspaceId ?? "none"],
-    queryFn: () => fetchNotebookRuns(workspaceId!),
+    queryKey: [...queryKeys.history.notebookRuns(), workspaceId ?? "none", scope],
+    queryFn: () => fetchNotebookRuns(workspaceId!, { scope }),
     enabled: Boolean(workspaceId && workspaceId.length >= 8),
     staleTime: 20_000
   });

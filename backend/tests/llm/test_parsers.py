@@ -23,6 +23,19 @@ class ParserTests(unittest.TestCase):
         model = parse_to_model(raw, LLMQueryInterpretation)
         self.assertEqual(model.intent, "ranking")
 
+    def test_parse_query_scope_defaults_to_data(self) -> None:
+        raw = '{"intent":"summary","metrics":[],"dimensions":[],"filters":[],"time_period":null,"ambiguities":[],"confidence":0.6}'
+        model = parse_to_model(raw, LLMQueryInterpretation)
+        self.assertEqual(model.query_scope, "data")
+
+    def test_parse_query_scope_general(self) -> None:
+        raw = (
+            '{"intent":"summary","query_scope":"general","metrics":[],"dimensions":[],"filters":[],'
+            '"time_period":null,"ambiguities":[],"confidence":0.9}'
+        )
+        model = parse_to_model(raw, LLMQueryInterpretation)
+        self.assertEqual(model.query_scope, "general")
+
 
 if __name__ == "__main__":
     unittest.main()

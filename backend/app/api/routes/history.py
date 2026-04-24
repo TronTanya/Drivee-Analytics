@@ -28,7 +28,10 @@ def get_query_history(
         description="trips_by_city | cancellations | conversion | avg_check | orders_trend | all",
     ),
     owner_user_id: uuid.UUID | None = Query(None, description="Фильтр по владельцу ноутбука (только admin)"),
-    scope: str = Query("mine", description="mine | workspace (workspace только для admin)"),
+    scope: str = Query(
+        "mine",
+        description="mine — только мои ноутбуки; workspace — все сценарии workspace (участник workspace)",
+    ),
     user: User = Depends(get_current_active_user),
     session: Session = Depends(get_db_session),
 ) -> list[HistoryItemResponse]:
@@ -36,8 +39,6 @@ def get_query_history(
     role_key: RoleKey | None = user.role.role_key if user.role else None  # type: ignore[assignment]
     is_admin = role_key == "admin"
     eff_scope = scope if scope in ("mine", "workspace") else "mine"
-    if eff_scope == "workspace" and not is_admin:
-        eff_scope = "mine"
     eff_owner = owner_user_id
     if eff_owner is not None and eff_owner != user.id and not is_admin:
         eff_owner = None
@@ -52,5 +53,4 @@ def get_query_history(
         query_type=query_type,
         owner_user_id=eff_owner,
         scope=eff_scope,
-        is_workspace_admin=is_admin,
     )

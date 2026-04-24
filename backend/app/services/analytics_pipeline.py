@@ -508,7 +508,13 @@ def analyze_natural_language(
         if clarification_required
         else (out.validated_sql or out.generated_sql)
     )
-    metric_key = out.semantic_resolutions[0].term_key if out.semantic_resolutions else "orders_count"
+    ft0: dict[str, Any] = dict(out.trace_payload or {})
+    if not out.semantic_resolutions and bool(ft0.get("general_conversation")):
+        metric_key = "conversation"
+    else:
+        metric_key = out.semantic_resolutions[0].term_key if out.semantic_resolutions else ""
+        if not metric_key:
+            metric_key = "orders_count"
     trace_summary = (
         f"Intent={out.intent}, metric={metric_key}, follow_up={out.is_follow_up}, "
         f"status={out.execution_status}"
@@ -740,6 +746,72 @@ def _pick_dimension_column(columns: list[str], numeric_cols: list[str]) -> Optio
     return columns[0] if columns else None
 
 
+def _sql_metric_column_display_name(column: str) -> str:
+    """Короткие подписи для «широкой» строки с несколькими COUNT — ось категорий на графике."""
+    lo = column.lower()
+    if "accept" in lo or "принят" in lo:
+        return "Принятые заказы"
+    if "cancel" in lo or "отмен" in lo:
+        return "Отменённые заказы"
+    if "done" in lo or "заверш" in lo:
+        return "Завершённые поездки"
+    if "price" in lo or "revenue" in lo or "выруч" in lo:
+        return "Сумма / выручка"
+    return column.replace("_", " ")
+
+
+def _try_melt_single_row_all_numeric_bar_payload(
+    chart_type: str,
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    numeric_cols: list[str],
+    *,
+    recommended: str,
+    alternatives: list[str],
+    explanation: str,
+    geo_metadata: Optional[dict[str, Any]],
+    sample_size: int,
+    unit_label: str,
+    quality_metric_label: str,
+    quality_metric_value: Optional[float],
+) -> Optional[dict[str, Any]]:
+    """Одна строка, только числовые колонки: bar/horizontal_bar как несколько категорий, не ось X = первое число."""
+    if chart_type not in {"bar", "horizontal_bar"}:
+        return None
+    if len(rows) != 1 or len(numeric_cols) < 2:
+        return None
+    if any(c not in numeric_cols for c in columns):
+        return None
+    label_key = "_metric_label"
+    value_key = "_metric_value"
+    row0 = rows[0]
+    data: list[dict[str, Any]] = []
+    for c in numeric_cols:
+        v = _as_float(row0.get(c))
+        data.append(
+            {
+                label_key: _sql_metric_column_display_name(c),
+                value_key: v if v is not None else row0.get(c),
+            }
+        )
+    return {
+        "chartType": chart_type,
+        "recommendedChartType": recommended,
+        "alternativeChartTypes": alternatives,
+        "visualizationExplanation": explanation,
+        "geoMetadata": geo_metadata,
+        "title": "Сравнение показателей",
+        "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
+        "unitLabel": unit_label,
+        "sampleSize": sample_size,
+        "qualityMetricLabel": quality_metric_label,
+        "qualityMetricValue": quality_metric_value,
+        "xKey": label_key,
+        "series": [{"key": value_key, "name": "Значение"}],
+        "data": data,
+    }
+
+
 def _build_histogram_data(rows: list[dict[str, Any]], col: str) -> list[dict[str, Any]]:
     values = [_as_float(row.get(col)) for row in rows]
     vals = [v for v in values if v is not None]
@@ -850,6 +922,23 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
         chart_type = "table"
 
     if chart_type in {"line", "bar", "area", "horizontal_bar", "combo", "stacked_bar", "radar", "geo_bubble", "map"}:
+        if chart_type in {"bar", "horizontal_bar"}:
+            melted = _try_melt_single_row_all_numeric_bar_payload(
+                chart_type,
+                rows,
+                columns,
+                numeric_cols,
+                recommended=recommended,
+                alternatives=alternatives,
+                explanation=explanation,
+                geo_metadata=geo_metadata,
+                sample_size=sample_size,
+                unit_label=unit_label,
+                quality_metric_label=quality_metric_label,
+                quality_metric_value=quality_metric_value,
+            )
+            if melted is not None:
+                return melted
         x_key = dim_col or columns[0]
         series_cols = numeric_cols[:2] if chart_type == "combo" else numeric_cols[:3]
         if not series_cols and len(columns) > 1:
@@ -1012,7 +1101,7 @@ def _build_notebook_context_from_cells(notebook_id: str) -> dict[str, Any]:
     }
 
 
-def run_pipeline(
+def run_pipeline_with_analysis(
     notebook_id: str,
     prompt: str,
     *,
@@ -1023,7 +1112,8 @@ def run_pipeline(
     forecast_sidecar: Literal["auto", "on", "off"] = "auto",
     chart_type_override: str | None = None,
     forecast_horizon_steps: int | None = None,
-) -> RunAnalyticsResponse:
+) -> tuple[RunAnalyticsResponse, NaturalLanguageAnalysisResult]:
+    """То же, что run_pipeline, плюс объект анализа для записи в БД (история / ячейки ноутбука)."""
     result = analyze_natural_language(
         prompt,
         notebook_context=_build_notebook_context_from_cells(notebook_id),
@@ -1048,13 +1138,11 @@ def run_pipeline(
             warnings=list(result.warnings) + [pag_msg],
         )
     cells = _result_to_pipeline_cells(result)
-    prev = MOCK_NOTEBOOK_CELLS.get(notebook_id, [])
-    MOCK_NOTEBOOK_CELLS[notebook_id] = prev + cells
     trace = build_explainability_trace_v1(result)
     chart_payload = _build_chart_cell_payload(result)
     table_rows = list(result.table_records or [])
     table_columns = list(table_rows[0].keys()) if table_rows else []
-    return RunAnalyticsResponse(
+    resp = RunAnalyticsResponse(
         notebook_id=notebook_id,
         cells=cells,
         trace=trace,
@@ -1072,6 +1160,35 @@ def run_pipeline(
         resolved_source_table=str(getattr(result, "resolved_source_table", "") or "").strip()
         or str(settings.ds_default_source_table),
     )
+    return resp, result
+
+
+def run_pipeline(
+    notebook_id: str,
+    prompt: str,
+    *,
+    result_limit: int | None = None,
+    result_offset: int | None = None,
+    force_fresh_dialogue: bool = False,
+    skip_learned_corrections: bool = False,
+    forecast_sidecar: Literal["auto", "on", "off"] = "auto",
+    chart_type_override: str | None = None,
+    forecast_horizon_steps: int | None = None,
+) -> RunAnalyticsResponse:
+    resp, _result = run_pipeline_with_analysis(
+        notebook_id,
+        prompt,
+        result_limit=result_limit,
+        result_offset=result_offset,
+        force_fresh_dialogue=force_fresh_dialogue,
+        skip_learned_corrections=skip_learned_corrections,
+        forecast_sidecar=forecast_sidecar,
+        chart_type_override=chart_type_override,
+        forecast_horizon_steps=forecast_horizon_steps,
+    )
+    prev = MOCK_NOTEBOOK_CELLS.get(notebook_id, [])
+    MOCK_NOTEBOOK_CELLS[notebook_id] = prev + resp.cells
+    return resp
 
 
 def list_mock_notebooks() -> list[dict[str, object]]:

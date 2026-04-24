@@ -50,6 +50,7 @@ class ChartRecommendationService:
     доли/структура → donut (+ pie в альтернативах);
     рейтинг/top-N → horizontal_bar;
     динамика/время → line;
+    одна строка, все колонки числовые (≥2) → horizontal_bar (сравнение счётчиков, не scatter);
     две метрики без оси времени → scatter;
     сравнение категорий → bar;
     иначе — table (переключение типа вручную в UI).
@@ -145,8 +146,25 @@ class ChartRecommendationService:
                 0.92 if prof.time else 0.86,
             )
 
-        # 5) Две числовые метрики без временной оси — scatter.
         scatter_q = any(x in qlow for x in ("scatter", "корреляц", "зависимост", " vs ", " против ", "точеч"))
+
+        # 4b) Одна строка результата, все колонки — числа (два+ счётчика): это сравнение KPI, не корреляция X/Y.
+        if (
+            len(rows) == 1
+            and n_num >= 2
+            and columns
+            and all(c in prof.numeric for c in columns)
+            and not prof.time
+            and not scatter_q
+        ):
+            return self._result(
+                "horizontal_bar",
+                ["bar", "scatter", "line", "table"],
+                "Одна строка с несколькими счётчиками — горизонтальные столбцы для сравнения величин; scatter здесь показал бы одну точку и путает смысл.",
+                0.9,
+            )
+
+        # 5) Две числовые метрики без временной оси — scatter.
         if n_num >= 2 and not prof.time and (n_cat == 0 or scatter_q):
             return self._result(
                 "scatter",

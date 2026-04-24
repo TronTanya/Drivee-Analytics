@@ -6,6 +6,8 @@ import json
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+KNOWN_APP_ENVS = {"dev", "demo", "local", "test", "ci", "prod", "production"}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -211,11 +213,23 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_prod_security(self) -> "Settings":
         env = (self.app_env or "").strip().lower()
+        if env not in KNOWN_APP_ENVS:
+            raise ValueError(
+                "APP_ENV должен быть одним из: dev, demo, local, test, ci, prod, production."
+            )
         if env in ("prod", "production"):
             if not (self.jwt_secret or "").strip():
                 raise ValueError("JWT_SECRET обязателен при APP_ENV=prod")
             if any(str(o).strip() == "*" for o in self.cors_origins):
                 raise ValueError("CORS с '*' запрещён при APP_ENV=prod")
+            if self.demo_auth_bypass_enabled:
+                raise ValueError("DEMO_AUTH_BYPASS_ENABLED запрещён при APP_ENV=prod.")
+            if self.mock_mode:
+                raise ValueError("MOCK_MODE запрещён при APP_ENV=prod.")
+            if self.mock_sql_execution_fallback:
+                raise ValueError("MOCK_SQL_EXECUTION_FALLBACK запрещён при APP_ENV=prod.")
+        if env == "ci" and self.demo_auth_bypass_enabled:
+            raise ValueError("DEMO_AUTH_BYPASS_ENABLED=true в CI запрещён: используйте явный JWT в тестах.")
         return self
 
 

@@ -17,7 +17,7 @@ export const registerSchema = z
       .regex(/[0-9]/, "Добавьте хотя бы одну цифру"),
     confirmPassword: z.string().min(1, "Подтвердите пароль"),
     demoRole: z.enum(["admin", "manager", "marketer", "executive"], {
-      message: "Выберите демо-роль"
+      message: "Выберите роль"
     })
   })
   .refine((data) => data.password === data.confirmPassword, {

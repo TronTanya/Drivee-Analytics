@@ -64,9 +64,24 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 
 function parseErrorBody(text: string): { message: string; code?: string } {
   try {
-    const j = JSON.parse(text) as { message?: string; error?: string; code?: string };
-    const message = j.message ?? j.error ?? text;
-    return { message: message || "Request failed", code: j.code };
+    const j = JSON.parse(text) as Record<string, unknown>;
+    const detail = j.detail;
+    if (Array.isArray(detail)) {
+      const parts = detail.map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) {
+          return String((item as { msg?: string }).msg ?? item);
+        }
+        return JSON.stringify(item);
+      });
+      const message = parts.filter(Boolean).join("; ") || "Request failed";
+      return { message, code: typeof j.code === "string" ? j.code : undefined };
+    }
+    if (typeof detail === "string") {
+      return { message: detail, code: typeof j.code === "string" ? j.code : undefined };
+    }
+    const message = (typeof j.message === "string" ? j.message : undefined) ?? (typeof j.error === "string" ? j.error : undefined) ?? text;
+    return { message: message || "Request failed", code: typeof j.code === "string" ? j.code : undefined };
   } catch {
     return { message: text || "Request failed" };
   }

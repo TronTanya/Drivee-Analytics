@@ -103,6 +103,14 @@ class SqlTrustTests(unittest.TestCase):
         self.assertFalse(r.is_valid)
         self.assertTrue(any("user_id" in e.lower() for e in r.errors))
 
+    def test_multiple_statements_rejected_with_explainability(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate("SELECT 1; SELECT 2", role_key="admin", intent="summary")
+        self.assertFalse(r.is_valid)
+        self.assertTrue(any("Multiple SQL statements" in e for e in r.errors))
+        self.assertEqual(r.guardrail_explainability.get("decision"), "rejected")
+        self.assertIn("single_statement_only", r.guardrail_explainability.get("triggered_rules", []))
+
     def test_staging_upload_table_allowed(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
         sql = "SELECT 1 AS v FROM user_staging.t_aabbccddeeff u LIMIT 5"

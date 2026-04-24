@@ -36,15 +36,20 @@ services:
       CORS_ORIGINS: "${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}"
       PYTHONPATH: /app
       CSV_MAX_UPLOAD_MB: ${CSV_MAX_UPLOAD_MB:-300}
+      SKIP_DEMO_TRAIN_SEED: ${SKIP_DEMO_TRAIN_SEED:-true}
+      EXTERNAL_TRAIN_CSV_PATH: ${EXTERNAL_TRAIN_CSV_PATH:-/data/train.csv}
+      EXTERNAL_TRAIN_CSV_LIMIT: ${EXTERNAL_TRAIN_CSV_LIMIT:--1}
     command: >
       sh -c "python scripts/wait_for_postgres.py
       && alembic upgrade head
       && python scripts/seed_demo_data.py
+      && python scripts/import_train_csv.py --path ${EXTERNAL_TRAIN_CSV_PATH:-/data/train.csv} --replace --limit ${EXTERNAL_TRAIN_CSV_LIMIT:--1}
       && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - /Users/tanya/Downloads/train.csv:/data/train.csv:ro
     networks:
       - drivee_net
 
@@ -58,7 +63,11 @@ services:
       backend:
         condition: service_started
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      # same-origin: браузер ходит на :3001/api/* → Next проксирует на backend (без CORS в браузере).
+      # Прямой http://localhost:8000 из браузера возможен только при явном NEXT_PUBLIC_API_URL в .env.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-same-origin}
+      API_PROXY_TARGET: ${API_PROXY_TARGET:-http://backend:8000}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8000}
       NEXT_PUBLIC_API_MOCK: ${NEXT_PUBLIC_API_MOCK:-false}
       CHOKIDAR_USEPOLLING: "true"
     command: npm run dev -- -H 0.0.0.0 -p 3000

@@ -138,6 +138,15 @@ class SQLGenerationService:
     ) -> str:
         table_name = self._resolve_source_table(source_table)
         where_base = self.build_where_orders(entities, workspace_id)
+        # Два счётчика в одной строке — всегда этот SELECT, даже если LLM выбрал comparison/ranking.
+        if entities.get("dual_accept_cancel_counts"):
+            dual = (
+                "COUNT(*) FILTER (WHERE a.driveraccept_timestamp IS NOT NULL)::bigint AS accepted_rows, "
+                "COUNT(*) FILTER (WHERE a.clientcancel_timestamp IS NOT NULL "
+                "OR a.drivercancel_timestamp IS NOT NULL)::bigint AS cancelled_rows"
+            )
+            return f"SELECT {dual} FROM {table_name} a WHERE {where_base}"
+
         grain = entities.get("time_grain") or "week"
         dims = entities.get("dimensions") if isinstance(entities.get("dimensions"), list) else []
         dim_key = "city_id"

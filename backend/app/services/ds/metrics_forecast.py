@@ -250,28 +250,32 @@ def run_forecast_bundle(
     else:
         last_d = last_date
 
-    methods = {
+    methods_full = {
         "rolling_average": forecast_rolling(y, horizon_days),
         "trend_extrapolation": forecast_trend(y, horizon_days),
         "linear_regression": forecast_linear(y, horizon_days),
     }
-    if baseline_only:
-        # Explicitly reduce to robust baseline in low-quality data mode.
-        methods = {"rolling_average": methods["rolling_average"]}
-    d_until_sun = days_until_sunday_inclusive(_today_utc())
+    # Сценарии «до конца недели» в UI сравнивают стратегии — считаем по всем трём всегда.
+    # В baseline_only в серию next_7_days остаётся только rolling (основной робастный ряд).
+    methods_for_next7 = (
+        {"rolling_average": methods_full["rolling_average"]}
+        if baseline_only
+        else methods_full
+    )
+    d_until_sunday_inclusive = days_until_sunday_inclusive(_today_utc())
     eow: dict[str, float] = {}
-    for name, series in methods.items():
-        eow[name] = float(sum(series[: min(len(series), d_until_sun)]))
+    for name, series in methods_full.items():
+        eow[name] = float(sum(series[: min(len(series), d_until_sunday_inclusive)]))
 
     future_dates = [last_d + timedelta(days=i + 1) for i in range(horizon_days)]
     next7 = {
         k: [{"date": str(future_dates[i]), "value": round(v[i], 2)} for i in range(min(horizon_days, len(v)))]
-        for k, v in methods.items()
+        for k, v in methods_for_next7.items()
     }
     return {
         "history_points": len(y),
         "last_history_date": str(last_d),
-        "end_of_week_days_considered": d_until_sun,
+        "end_of_week_days_considered": d_until_sunday_inclusive,
         "expected_until_end_of_week": {k: round(v, 2) for k, v in eow.items()},
         "next_7_days": next7,
         "selected_strategy": selected_strategy,

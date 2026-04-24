@@ -1,4 +1,13 @@
-import type { AuthSessionDto, LoginRequestDto, RegisterRequestDto, TokenPairDto, UserDto } from "@/types/api/auth";
+import type { ReportPdfMode } from "@/lib/preferences/report-pdf";
+import type {
+  AuthSessionDto,
+  LoginRequestDto,
+  RegisterRequestDto,
+  TokenPairDto,
+  UserDto,
+  UserProfileDto,
+  UserProfilePatchDto
+} from "@/types/api/auth";
 import type {
   AnalyticsTraceDto,
   NotebookCellDto,
@@ -164,14 +173,8 @@ export async function mockLogin(_body: LoginRequestDto): Promise<AuthSessionDto>
     token_type: "bearer",
     expires_in: 3600
   };
-  const user: UserDto = {
-    id: "user-mock",
-    email: _body.email,
-    full_name: "Пользователь",
-    role: "manager",
-    workspace_id: "ws-1"
-  };
-  return { user, tokens };
+  const user = await mockMe();
+  return { user: { ...user, email: _body.email }, tokens };
 }
 
 export async function mockRegister(body: RegisterRequestDto): Promise<AuthSessionDto> {
@@ -186,6 +189,37 @@ export async function mockRegister(body: RegisterRequestDto): Promise<AuthSessio
   };
 }
 
+const mockProfileState: UserProfileDto = {
+  first_name: "Пользователь",
+  last_name: null,
+  timezone: "Europe/Moscow",
+  locale: "ru",
+  default_report_pdf_mode: "board"
+};
+
+export async function mockPatchMyProfile(patch: UserProfilePatchDto): Promise<UserDto> {
+  (Object.keys(patch) as (keyof UserProfilePatchDto)[]).forEach((key) => {
+    const v = patch[key];
+    if (v === undefined) return;
+    if (key === "default_report_pdf_mode" && (v === "compact" || v === "board")) {
+      mockProfileState.default_report_pdf_mode = v as ReportPdfMode;
+      return;
+    }
+    if (key === "first_name" || key === "last_name") {
+      mockProfileState[key] = v as string | null;
+      return;
+    }
+    if (key === "timezone" && typeof v === "string") {
+      mockProfileState.timezone = v;
+      return;
+    }
+    if (key === "locale" && typeof v === "string") {
+      mockProfileState.locale = v;
+    }
+  });
+  return mockMe();
+}
+
 export async function mockMe(): Promise<UserDto> {
   const wid = "00000000-0000-0000-0000-000000000001";
   return {
@@ -194,7 +228,8 @@ export async function mockMe(): Promise<UserDto> {
     full_name: "Пользователь",
     role: "manager",
     workspace_id: wid,
-    default_workspace_id: wid
+    default_workspace_id: wid,
+    profile: { ...mockProfileState }
   };
 }
 
@@ -202,21 +237,21 @@ export async function mockListNotebooks(): Promise<NotebookListItemDto[]> {
   return [
     {
       id: "ops-health",
-      title: "Main demo — top cancelled cities",
+      title: "Основной сценарий — топ городов по отменам",
       created_at: "2026-04-18T10:00:00Z",
       updated_at: "2026-04-20T08:00:00Z",
       notebook_status: "active"
     },
     {
       id: "clarification-demo",
-      title: "Clarification demo",
+      title: "Сценарий с уточнением",
       created_at: "2026-04-10T12:00:00Z",
       updated_at: "2026-04-19T18:30:00Z",
       notebook_status: "active"
     },
     {
       id: "follow-up-demo",
-      title: "Follow-up demo",
+      title: "Сценарий с follow-up",
       created_at: "2026-04-09T09:00:00Z",
       updated_at: "2026-04-19T18:45:00Z",
       notebook_status: "active"
@@ -281,7 +316,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
       columns: ["city_id", "done_orders", "total_orders", "done_share"],
       rows,
       caption:
-        "Controlled fallback: сравнение доли завершённых заказов (Алматы vs Астана), детерминированный демо-датасет."
+        "Controlled fallback: сравнение доли завершённых заказов (Алматы vs Астана), детерминированный тестовый датасет."
     };
     chartPayload = {
       chartType: "bar",
@@ -310,21 +345,21 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
       `Инсайт по запросу: «${prompt}».`,
       `Алматы: доля завершённых ${a?.done_share ?? "—"} при ${a?.total_orders ?? 0} заказах в выборке.`,
       `Астана: доля завершённых ${b?.done_share ?? "—"} при ${b?.total_orders ?? 0} заказах в выборке.`,
-      "Примечание: это демо-агрегат из SEEDED_ORDERS при недоступности live SQL."
+      "Примечание: это агрегат из SEEDED_ORDERS при недоступности live SQL."
     ].join("\n");
   } else if (isChannelConversion) {
     const rows = demoChannelFunnelRows();
     tablePayload = {
       columns: ["order_channel", "orders", "completed", "conversion"],
       rows,
-      caption: "Controlled fallback: конверсия в завершённую поездку по каналам (фиксированный демо-срез)."
+      caption: "Controlled fallback: конверсия в завершённую поездку по каналам (фиксированный срез)."
     };
     chartPayload = {
       chartType: "bar",
       recommendedChartType: "bar",
       alternativeChartTypes: ["horizontal_bar", "table"],
       visualizationExplanation: "Сравнение категорий (каналы) — столбчатая диаграмма.",
-      title: "Конверсия по каналам (demo)",
+      title: "Конверсия по каналам",
       xKey: "order_channel",
       series: [{ key: "conversion", name: "Конверсия" }],
       data: rows
@@ -343,7 +378,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
     traceText = "Намерение: сравнение каналов · метрика: conversion · окно: 28 дней";
     insightBody = [
       `Инсайт по запросу: «${prompt}».`,
-      `Лучший канал по конверсии в демо-срезе: ${rows.reduce((best, r) => (r.conversion > best.conversion ? r : best), rows[0])?.order_channel ?? "—"}.`,
+      `Лучший канал по конверсии в текущем срезе: ${rows.reduce((best, r) => (r.conversion > best.conversion ? r : best), rows[0])?.order_channel ?? "—"}.`,
       "В live режиме SQL читает реальные order_channel из warehouse."
     ].join("\n");
   } else if (isRevenueTrend) {
@@ -358,7 +393,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
       recommendedChartType: "line",
       alternativeChartTypes: ["area", "bar", "table"],
       visualizationExplanation: "Динамика выручки во времени — линейный график.",
-      title: "Выручка по дням (demo)",
+      title: "Выручка по дням",
       xKey: "day",
       series: [{ key: "revenue", name: "Выручка" }],
       data: rows
@@ -377,8 +412,8 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
     traceText = "Намерение: тренд выручки · гранулярность: day";
     insightBody = [
       `Инсайт по запросу: «${prompt}».`,
-      rows.length ? `Суммарная выручка в окне демо: ${rows.reduce((s, r) => s + r.revenue, 0).toLocaleString("ru-RU")} (усл. ед.).` : "Нет завершённых строк в демо-окне.",
-      "Примечание: агрегат из демо-заказов при fallback."
+      rows.length ? `Суммарная выручка в окне: ${rows.reduce((s, r) => s + r.revenue, 0).toLocaleString("ru-RU")} (усл. ед.).` : "Нет завершённых строк в текущем окне.",
+      "Примечание: агрегат из тестовых заказов при fallback."
     ].join("\n");
   } else if (isShareByCity) {
     const rows = shareOrdersByCityForDonut();
@@ -410,7 +445,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
     traceText = "Намерение: структура / доли · измерение: city_id";
     insightBody = [
       `Инсайт по запросу: «${prompt}».`,
-      `Крупнейший вклад: ${rows[0]?.city_id ?? "—"} (${Math.round((rows[0]?.share ?? 0) * 100)}% заказов в демо-выборке).`,
+      `Крупнейший вклад: ${rows[0]?.city_id ?? "—"} (${Math.round((rows[0]?.share ?? 0) * 100)}% заказов в выборке).`,
       "В live режиме доли пересчитываются по полной таблице."
     ].join("\n");
   } else if (isGeoMapDemo) {
@@ -439,7 +474,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
         fallbackChartType: "horizontal_bar",
         mapFeatures
       },
-      title: "Города на карте (demo)",
+      title: "Города на карте",
       xKey: "city_id",
       series: [{ key: "cancelled_orders", name: "Отмены" }],
       data: rows
@@ -457,7 +492,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
     traceText = "Намерение: география · метрика: cancellations · карта (MVP)";
     insightBody = [
       `Инсайт по запросу: «${prompt}».`,
-      `Топ по отменам в демо-срезе: ${rows[0]?.city_id ?? "—"}.`,
+      `Топ по отменам в текущем срезе: ${rows[0]?.city_id ?? "—"}.`,
       "Интерактивная карта в продукте — следующий этап; сейчас geo card + те же данные."
     ].join("\n");
   } else if (isReporting) {
@@ -466,14 +501,14 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
       columns: ["day", "cancellations"],
       rows,
       caption:
-        "Controlled fallback: ежедневные отмены по демо-датасету (регулярная отчётность / операционный срез)."
+        "Controlled fallback: ежедневные отмены по тестовому датасету (регулярная отчётность / операционный срез)."
     };
     chartPayload = {
       chartType: "line",
       recommendedChartType: "line",
       alternativeChartTypes: ["bar", "table"],
       visualizationExplanation: "Временной ряд отмен по дням для операционного мониторинга.",
-      title: "Отмены по дням (демо-ряд)",
+      title: "Отмены по дням",
       xKey: "day",
       series: [{ key: "cancellations", name: "Отмены" }],
       data: rows
@@ -494,7 +529,7 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
       rows.length > 0 ? rows.reduce((best, r) => (r.cancellations > best.cancellations ? r : best), rows[0]) : null;
     insightBody = [
       `Инсайт по запросу: «${prompt}».`,
-      `Пик отмен в окне демо-данных: ${peakDay ? `${peakDay.day} (${peakDay.cancellations})` : "—"}.`,
+      `Пик отмен в текущем окне данных: ${peakDay ? `${peakDay.day} (${peakDay.cancellations})` : "—"}.`,
       "Рекомендация: в live-режиме привязать окно к календарю SLA и исключить тестовые заказы."
     ].join("\n");
   } else {

@@ -25,3 +25,8 @@ backend/data/*.csv
 # TypeScript incremental cache
 *.tsbuildinfo
 
+# Playwright (frontend/e2e)
+playwright-report/
+test-results/
+blob-report/
+

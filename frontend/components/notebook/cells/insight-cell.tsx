@@ -19,7 +19,7 @@ export function InsightCell({ block }: InsightCellProps) {
   }
 
   return (
-    <div className="surface-decision relative overflow-hidden border-border-subtle bg-surface-card px-4 py-4">
+    <div data-testid="notebook-result-insight" className="surface-decision relative overflow-hidden border-border-subtle bg-surface-card px-4 py-4">
       <div className="absolute left-0 top-0 h-full w-1 bg-brand-400" aria-hidden />
       <div className="pl-2">
         <div className="flex flex-wrap items-center gap-2">

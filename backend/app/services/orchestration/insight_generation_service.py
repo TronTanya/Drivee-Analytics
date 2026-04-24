@@ -14,7 +14,18 @@ _TIME_COL = re.compile(
 )
 _CITY_DIM = re.compile(r"city|region|област|город|segment|channel|категор", re.IGNORECASE)
 _CANCEL_METRIC = re.compile(r"cancel|отмен", re.IGNORECASE)
+_ACCEPT_METRIC = re.compile(r"accept|driveraccept|принят", re.IGNORECASE)
 _SHARE_HINT = re.compile(r"share|percent|ratio|conversion|дол", re.IGNORECASE)
+_ID_DIM_COL = re.compile(
+    r"^(city_id|order_id|user_id|driver_id|tender_id|offset_hours|status_order|status_tender|id|rn|row_number)$",
+    re.IGNORECASE,
+)
+
+_EMPTY_ROWS_INSIGHT_RU = (
+    "Результат SQL пустой (0 строк), поэтому числовой инсайт построить нельзя. "
+    "Типично так бывает из‑за окна по датам (например, последние недели не пересекаются с `order_timestamp` в выгрузке), "
+    "узких фильтров (город, канал) или отсутствия строк под запрос. Сверьте ячейку «Таблица» и SQL выше."
+)
 
 
 def _to_float(v: Any) -> Optional[float]:
@@ -87,6 +98,80 @@ def _pick_dimension_column(columns: list[str], metric: Optional[str], rows: list
     return None
 
 
+def _is_structural_column(name: str) -> bool:
+    """Колонки-измерения / id: не показываем как отдельную «метрику» в сводке."""
+    if _ID_DIM_COL.match(name.strip()):
+        return True
+    if _TIME_COL.search(name):
+        return True
+    return False
+
+
+def _metrics_from_single_row(row: dict[str, Any], columns: list[str]) -> list[tuple[str, float]]:
+    """Числовые показатели одной строки результата (для сводки «два значения»)."""
+    out: list[tuple[str, float]] = []
+    for c in columns:
+        if _is_structural_column(c):
+            continue
+        raw = row.get(c)
+        if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+            continue
+        v = _to_float(raw)
+        if v is None and isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            v = float(raw)
+        if v is None:
+            continue
+        out.append((c, float(v)))
+    return out
+
+
+def _ru_metric_phrase(column: str) -> str:
+    lo = column.lower()
+    if _ACCEPT_METRIC.search(lo):
+        return "принятые заказы"
+    if _CANCEL_METRIC.search(lo):
+        return "отменённые заказы"
+    if "done" in lo or "заверш" in lo:
+        return "завершённые поездки"
+    if any(x in lo for x in ("orders_count", "order_cnt", "num_orders")):
+        return "заказы (агрегат)"
+    return f"показатель «{column}»"
+
+
+def _format_metric_value(v: float) -> str:
+    if abs(v - round(v)) < 1e-6 and abs(v) < 1e12:
+        return str(int(round(v)))
+    return f"{v:.4g}"
+
+
+def _single_row_multi_metric_insight(rows: list[dict[str, Any]], columns: list[str]) -> Optional[str]:
+    """
+    Одна строка с двумя и более числовыми метриками (типично: принятые + отмены по городу).
+    Даём явный текст, чтобы LLM не свёл ответ к одной «ед.».
+    """
+    if len(rows) != 1:
+        return None
+    metrics = _metrics_from_single_row(rows[0], columns)
+    if len(metrics) < 2:
+        return None
+    row = rows[0]
+    city = row.get("city_id") or row.get("city")
+    prefix = f"По city_id {city}: " if city not in (None, "") else ""
+
+    def _sort_key(item: tuple[str, float]) -> tuple[int, str]:
+        col, _ = item
+        lo = col.lower()
+        if _ACCEPT_METRIC.search(lo):
+            return (0, col)
+        if _CANCEL_METRIC.search(lo):
+            return (1, col)
+        return (2, col)
+
+    ordered = sorted(metrics, key=_sort_key)
+    parts = [f"{_ru_metric_phrase(c)} — {_format_metric_value(v)}" for c, v in ordered]
+    return prefix + "; ".join(parts) + "."
+
+
 def _row_label(row: dict[str, Any], dim: Optional[str], columns: list[str]) -> str:
     if dim and dim in row:
         return str(row.get(dim) or "—")
@@ -104,6 +189,12 @@ class InsightGenerationService:
         self._llm = llm_service
 
     def generate(self, intent: str, rows: list[dict[str, Any]], columns: list[str]) -> str:
+        # Пустой результат: не зовём LLM — иначе модель пишет общие фразы вроде «данные пусты», без привязки к SQL/фильтрам.
+        if not rows:
+            return _EMPTY_ROWS_INSIGHT_RU
+        forced = _single_row_multi_metric_insight(rows, columns)
+        if forced is not None:
+            return forced
         if self._llm is not None and self._llm.is_enabled:
             llm = self._llm.generate_insight_text(intent=intent, columns=columns, rows=rows)
             if llm is not None and llm.insight_text.strip():
@@ -116,7 +207,7 @@ class InsightGenerationService:
     @staticmethod
     def _fallback(intent: str, rows: list[dict[str, Any]], columns: list[str]) -> str:
         if not rows:
-            return "Нет строк результата для краткого вывода."
+            return _EMPTY_ROWS_INSIGHT_RU
         metric = _pick_metric_column(columns, rows)
         tcol = _pick_time_column(columns)
         dim = _pick_dimension_column(columns, metric, rows)

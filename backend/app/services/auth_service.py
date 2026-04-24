@@ -13,6 +13,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
+from app.models.user_profile import UserProfile
 from app.repositories.role_repository import RoleRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import RegisterRequest, TokenPairResponse
@@ -52,6 +53,10 @@ class AuthService:
             is_active=True,
         )
         self._users.create(user)
+        self._users.session.flush()
+        self._users.session.add(
+            UserProfile(user_id=user.id, timezone="UTC", locale="ru", profile_json={})
+        )
         self._users.session.commit()
         self._users.session.refresh(user)
         return self._issue_tokens(user)

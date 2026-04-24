@@ -4,7 +4,7 @@ import { requestJson } from "@/lib/api/request";
 import { getAccessToken } from "@/lib/api/token";
 import { mockListNotebookTemplates, mockListQueryTemplates } from "@/lib/api/mocks";
 import type { UserRole } from "@/lib/types";
-import type { NotebookTemplateDto, QueryTemplateDto } from "@/types/api/templates";
+import type { NotebookTemplateDto, QueryTemplateDto, QuickRunTemplateResultDto } from "@/types/api/templates";
 
 type BackendQueryTemplate = {
   id: string;
@@ -106,7 +106,7 @@ export async function fetchNotebookTemplates(workspaceId: string | undefined): P
 export async function quickRunQueryTemplate(
   workspaceId: string,
   templateId: string
-): Promise<{ template_id: string; execution_status: string; safe_sql: string; insight: string; chart_type: string }> {
+): Promise<QuickRunTemplateResultDto> {
   const qs = new URLSearchParams({ workspace_id: workspaceId });
   return requestJson({
     path: `/api/v1/templates/${encodeURIComponent(templateId)}/run?${qs.toString()}`,
@@ -116,7 +116,8 @@ export async function quickRunQueryTemplate(
       execution_status: "succeeded",
       safe_sql: "SELECT 1",
       insight: "Mock template run",
-      chart_type: "line"
+      chart_type: "line",
+      warnings: []
     })
   });
 }

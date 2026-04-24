@@ -128,7 +128,7 @@
 | `06 Dashboard — Manager` | `/dashboard/manager` |
 | `07 Dashboard — Marketer` | `/dashboard/marketer` |
 | `08 Dashboard — Executive` | `/dashboard/executive` |
-| `09 Notebooks — список` | `/notebooks` |
+| `09 Notebooks — список` | `/scenarios` |
 | `10 Notebook — деталь` | `/notebooks/[id]` |
 | `11 Reports` | `/reports` |
 | `12 History` | `/history` |

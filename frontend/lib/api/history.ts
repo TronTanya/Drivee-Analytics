@@ -81,15 +81,22 @@ function mapHistoryItemToRun(row: HistoryApiItem): NotebookRunDto {
   };
 }
 
-export async function fetchNotebookRuns(workspaceId: string): Promise<NotebookRunDto[]> {
+export async function fetchNotebookRuns(
+  workspaceId: string,
+  filters: Pick<QueryHistoryFilters, "scope"> = {}
+): Promise<NotebookRunDto[]> {
   if (!workspaceId?.trim()) return [];
   if (isApiMockOnly()) return mockListNotebookRuns();
-  const path = buildHistoryPath(workspaceId, {});
+  const scope = filters.scope ?? "workspace";
+  const path = buildHistoryPath(workspaceId, { scope });
   try {
     const rows = await apiFetchJson<HistoryApiItem[]>(path, { method: "GET", cache: "no-store" });
     return Array.isArray(rows) ? rows.map(mapHistoryItemToRun) : [];
   } catch (e) {
-    if (isApiMockFallback() && (e instanceof ApiError ? e.status >= 500 || e.status === 404 || e.status === 401 : true)) {
+    if (
+      isApiMockFallback() &&
+      (e instanceof ApiError ? e.status >= 500 || e.status === 404 || e.status === 401 || e.status === 403 : true)
+    ) {
       return mockListNotebookRuns();
     }
     throw e;
@@ -108,7 +115,10 @@ export async function fetchQueryHistory(
     const rows = await apiFetchJson<HistoryApiItem[]>(path, { method: "GET", cache: "no-store" });
     return Array.isArray(rows) ? rows.map(mapHistoryItem) : [];
   } catch (e) {
-    if (isApiMockFallback() && (e instanceof ApiError ? e.status >= 500 || e.status === 404 || e.status === 401 : true)) {
+    if (
+      isApiMockFallback() &&
+      (e instanceof ApiError ? e.status >= 500 || e.status === 404 || e.status === 401 || e.status === 403 : true)
+    ) {
       return mockListQueryHistory();
     }
     throw e;

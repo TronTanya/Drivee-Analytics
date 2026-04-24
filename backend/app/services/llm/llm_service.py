@@ -12,6 +12,7 @@ from app.schemas.llm import (
     LLMClarificationResult,
     LLMExplainabilityResult,
     LLMFollowUpRewriteResult,
+    LLMGeneralQueryAnswer,
     LLMInsightResult,
     LLMQueryInterpretation,
 )
@@ -128,6 +129,14 @@ class LLMService:
             task="insight_generation",
             payload={"intent": intent, "columns": columns, "rows": rows},
             model_cls=LLMInsightResult,
+        )
+
+    def answer_general_query(self, *, query: str) -> Optional[LLMGeneralQueryAnswer]:
+        """Текстовый ответ без SQL для query_scope=general."""
+        return self._run_structured(
+            task="general_query_answer",
+            payload={"query": query},
+            model_cls=LLMGeneralQueryAnswer,
         )
 
     def _run_structured(

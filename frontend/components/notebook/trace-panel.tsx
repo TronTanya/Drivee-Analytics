@@ -192,9 +192,11 @@ function SummaryTile(props: {
           {icon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">{label}</p>
-            {headerRight}
+          <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="min-w-0 flex-[1_1_10rem] text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
+              {label}
+            </p>
+            {headerRight ? <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-1">{headerRight}</div> : null}
           </div>
           <div className="mt-1">{children}</div>
         </div>
@@ -478,42 +480,46 @@ export function TracePanel({
 
   return (
     <div
+      data-testid="notebook-trace-panel"
       className={`surface-section flex max-h-[min(85vh,900px)] flex-col shadow-card ${className}`}
     >
-      <div className="flex items-start justify-between gap-2 border-b border-border-subtle bg-surface-muted/35 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Explainability</p>
-          <p className="truncate text-sm font-semibold text-foreground">Трассировка запроса</p>
-          {hasResolvedSource ? (
-            <p className="mt-1 text-[11px] leading-snug text-foreground-secondary">
-              <span className="font-semibold text-foreground-muted">Источник данных:</span>{" "}
-              <code className="rounded bg-surface-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
-                {model.resolvedSourceTable}
-              </code>
-            </p>
-          ) : null}
-          {qualityAttention ? (
-            <p className="mt-0.5 line-clamp-2 text-xs text-foreground-secondary">
-              <span className="font-semibold text-foreground">Quality gate:</span> {model.qualityGate.status}
-              {model.qualityGate.reasons.length > 0
-                ? ` — ${model.qualityGate.reasons.slice(0, 2).join(" · ")}`
-                : null}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <ConfidenceBadge value={model.confidence} />
-          <ValidationBadge ok={ok} label={hint} danger={model.validationStatus === "failed"} />
+      {/* Не sm:flex-row по viewport: боковая панель trace узкая даже на широком экране — бейджи наезжали на заголовок. */}
+      <div className="flex flex-col gap-3 border-b border-border-subtle bg-surface-muted/35 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Explainability</p>
+            <p className="break-words text-sm font-semibold text-foreground">Трассировка запроса</p>
+            {hasResolvedSource ? (
+              <p className="mt-1 text-[11px] leading-snug text-foreground-secondary">
+                <span className="font-semibold text-foreground-muted">Источник данных:</span>{" "}
+                <code className="rounded bg-surface-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
+                  {model.resolvedSourceTable}
+                </code>
+              </p>
+            ) : null}
+            {qualityAttention ? (
+              <p className="mt-0.5 line-clamp-2 text-xs text-foreground-secondary">
+                <span className="font-semibold text-foreground">Quality gate:</span> {model.qualityGate.status}
+                {model.qualityGate.reasons.length > 0
+                  ? ` — ${model.qualityGate.reasons.slice(0, 2).join(" · ")}`
+                  : null}
+              </p>
+            ) : null}
+          </div>
           {onClose ? (
             <button
               type="button"
               onClick={onClose}
-              className="interactive-focus rounded-control p-1 text-foreground-muted transition hover:bg-surface-muted hover:text-foreground"
+              className="interactive-focus shrink-0 rounded-control p-1 text-foreground-muted transition hover:bg-surface-muted hover:text-foreground"
               aria-label="Закрыть trace"
             >
               ×
             </button>
           ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ConfidenceBadge value={model.confidence} />
+          <ValidationBadge ok={ok} label={hint} danger={model.validationStatus === "failed"} />
         </div>
       </div>
 
@@ -561,7 +567,7 @@ export function TracePanel({
             disabled={!canRerun}
             title={
               model.learnedCorrectionUsed
-                ? "Перезапуск без learned SQL из workspace"
+                ? "Перезапуск без learned SQL из общего контекста"
                 : "Показать пояснение, если learned-коррекция не применялась"
             }
             className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}

@@ -7,10 +7,17 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 LLMIntentKind = Literal["trend", "comparison", "ranking", "share", "geo", "summary", "forecast"]
+LLMQueryScope = Literal["data", "general"]
 
 
 class LLMQueryInterpretation(BaseModel):
+    """Если query_scope=general — вопрос вне датасета заказов; оркестратор ответит текстом без SQL."""
+
     intent: LLMIntentKind = "summary"
+    query_scope: LLMQueryScope = Field(
+        default="data",
+        description='"general" для приветствий, общих знаний и т.п.; "data" для вопросов по метрикам/заказам.',
+    )
     metrics: list[str] = Field(default_factory=list)
     dimensions: list[str] = Field(default_factory=list)
     filters: list[str] = Field(default_factory=list)
@@ -36,6 +43,29 @@ class LLMQueryInterpretation(BaseModel):
             "aggregate": "summary",
         }
         return alias_map.get(raw, raw)
+
+    @field_validator("query_scope", mode="before")
+    @classmethod
+    def _normalize_query_scope(cls, value: object) -> str:
+        if value is None:
+            return "data"
+        raw = str(value).strip().lower()
+        if raw in ("general", "non_data", "off_topic", "chitchat", "smalltalk"):
+            return "general"
+        return "data"
+
+
+class LLMGeneralQueryAnswer(BaseModel):
+    """Краткий ответ без SQL (разговорный слой)."""
+
+    reply: str = ""
+
+    @field_validator("reply", mode="before")
+    @classmethod
+    def _normalize_reply(cls, value: object) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
 
 
 class LLMClarificationOption(BaseModel):

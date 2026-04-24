@@ -21,7 +21,8 @@ class FallbackServiceTests(unittest.TestCase):
     def test_insight_fallback_on_empty_rows(self) -> None:
         service = InsightGenerationService(llm_service=None)
         text = service.generate("summary", [], ["value"])
-        self.assertEqual(text, "Нет строк результата для краткого вывода.")
+        self.assertIn("0 строк", text)
+        self.assertIn("SQL", text)
 
     def test_insight_fallback_trend_growth(self) -> None:
         service = InsightGenerationService(llm_service=None)
@@ -42,6 +43,17 @@ class FallbackServiceTests(unittest.TestCase):
         text = service.generate("ranking", rows, ["city_id", "cancelled_orders"])
         self.assertIn("Алматы", text)
         self.assertIn("cancelled_orders", text)
+
+    def test_insight_single_row_two_metrics_lists_both(self) -> None:
+        """Одна строка с двумя числами (принятые / отмены) — не сводим к одному «значению»."""
+        service = InsightGenerationService(llm_service=None)
+        rows = [{"city_id": "67", "accepted_orders": 476, "cancelled_rows": 166}]
+        text = service.generate("summary", rows, ["city_id", "accepted_orders", "cancelled_rows"])
+        self.assertIn("476", text)
+        self.assertIn("166", text)
+        self.assertIn("67", text)
+        self.assertRegex(text.lower(), r"принят")
+        self.assertRegex(text.lower(), r"отмен")
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ export function TableCell({ block }: TableCellProps) {
           </article>
         ))}
       </div>
-      <div className="enterprise-table-shell hidden sm:block">
+      <div data-testid="notebook-result-table" className="enterprise-table-shell hidden sm:block">
         <table className="w-full min-w-[320px] border-collapse text-left text-body-sm">
           <thead>
             <tr className="border-b border-border-subtle bg-surface-muted/70">

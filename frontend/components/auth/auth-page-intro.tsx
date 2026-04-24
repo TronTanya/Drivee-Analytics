@@ -8,7 +8,8 @@ export function AuthPageIntro({
 }: {
   eyebrow: string;
   title: string;
-  description: string;
+  /** Необязательный подзаголовок под формой входа/регистрации. */
+  description?: string;
 }) {
   return (
     <header className="space-y-3 text-center sm:text-left">
@@ -21,7 +22,9 @@ export function AuthPageIntro({
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">{eyebrow}</p>
         <h1 className="mt-1 text-heading-1 text-foreground">{title}</h1>
-        <p className="mt-2 max-w-md text-sm leading-relaxed text-foreground-secondary">{description}</p>
+        {description ? (
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-foreground-secondary">{description}</p>
+        ) : null}
       </div>
     </header>
   );

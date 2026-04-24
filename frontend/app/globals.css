@@ -52,13 +52,14 @@
     @apply transition duration-150 hover:-translate-y-0.5;
   }
 
+  /* Вся ширина окна (минус отступы): иначе на широком мониторе остаются пустые поля по бокам). */
   .layout-shell-container {
-    @apply mx-auto max-w-7xl px-4 sm:px-6;
+    @apply w-full max-w-none px-4 sm:px-6 xl:px-8 2xl:px-10;
   }
 
   .layout-shell-grid {
     /* minmax(0,1fr) — основная колонка может сжиматься ниже min-content; иначе длинные pre/таблицы рвут layout */
-    @apply grid grid-cols-1 gap-4 py-4 sm:gap-6 sm:py-6 lg:grid-cols-[240px_minmax(0,1fr)];
+    @apply grid grid-cols-1 gap-4 py-4 sm:gap-6 sm:py-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8;
   }
 
   .layout-page-stack {
@@ -100,5 +101,20 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+@keyframes flowPulse {
+  0% {
+    transform: translateX(-6%);
+    opacity: 0.88;
+  }
+  50% {
+    transform: translateX(6%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-6%);
+    opacity: 0.88;
   }
 }

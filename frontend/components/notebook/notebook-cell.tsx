@@ -41,7 +41,7 @@ function CellBody({
   onPromptChange?: (id: string, text: string) => void;
   onPromptSubmit?: (id: string, text: string) => void;
   promptBusy?: boolean;
-  onClarificationSelect?: (id: string, optionId: string) => void;
+  onClarificationSelect?: (id: string, optionId: string, optionLabel: string) => void;
   clarificationBusy?: boolean;
 }) {
   switch (block.type) {
@@ -71,7 +71,9 @@ function CellBody({
       return (
         <ClarificationCell
           block={block}
-          onSelectOption={onClarificationSelect ? (optionId) => onClarificationSelect(block.id, optionId) : undefined}
+          onSelectOption={
+            onClarificationSelect ? (optionId, optionLabel) => onClarificationSelect(block.id, optionId, optionLabel) : undefined
+          }
           disabled={clarificationBusy}
         />
       );
@@ -96,9 +98,8 @@ export function NotebookCell({
 }: NotebookCellProps) {
   const runnable = canRun(block);
   const running = block.status === "running";
-  /** Уточнение: «running» после клика = второй проход pipeline; без busy это зависшее состояние — не показываем ложный «ожидайте». */
-  const showRunningBanner =
-    running && (block.type !== "clarification" || Boolean(clarificationBusy));
+  /** Пока ячейка в running — показываем баннер (для уточнения — отдельный текст про второй проход pipeline). */
+  const showRunningBanner = running;
   const failed = block.status === "error";
   const success = block.status === "success";
   const runAccent = failed

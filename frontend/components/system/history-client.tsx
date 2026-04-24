@@ -74,8 +74,8 @@ export function HistoryClient() {
   const [histFrom, setHistFrom] = useState("");
   const [histTo, setHistTo] = useState("");
   const [histType, setHistType] = useState("all");
-  const [histScope, setHistScope] = useState<"mine" | "workspace">("mine");
-  const notebookRunsQuery = useNotebookRuns(workspaceQuery.data);
+  const [histScope, setHistScope] = useState<"mine" | "workspace">("workspace");
+  const notebookRunsQuery = useNotebookRuns(workspaceQuery.data, { scope: histScope });
   const queryHistoryQuery = useQueryHistory(workspaceQuery.data, {
     q: histQ.trim() || undefined,
     date_from: histFrom ? `${histFrom}T00:00:00Z` : undefined,
@@ -167,7 +167,7 @@ export function HistoryClient() {
     setActionMsg(null);
     const ws = workspaceQuery.data;
     if (!ws) {
-      setActionMsg("Нужен workspace для сохранения отчёта.");
+      setActionMsg("Нужен доступ для сохранения отчета.");
       return;
     }
     setBusyRun({ type: "report", id: row.id });
@@ -262,7 +262,8 @@ export function HistoryClient() {
       ) : null}
       {notebookRunsQuery.isError || queryHistoryQuery.isError ? (
         <div className="rounded-card border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger-bold">
-          История частично недоступна. Показаны fallback-данные.
+          Не удалось загрузить историю (запуски сценариев и/или запросы). Проверьте вход в систему и доступ к данным,
+          либо доступность backend.
         </div>
       ) : null}
       {actionMsg ? (
@@ -333,8 +334,8 @@ export function HistoryClient() {
           <div className="flex rounded-control border border-border-subtle bg-surface-muted p-0.5">
             {(
               [
-                ["mine", "Мои"],
-                ["workspace", "Workspace (admin)"]
+                ["mine", "Только мои ноутбуки"],
+                ["workspace", "Все данные"]
               ] as const
             ).map(([key, label]) => (
               <button
@@ -351,7 +352,7 @@ export function HistoryClient() {
             ))}
           </div>
           {!workspaceQuery.data ? (
-            <span className="text-xs text-amber-800">Задайте NEXT_PUBLIC_DEFAULT_WORKSPACE_ID или войдите — нужен workspace для истории API.</span>
+            <span className="text-xs text-amber-800">Задайте NEXT_PUBLIC_DEFAULT_WORKSPACE_ID или войдите — нужен доступ для истории API.</span>
           ) : null}
         </div>
       </div>

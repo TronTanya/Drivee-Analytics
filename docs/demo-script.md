@@ -1,19 +1,19 @@
-# Drivee Analytics Notebook — сценарий демонстрации
+# Drivee Analytics Notebook — сценарий показа
 
-Цель — за **10–15 минут** показать живой NL→SQL, trace, сохранение артефактов и честные fallback-режимы. Расширенный контекст: **`docs/demo-defense.md`**. Точка входа после входа: **`/notebooks`**.
+Цель — за **10–15 минут** показать живой NL→SQL, trace, сохранение артефактов и честные fallback-режимы. Расширенный контекст: **`docs/demo-defense.md`**. Точка входа после входа: **`/notebooks`** (обзор), список сценариев — **`/scenarios`**.
 
 ## Перед стартом
 
 1. Поднять стек: **`docker compose up --build`** (см. **[DOCKER.md](../DOCKER.md)**).
-2. Убедиться, что применены миграции и seed: **`make migrate`**, **`make seed`** — в БД появятся пользователи, workspace, шаблоны, ноутбук и **массовый датасет `DEMO-*`** (см. **[demo-analytics-dataset.md](./demo-analytics-dataset.md)**).
+2. Убедиться, что применены миграции и seed: **`make migrate`**, **`make seed`** — в БД появятся пользователи, контекст данных, шаблоны, ноутбук и **массовый датасет `DEMO-*`** (см. **[demo-analytics-dataset.md](./demo-analytics-dataset.md)**).
 3. Frontend для «честной» аналитики:
    - **`NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK`** — не включать (или `false`), чтобы `/api/v1/analytics/run` шёл в backend.
    - **`NEXT_PUBLIC_API_MOCK=fallback`** или **`NEXT_PUBLIC_DEMO_MODE=true`** — при сбое сети/5xx подставляется контролируемый мок.
-4. Логин и пароль: см. **[demo-users-credentials.md](./demo-users-credentials.md)** (все демо-аккаунты после `make seed`).
+4. Логин и пароль: см. **[demo-users-credentials.md](./demo-users-credentials.md)** (все аккаунты после `make seed`).
 
 ## Блок A — Главный путь (обязательный)
 
-1. Открыть **`/notebooks`**, перейти в **`Main notebook demo`** (`/notebooks/ops-health`). Готовые NL для защиты — **`frontend/lib/demo/defense-scenarios.ts`**.
+1. Открыть **`/scenarios`**, перейти в **`Main notebook`** (`/notebooks/ops-health`). Готовые NL для защиты — **`frontend/lib/demo/defense-scenarios.ts`**.
 2. Ввести промпт (варианты):
    - из **`frontend/lib/demo/defense-scenarios.ts`** (`DEFENSE_DEMO_SCENARIOS[0].nlPrompt`), **или**
    - **`Покажи топ-3 города по количеству отменённых заказов на этой неделе`**, **или**
@@ -38,7 +38,7 @@
 
 ## Блок D — Шаблоны и типовая отчётность
 
-1. Открыть **`/templates`** — каталог шаблонов workspace (после seed: отмены по городам, динамика завершённых, WoW по городам, конверсия по каналу и др.).
+1. Открыть **`/templates`** — каталог шаблонов (после seed: отмены по городам, динамика завершённых, WoW по городам, конверсия по каналу и др.).
 2. Запустить шаблон (если UI в live подключён к `GET /api/v1/templates` и `POST .../run`) **или** скопировать NL из карточки шаблона в ноутбук и выполнить там.
 3. Коротко связать с блоком A: «типовой вопрос → сохранённый SQL → отчёт».
 
@@ -50,6 +50,6 @@
 
 ## Ожидаемые наблюдаемые результаты
 
-- Нет «тупикового» UI и сырых stack trace в демо-профиле.
+- Нет «тупикового» UI и сырых stack trace в профильном режиме.
 - Явные баннеры статуса и понятный режим данных/API.
 - При **`make seed`** — ненулевые агрегаты по городам, дням, неделям и каналам для SQL-шаблонов.

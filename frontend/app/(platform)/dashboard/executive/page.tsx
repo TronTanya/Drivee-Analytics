@@ -35,7 +35,7 @@ export default function ExecutiveDashboardPage() {
     const success = history.filter((h) => h.validation_ok).length;
     const avgMs = total ? Math.round(history.reduce((a, h) => a + (h.duration_ms || 0), 0) / total) : 0;
     return [
-      { id: "reports", label: "Сохраненные отчеты", value: fmtNumber((reportsQuery.data ?? []).length), sub: "в workspace" },
+      { id: "reports", label: "Сохраненные отчеты", value: fmtNumber((reportsQuery.data ?? []).length), sub: "в системе" },
       { id: "notebooks", label: "Стратегические сценарии", value: fmtNumber((notebooksQuery.data ?? []).length), sub: "доступные пользователю" },
       {
         id: "quality",

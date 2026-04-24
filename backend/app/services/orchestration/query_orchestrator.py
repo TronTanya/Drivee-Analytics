@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Optional
 
@@ -24,6 +25,7 @@ from app.services.guardrails.policy_engine import (
     check_prompt_abuse,
     check_rate_limit,
     evaluate_canonical_metric_for_role,
+    evaluate_entities_for_role,
 )
 from app.services.orchestration.chart_recommendation_service import ChartRecommendationService
 from app.services.orchestration.clarification_engine import ClarificationContext, ClarificationEngine
@@ -124,6 +126,11 @@ def _resolve_forecast_horizon(entities: dict[str, Any]) -> int:
     return max(1, min(90, value))
 
 
+def _query_explicitly_requests_forecast(text: str) -> bool:
+    q = (text or "").lower()
+    return any(token in q for token in ("прогноз", "forecast", "предскаж", "prediction", "horizon"))
+
+
 class QueryOrchestrator:
     def __init__(
         self,
@@ -151,6 +158,7 @@ class QueryOrchestrator:
         self._correction_learning = correction_learning
         self._explainability = explainability_service or ExplainabilityService(llm_service=llm_service)
         self._insight_service = insight_service or InsightGenerationService(llm_service=llm_service)
+        self._llm_service = llm_service
         self._llm_provider_name = llm_service.provider_name
         self._llm_enabled = llm_service.is_enabled
         self._nl_parser = SemanticParser()
@@ -238,6 +246,100 @@ class QueryOrchestrator:
         self._call_persistence(out, persistence_context)
         return out
 
+    def _general_conversation_output(
+        self,
+        inp: OrchestrationInput,
+        persistence_context: Any,
+        *,
+        started: datetime,
+        raw: str,
+        effective: str,
+        is_follow_up: bool,
+        intent_res: Any,
+        entities: dict[str, Any],
+        interp: NLQueryInterpretation,
+        dialogue_res: Any,
+        steps: list[PipelineStepTrace],
+    ) -> OrchestrationOutput:
+        """Вопрос вне SQL-датасета: краткий текстовый ответ (LLM при наличии, иначе шаблон)."""
+        llm = self._llm_service
+        reply = ""
+        if llm is not None and llm.is_enabled:
+            ans = llm.answer_general_query(query=effective)
+            if ans is not None and ans.reply.strip():
+                reply = ans.reply.strip()
+        if not reply:
+            reply = (
+                "Я отвечаю на вопросы по **данным заказов** в этом контуре: метрики (отмены, принятия, завершения, выручка), "
+                "города, каналы, периоды, топы, тренды и базовый прогноз. К вашей базе в таком разговорном режиме запрос "
+                "не выполняется. Переформулируйте вопрос про заказы (например: «топ-5 городов по отменам за месяц») "
+                "или включите LLM в настройках — тогда смогу кратко ответить и на общие темы в допустимых рамках."
+            )
+        viz = self._charts.recommend("summary", [], [], effective_query=effective)
+        chart = _chart_from_visualization(viz)
+        explainability_text = self._explainability.generate(
+            query=effective,
+            intent=intent_res.intent,
+            entities=dict(entities),
+            clarification_required=False,
+        )
+        clar = ClarificationResponse()
+        trace_payload = {
+            "intent": intent_res.intent,
+            "entities": dict(entities),
+            "semantic_terms": [],
+            "sql": {"draft": "", "final": ""},
+            "sql_generation": {"source": "skipped", "base_source": "general_conversation"},
+            "execution": {"rows": 0, "columns": []},
+            "ambiguity": AmbiguityPayload().model_dump(),
+            "chart": chart.model_dump(),
+            "visualization": viz.model_dump(),
+            "pipeline_steps": [s.model_dump() for s in steps],
+            "rules_engine_version": "mvp-1",
+            "explainability_text": explainability_text,
+            "clarification": {**clar.model_dump(), "confidence_score": 0.82},
+            "dialogue": dialogue_res.to_api_dict(),
+            "inheritance_trace": dialogue_res.inheritance_trace,
+            "effective_query": effective,
+            "forecast_mode": {"active": False, "method": None},
+            "forecast_selection": {},
+            "forecast_explainability": {},
+            "quality_gate": {"status": "passed", "reasons": []},
+            "general_conversation": True,
+            **self._interpretation_trace_fields(interp),
+        }
+        out = OrchestrationOutput(
+            preprocessed_query=raw,
+            effective_query=effective,
+            is_follow_up=is_follow_up,
+            intent=intent_res.intent,
+            entities=dict(entities),
+            semantic_resolutions=[],
+            ambiguity=AmbiguityPayload(),
+            confidence_score=0.82,
+            sql_generation_source="default_template",
+            generated_sql="",
+            validated_sql="",
+            validation_warnings=[],
+            execution_status="succeeded",
+            rows_returned=0,
+            result_preview=[],
+            result_columns=[],
+            chart=chart,
+            insight_text=reply,
+            forecast_records=[],
+            trace_payload=trace_payload,
+            pipeline_steps=steps,
+            started_at=started,
+            finished_at=datetime.utcnow(),
+            sql_validation=None,
+            clarification=clar,
+            dialogue=dialogue_res,
+            visualization=viz,
+        )
+        self._call_persistence(out, persistence_context)
+        return out
+
     def run(
         self,
         inp: OrchestrationInput,
@@ -287,6 +389,17 @@ class QueryOrchestrator:
             if key == "status_order" and val and "status_order" not in entities:
                 entities["status_order"] = val
         entities.update(dialogue_res.entity_overrides)
+        if intent_res.entities:
+            entities.update(intent_res.entities)
+
+        # LLM часто даёт comparison; для «сколько принятых и отменённых» нужен summary + двухколоночный SQL.
+        if entities.get("dual_accept_cancel_counts") and intent_res.intent != "summary":
+            intent_res = replace(
+                intent_res,
+                intent="summary",
+                signals=[*list(intent_res.signals), "coerce:intent:summary_for_dual_counts"],
+            )
+
         steps.append(
             _step(
                 "classify_intent",
@@ -346,6 +459,24 @@ class QueryOrchestrator:
                 )
             )
 
+        if str(entities.get("query_scope", "")).lower() == "general":
+            steps.append(_step("general_answer_route", True, skipped_sql=True))
+            return finish(
+                self._general_conversation_output(
+                    inp,
+                    persistence_context,
+                    started=started,
+                    raw=raw,
+                    effective=effective,
+                    is_follow_up=is_follow_up,
+                    intent_res=intent_res,
+                    entities=dict(entities),
+                    interp=interp,
+                    dialogue_res=dialogue_res,
+                    steps=steps,
+                )
+            )
+
         resolutions = self._semantic.resolve_with_hint(effective, str(entities.get("metric_hint") or ""))
         if resolutions:
             # Канонический ключ первой резолюции = то, что уходит в SQL через semantic mapping.
@@ -362,13 +493,20 @@ class QueryOrchestrator:
             role_key=inp.role_key,
             canonical_metric_key=str(entities.get("canonical_metric_key") or "").strip() or None,
         )
+        entity_policy = evaluate_entities_for_role(role_key=inp.role_key, entities=entities)
+        policy_errors = metric_policy + entity_policy
+        codes: list[str] = []
         if metric_policy:
+            codes.append("metric_policy")
+        if entity_policy:
+            codes.append("entity_policy")
+        if policy_errors:
             steps.append(
                 _step(
                     "guardrails_policy",
                     False,
-                    codes=["metric_policy"],
-                    messages=metric_policy,
+                    codes=codes,
+                    messages=policy_errors,
                 )
             )
             return finish(
@@ -383,8 +521,8 @@ class QueryOrchestrator:
                     entities=dict(entities),
                     resolutions=list(resolutions),
                     steps=steps,
-                    messages=metric_policy,
-                    codes=["metric_policy"],
+                    messages=policy_errors,
+                    codes=codes,
                     interp=interp,
                     dialogue_res=dialogue_res,
                     conf=0.3,
@@ -741,7 +879,9 @@ class QueryOrchestrator:
         elif inp.forecast_sidecar == "on":
             want_forecast = True
         else:
-            want_forecast = intent_res.intent == "forecast" or "прогноз" in effective.lower()
+            # Auto-mode: запускаем sidecar только при явном запросе прогноза в тексте.
+            # Это защищает от ложной классификации intent=forecast для запросов про динамику/историю.
+            want_forecast = _query_explicitly_requests_forecast(effective)
         if want_forecast:
             horizon_steps = _resolve_forecast_horizon(entities)
             if inp.forecast_horizon_steps is not None:

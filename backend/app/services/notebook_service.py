@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -28,7 +29,11 @@ from app.schemas.notebook import (
 )
 from app.schemas.clarification import clarification_reason_summary_ru
 from app.schemas.notebook_context import NotebookContext, ScenarioSnapshot
-from app.services.analytics_pipeline import analyze_natural_language, build_explainability_trace_v1
+from app.services.analytics_pipeline import (
+    NaturalLanguageAnalysisResult,
+    analyze_natural_language,
+    build_explainability_trace_v1,
+)
 from app.utils.time import utc_now
 
 if TYPE_CHECKING:
@@ -182,54 +187,17 @@ class NotebookService:
         self._session().refresh(cell)
         return NotebookCellResponse.model_validate(cell)
 
-    def run_cell(
+    def _finalize_prompt_cell_run(
         self,
-        user: User,
-        notebook_id: uuid.UUID,
-        cell_id: uuid.UUID,
-        run_options: RunCellRequest | None = None,
-    ) -> RunCellResponse:
-        notebook = self._notebooks.get_by_id_with_cells(notebook_id)
-        if not notebook:
-            raise NotFoundException("Notebook not found")
-        if not self._can_access_notebook(user, notebook):
-            raise ForbiddenException("No access to this notebook")
-        cell = self._notebooks.get_cell(notebook_id, cell_id)
-        if not cell:
-            raise NotFoundException("Cell not found")
-        if cell.cell_type != "prompt":
-            raise ValidationException("Only prompt cells can run the NL analytics pipeline")
-
-        prompt = (cell.prompt_text or "").strip()
-        if not prompt:
-            raise ValidationException("Prompt cell has no text")
-
-        opts = run_options or RunCellRequest()
-        sidecar = opts.forecast_sidecar if opts.forecast_sidecar is not None else "auto"
-
-        run_number = self._notebooks.next_cell_run_number(cell.id)
-        started = utc_now()
-        run = CellRun(
-            cell_id=cell.id,
-            notebook_id=notebook_id,
-            run_number=run_number,
-            run_status="started",
-            started_at=started,
-        )
-        self._notebooks.add_cell_run(run)
-        self._session().flush()
-
-        analysis = analyze_natural_language(
-            prompt,
-            notebook_context=dict(notebook.context_chain_json or {}),
-            workspace_id=str(notebook.workspace_id) if notebook.workspace_id else None,
-            role_key=user.role.role_key if user.role else None,
-            user_id=str(user.id),
-            db_session=self._session(),
-            forecast_sidecar=sidecar,
-            chart_type_override=opts.chart_type_override,
-            forecast_horizon_steps=opts.forecast_horizon_steps,
-        )
+        user: "User",
+        notebook: Notebook,
+        cell: NotebookCell,
+        run: CellRun,
+        started: datetime,
+        analysis: NaturalLanguageAnalysisResult,
+        prompt: str,
+    ) -> list[NotebookCell]:
+        """Обновляет prompt-ячейку, дочерние ячейки и контекст ноутбука после анализа (без commit)."""
         needs_clarification = analysis.clarification_required
         cell.clarification_required = needs_clarification
         cell.clarification_question = analysis.clarification_question or None
@@ -288,6 +256,7 @@ class NotebookService:
         run.validation_report_json = {"status": cell.validation_status, "warnings": analysis.warnings}
 
         appended: list[NotebookCell] = []
+        notebook_id = notebook.id
         base_pos = self._notebooks.max_cell_position(notebook_id)
         pos = base_pos + 1
 
@@ -399,6 +368,106 @@ class NotebookService:
                 ctx.status_filters = [str(v) for v in list(ents["status_order_in"])]
         notebook.context_chain_json = ctx.to_json_dict()
         self._session().add(notebook)
+        return appended
+
+    def append_pipeline_run_from_analysis(
+        self,
+        user: "User",
+        notebook_id: uuid.UUID,
+        prompt: str,
+        analysis: NaturalLanguageAnalysisResult,
+    ) -> None:
+        """
+        Сохраняет один запуск POST /analytics/run в ячейки ноутбука (для GET /history и канвы из БД).
+        """
+        text = (prompt or "").strip()
+        if not text:
+            raise ValidationException("prompt is empty")
+        notebook = self._notebooks.get_by_id_with_cells(notebook_id)
+        if not notebook:
+            raise NotFoundException("Notebook not found")
+        if not self._can_access_notebook(user, notebook):
+            raise ForbiddenException("No access to this notebook")
+
+        next_pos = self._notebooks.max_cell_position(notebook_id) + 1
+        cell = NotebookCell(
+            notebook_id=notebook_id,
+            cell_type="prompt",
+            position=next_pos,
+            prompt_text=text,
+            context_snapshot_json=dict(notebook.context_chain_json or {}),
+            created_by=user.id,
+        )
+        self._notebooks.add_cell(cell)
+        self._session().flush()
+
+        started = utc_now()
+        run_number = self._notebooks.next_cell_run_number(cell.id)
+        run = CellRun(
+            cell_id=cell.id,
+            notebook_id=notebook_id,
+            run_number=run_number,
+            run_status="started",
+            started_at=started,
+        )
+        self._notebooks.add_cell_run(run)
+        self._session().flush()
+
+        notebook = self._notebooks.get_by_id_with_cells(notebook_id)
+        appended = self._finalize_prompt_cell_run(user, notebook, cell, run, started, analysis, text)
+        self._session().commit()
+        for obj in (run, cell, *appended):
+            self._session().refresh(obj)
+
+    def run_cell(
+        self,
+        user: User,
+        notebook_id: uuid.UUID,
+        cell_id: uuid.UUID,
+        run_options: RunCellRequest | None = None,
+    ) -> RunCellResponse:
+        notebook = self._notebooks.get_by_id_with_cells(notebook_id)
+        if not notebook:
+            raise NotFoundException("Notebook not found")
+        if not self._can_access_notebook(user, notebook):
+            raise ForbiddenException("No access to this notebook")
+        cell = self._notebooks.get_cell(notebook_id, cell_id)
+        if not cell:
+            raise NotFoundException("Cell not found")
+        if cell.cell_type != "prompt":
+            raise ValidationException("Only prompt cells can run the NL analytics pipeline")
+
+        prompt = (cell.prompt_text or "").strip()
+        if not prompt:
+            raise ValidationException("Prompt cell has no text")
+
+        opts = run_options or RunCellRequest()
+        sidecar = opts.forecast_sidecar if opts.forecast_sidecar is not None else "auto"
+
+        run_number = self._notebooks.next_cell_run_number(cell.id)
+        started = utc_now()
+        run = CellRun(
+            cell_id=cell.id,
+            notebook_id=notebook_id,
+            run_number=run_number,
+            run_status="started",
+            started_at=started,
+        )
+        self._notebooks.add_cell_run(run)
+        self._session().flush()
+
+        analysis = analyze_natural_language(
+            prompt,
+            notebook_context=dict(notebook.context_chain_json or {}),
+            workspace_id=str(notebook.workspace_id) if notebook.workspace_id else None,
+            role_key=user.role.role_key if user.role else None,
+            user_id=str(user.id),
+            db_session=self._session(),
+            forecast_sidecar=sidecar,
+            chart_type_override=opts.chart_type_override,
+            forecast_horizon_steps=opts.forecast_horizon_steps,
+        )
+        appended = self._finalize_prompt_cell_run(user, notebook, cell, run, started, analysis, prompt)
 
         self._session().commit()
         for obj in (run, cell, *appended):

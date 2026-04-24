@@ -18,7 +18,7 @@ export function ChartContainer({ block, onTypeChange, body }: ChartContainerProp
   const switcherOptions = Array.from(new Set([recommended, ...alternatives, "table"])) as ChartBlock["chartType"][];
 
   return (
-    <section className="space-y-3 rounded-control border border-border-subtle bg-surface-card p-3 shadow-xs">
+    <section data-testid="notebook-result-chart" className="space-y-3 rounded-control border border-border-subtle bg-surface-card p-3 shadow-xs">
       <header className="space-y-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>

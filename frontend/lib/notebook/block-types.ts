@@ -126,6 +126,8 @@ export interface ForecastRecordPoint {
 
 export interface ForecastBlock extends BlockBase {
   type: "forecast";
+  /** Источник прогноза в UI: основной pipeline или DS fallback sidecar. */
+  forecastSource?: "pipeline" | "fallback";
   headline: string;
   subtext?: string;
   horizon: string;
@@ -275,7 +277,7 @@ export interface NotebookCellProps {
   onChartTypeChange?: (id: string, chartType: ChartKind) => void;
   onPromptChange?: (id: string, text: string) => void;
   onPromptSubmit?: (id: string, text: string) => void;
-  onClarificationSelect?: (id: string, optionId: string) => void;
+  onClarificationSelect?: (id: string, optionId: string, optionLabel: string) => void;
   clarificationBusy?: boolean;
 }
 
@@ -305,7 +307,7 @@ export interface InsightCellProps {
 
 export interface ClarificationCellProps {
   block: ClarificationBlock;
-  onSelectOption?: (optionId: string) => void;
+  onSelectOption?: (optionId: string, optionLabel: string) => void;
   disabled?: boolean;
 }
 

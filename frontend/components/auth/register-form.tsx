@@ -18,7 +18,7 @@ const INPUT_CLASS =
   "w-full rounded-control border bg-surface-card px-3 py-2.5 text-sm text-foreground shadow-xs placeholder:text-foreground-muted focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/25";
 
 const ROLE_OPTIONS: { value: UserRole; label: string; description: string }[] = [
-  { value: "admin", label: "Администратор", description: "Управление workspace и доступами" },
+  { value: "admin", label: "Администратор", description: "Управление доступами и настройками" },
   { value: "manager", label: "Менеджер", description: "Командная аналитика и сценарии" },
   { value: "marketer", label: "Маркетолог", description: "Кампании и атрибуция" },
   { value: "executive", label: "Руководитель", description: "KPI и прогнозные сводки" }
@@ -138,7 +138,7 @@ export function RegisterForm() {
         </FormField>
 
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-foreground-secondary">Демо-роль</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-foreground-secondary">Роль</p>
           <p className="text-xs text-foreground-muted">Выберите сценарий, который хотите изучить первым.</p>
           <Controller
             name="demoRole"

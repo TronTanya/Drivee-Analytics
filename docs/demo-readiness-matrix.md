@@ -3,6 +3,7 @@
 ## Stable (main demo)
 
 - `frontend/app/(platform)/notebooks/page.tsx`
+- `frontend/app/(platform)/scenarios/page.tsx`
 - `frontend/app/(platform)/notebooks/[id]/page.tsx`
 - `frontend/components/notebook/*`
 - `frontend/lib/notebook/trace-model.ts`

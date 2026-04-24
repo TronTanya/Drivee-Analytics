@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { AddCellComposer } from "@/components/notebook/add-cell-composer";
 import { RunAllButton } from "@/components/notebook/run-all-button";
@@ -28,7 +28,7 @@ import { useNotebook } from "@/hooks/api/use-notebooks";
 import { queryKeys } from "@/hooks/api/query-keys";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useAnalyticsBusyPhaseHint } from "@/hooks/use-analytics-busy-phase-hint";
-import { createNotebook, saveNotebookScenario } from "@/lib/api/notebooks";
+import { createNotebook, saveNotebookScenario, updateNotebook } from "@/lib/api/notebooks";
 import { runForecast } from "@/lib/api/forecast";
 import {
   downloadNotebookScenarioPdf,
@@ -67,12 +67,28 @@ import { isUuidString } from "@/lib/utils/uuid";
 /** Долгие LLM/SQL-цепочки: слишком короткий таймаут даёт ложные ошибки на медленных средах. */
 const ANALYTICS_TIMEOUT_MS = 120_000;
 const DEFAULT_FORECAST_HORIZON_DAYS = 14;
+const SCENARIO_TITLE_MAX_LEN = 80;
+type RuntimeHealthModel = {
+  environment: string;
+  demo_auth_bypass_enabled: boolean;
+  mock_mode: boolean;
+  mock_sql_execution_fallback: boolean;
+  postgres_required: boolean;
+  jwt_required: boolean;
+};
 
 /** После 401/403 не оставлять старые интерпретации рядом с новым (провалившимся) запросом. */
 const STALE_BLOCKS_ON_SESSION_LOSS = new Set<NotebookBlock["type"]>(["forecast", "insight", "chart"]);
 
 function stripStaleBlocksAfterAuthFailure(blocks: NotebookBlock[]): NotebookBlock[] {
   return blocks.filter((b) => !STALE_BLOCKS_ON_SESSION_LOSS.has(b.type));
+}
+
+function buildScenarioNotebookTitleFromPrompt(prompt: string): string {
+  const cleaned = prompt.replace(/\s+/g, " ").trim();
+  if (!cleaned) return `Сценарий · ${new Date().toLocaleString("ru-RU")}`;
+  const short = cleaned.length > SCENARIO_TITLE_MAX_LEN ? `${cleaned.slice(0, SCENARIO_TITLE_MAX_LEN - 1)}…` : cleaned;
+  return short;
 }
 
 const SESSION_EXPIRED_CELL_MSG =
@@ -94,6 +110,20 @@ function analyticsRunFailureMessage(error: unknown): string {
     return error.message.slice(0, 320);
   }
   return "Не удалось выполнить промпт.";
+}
+
+function readableGuardrailsMessage(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("слишком длин") || lower.includes("prompt too long")) {
+    return "Запрос слишком длинный для безопасной обработки. Сократите промпт и оставьте только ключевой бизнес-вопрос.";
+  }
+  if (lower.includes("превышен лимит запросов") || lower.includes("rate limit")) {
+    return "Слишком много запусков за короткое время. Подождите минуту и повторите запрос.";
+  }
+  if (lower.includes("чувствительн") || lower.includes("недоступна для роли")) {
+    return "Запрос затрагивает ограниченные для вашей роли поля/метрики. Переформулируйте вопрос в рамках разрешённых KPI.";
+  }
+  return message;
 }
 
 function isAuthError(error: unknown): boolean {
@@ -123,8 +153,13 @@ function analyticsErrorBanner(
   if (isAuthError(error)) {
     return { cell: SESSION_EXPIRED_CELL_MSG, page: SESSION_EXPIRED_PAGE_MSG };
   }
-  const detail = analyticsRunFailureMessage(error);
+  const detail = readableGuardrailsMessage(analyticsRunFailureMessage(error));
   return { cell: detail.slice(0, 320), page: `${pageFallbackPrefix}${detail}`.slice(0, 400) };
+}
+
+function shouldRunFallbackForecast(promptText: string, interpretedIntent?: string): boolean {
+  const t = `${promptText} ${interpretedIntent ?? ""}`.toLowerCase();
+  return /прогноз|forecast|предскаж|prediction|horizon/.test(t);
 }
 
 function mergeBlocksById(
@@ -372,6 +407,7 @@ function forecastBlockFromRun(notebookId: string, run: Awaited<ReturnType<typeof
   return {
     id: `${notebookId}-fc-${Date.now()}`,
     type: "forecast",
+    forecastSource: "fallback",
     headline,
     subtext,
     horizon: humanizeHorizonLabel(horizonLabel, DEFAULT_FORECAST_HORIZON_DAYS),
@@ -424,6 +460,7 @@ function stabilizeScenarioBlocks(
         return {
           ...clarification,
           selectedOptionId: options.selectedClarificationId,
+          status: "success" as const,
           errorMessage: undefined
         };
       }
@@ -568,6 +605,7 @@ function buildDemoBlocks(notebookId: string, promptOverride?: string): NotebookB
 export default function NotebookDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const notebookId = String(params.id ?? "");
 
@@ -587,13 +625,19 @@ export default function NotebookDetailsPage() {
   const [promptHistory, setPromptHistory] = useState<NotebookHistoryItem[]>([]);
   const [downloadingPdfMode, setDownloadingPdfMode] = useState<ReportPdfMode | null>(null);
   const [clarificationRunVersion, setClarificationRunVersion] = useState(0);
+  const [pendingTemplateAutorun, setPendingTemplateAutorun] = useState<string | null>(null);
   const [interpretationAccepted, setInterpretationAccepted] = useState(false);
   const [interpretationActionBusy, setInterpretationActionBusy] = useState(false);
   const templatePromptHydratedRef = useRef(false);
+  const templateAutorunRef = useRef(false);
+  const persistedPromptHydratedRef = useRef(false);
   const forecastRunSeqRef = useRef(0);
+  const clarificationSubmitLockRef = useRef(false);
   const pendingAnalyticsOptsRef = useRef<NotebookAnalyticsRunOptions>({});
+  const demoCaseHydratedRef = useRef(false);
   const [backendHealth, setBackendHealth] = useState<"checking" | "up" | "down">("checking");
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealthModel | null>(null);
   const createReport = useCreateReport();
   const meQuery = useCurrentUser();
   const { session } = useSession();
@@ -612,6 +656,12 @@ export default function NotebookDetailsPage() {
   const busyAnalyticsHint = useAnalyticsBusyPhaseHint(composerBusy || runAllLoading);
   const headerRunState = pageError ? "failed" : composerBusy || runAllLoading ? "running" : "idle";
   const canPersistNotebook = useMemo(() => isUuidString(notebookId), [notebookId]);
+  const persistedScenarioPrompt = useMemo(() => {
+    const raw = (notebookMetaQuery.data as { context_chain_json?: { scenario?: { description?: string | null } } } | undefined)
+      ?.context_chain_json?.scenario?.description;
+    const text = typeof raw === "string" ? raw.trim() : "";
+    return text || null;
+  }, [notebookMetaQuery.data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -755,7 +805,15 @@ export default function NotebookDetailsPage() {
 
   const hasExportableTable = useMemo(() => {
     const t = [...blocks].reverse().find((b) => b.type === "table");
-    return Boolean(t && t.type === "table" && t.columns.length > 0 && Array.isArray(t.rows) && t.rows.length > 0);
+    if (t && t.type === "table" && t.columns.length > 0 && Array.isArray(t.rows) && t.rows.length > 0) {
+      return true;
+    }
+    const c = [...blocks].reverse().find((b) => b.type === "chart");
+    if (c && c.type === "chart" && Array.isArray(c.data) && c.data.length > 0) {
+      const cols = Object.keys(c.data[0] ?? {});
+      return cols.length > 0;
+    }
+    return false;
   }, [blocks]);
 
   const interpretationView = useMemo(() => {
@@ -797,15 +855,57 @@ export default function NotebookDetailsPage() {
 
   useEffect(() => {
     templatePromptHydratedRef.current = false;
+    templateAutorunRef.current = false;
+    persistedPromptHydratedRef.current = false;
+    demoCaseHydratedRef.current = false;
+    setPendingTemplateAutorun(null);
   }, [notebookId]);
+
+  useEffect(() => {
+    if (boot !== "ready" || persistedPromptHydratedRef.current) return;
+    if (templatePromptHydratedRef.current) return;
+    if (!persistedScenarioPrompt) return;
+    persistedPromptHydratedRef.current = true;
+    setComposer(persistedScenarioPrompt);
+    setBlocks((prev) => {
+      if (prev.length === 1 && prev[0]?.type === "prompt") {
+        return [{ ...prev[0], text: persistedScenarioPrompt, status: "idle" }];
+      }
+      return prev;
+    });
+  }, [boot, persistedScenarioPrompt]);
 
   useEffect(() => {
     if (boot !== "ready" || templatePromptHydratedRef.current) return;
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search).get("template_prompt")?.trim();
     if (!q) return;
+    const autorun = new URLSearchParams(window.location.search).get("autorun") === "1";
     templatePromptHydratedRef.current = true;
-    setComposer((prev) => (prev.trim() ? prev : q));
+    // Template navigation must override stale notebook draft text
+    // so user always sees prompt from the selected template.
+    setComposer(q);
+    setBlocks([
+      {
+        id: `${notebookId}-prompt-template`,
+        type: "prompt",
+        text: q,
+        status: "idle"
+      }
+    ]);
+    setTraceModel({
+      ...EMPTY_TRACE,
+      interpretedIntent: "",
+      generatedSql: "",
+      warnings: [],
+      tablesUsed: []
+    });
+    if (autorun) {
+      setPendingTemplateAutorun(q);
+      setPageNotice("Промпт из шаблона подставлен. Запускаю автоматически…");
+    } else {
+      setPageNotice("Промпт из шаблона подставлен. Нажмите «Run all» или выполните ячейку.");
+    }
   }, [boot, notebookId]);
 
   useEffect(() => {
@@ -815,17 +915,31 @@ export default function NotebookDetailsPage() {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2500);
-        const response = await fetch(`${getApiBaseUrl().replace(/\/$/, "")}/health`, {
-          method: "GET",
-          signal: controller.signal
-        });
+        const base = getApiBaseUrl().replace(/\/$/, "");
+        const [response, runtimeResponse] = await Promise.all([
+          fetch(`${base}/health`, {
+            method: "GET",
+            signal: controller.signal
+          }),
+          fetch(`${base}/health/runtime`, {
+            method: "GET",
+            signal: controller.signal
+          })
+        ]);
         clearTimeout(timeoutId);
         if (cancelled) return;
         setBackendHealth(response.ok ? "up" : "down");
+        if (runtimeResponse.ok) {
+          const runtime = (await runtimeResponse.json()) as RuntimeHealthModel;
+          setRuntimeHealth(runtime);
+        } else {
+          setRuntimeHealth(null);
+        }
         setBackendCheckedAt(new Date().toISOString());
       } catch {
         if (cancelled) return;
         setBackendHealth("down");
+        setRuntimeHealth(null);
         setBackendCheckedAt(new Date().toISOString());
       }
     };
@@ -934,18 +1048,31 @@ export default function NotebookDetailsPage() {
   const handleDownloadResultCsv = useCallback(() => {
     setPageError(null);
     const table = [...blocks].reverse().find((b) => b.type === "table");
-    if (!table || table.type !== "table" || !table.columns.length || !table.rows.length) {
-      setPageError("Нет таблицы результата для экспорта в CSV.");
-      return;
-    }
+    const chart = [...blocks].reverse().find((b) => b.type === "chart");
     const esc = (v: unknown) => {
       const s = v === null || v === undefined ? "" : String(v);
       if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
       return s;
     };
+    let columns: string[] = [];
+    let rows: Record<string, unknown>[] = [];
+    let sourceLabel = "таблица";
+    if (table && table.type === "table" && table.columns.length && table.rows.length) {
+      columns = table.columns;
+      rows = table.rows;
+      sourceLabel = "таблица";
+    } else if (chart && chart.type === "chart" && chart.data.length) {
+      columns = Object.keys(chart.data[0] ?? {});
+      rows = chart.data;
+      sourceLabel = "график";
+    }
+    if (!columns.length || !rows.length) {
+      setPageError("Нет данных результата для экспорта в CSV.");
+      return;
+    }
     const lines = [
-      table.columns.map(esc).join(","),
-      ...table.rows.map((row) => table.columns.map((c) => esc(row[c])).join(","))
+      columns.map(esc).join(","),
+      ...rows.map((row) => columns.map((c) => esc(row[c])).join(","))
     ];
     const blob = new Blob(["\ufeff", lines.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -957,7 +1084,7 @@ export default function NotebookDetailsPage() {
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 1500);
-    setPageNotice(`CSV сохранён (${table.rows.length} строк).`);
+    setPageNotice(`CSV сохранен (${rows.length} строк, источник: ${sourceLabel}).`);
   }, [blocks, notebookId]);
 
   const handleSaveAsReport = useCallback(async () => {
@@ -967,8 +1094,8 @@ export default function NotebookDetailsPage() {
     if (!workspaceId) {
       setPageError(
         isDemoModeEnabled()
-          ? "Не удалось определить demo workspace. Обновите страницу или войдите в систему."
-          : "Нужен workspace: войдите в систему."
+          ? "Не удалось определить доступ к данным. Обновите страницу или войдите в систему."
+          : "Нужен доступ: войдите в систему."
       );
       return;
     }
@@ -1051,14 +1178,15 @@ export default function NotebookDetailsPage() {
     setPageError(null);
     setPageNotice(null);
     if (isLocalDemoNotebook) {
-      setPageNotice("Локальный demo-сценарий сохранён в браузере (без записи в БД).");
+      setPageNotice("Локальный сценарий сохранен в браузере (без записи в БД).");
       return;
     }
     setSavingScenario(true);
+    const draftPrompt = composer.trim();
     const lastPrompt = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim());
-    const promptPreview =
-      lastPrompt && lastPrompt.type === "prompt" ? lastPrompt.text.trim().slice(0, 200) : "";
+    const promptPreview = (draftPrompt || (lastPrompt && lastPrompt.type === "prompt" ? lastPrompt.text.trim() : "")).slice(0, 200);
     const scenarioTitle = `Снимок · ${new Date().toLocaleString("ru-RU")}`;
+    const updatedNotebookTitle = promptPreview ? buildScenarioNotebookTitleFromPrompt(promptPreview) : null;
     try {
       let targetNotebookId = notebookId;
       let autoCreated = false;
@@ -1076,12 +1204,17 @@ export default function NotebookDetailsPage() {
         scenario_title: scenarioTitle,
         scenario_description: promptPreview || undefined
       });
+      if (promptPreview) {
+        await updateNotebook(targetNotebookId, {
+          title: updatedNotebookTitle ?? undefined
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.notebooks.list() });
       setAuthRequired(false);
       setPageNotice(
         autoCreated
-          ? `Сценарий сохранён в БД. Создан notebook ${targetNotebookId}; открываю его URL…`
-          : "Сценарий записан в context_chain ноутбука (сервер)."
+          ? `Сценарий сохранён в БД: «${updatedNotebookTitle ?? scenarioTitle}». Создан notebook ${targetNotebookId}; открываю его URL…`
+          : `Сценарий сохранён: «${updatedNotebookTitle ?? scenarioTitle}».`
       );
       if (autoCreated) {
         router.push(`/notebooks/${targetNotebookId}`);
@@ -1100,7 +1233,7 @@ export default function NotebookDetailsPage() {
     } finally {
       setSavingScenario(false);
     }
-  }, [canPersistNotebook, composerBusy, isLocalDemoNotebook, notebookId, queryClient, router, workspaceQuery.data, blocks]);
+  }, [canPersistNotebook, composerBusy, isLocalDemoNotebook, notebookId, queryClient, router, workspaceQuery.data, blocks, composer]);
 
   const handleChartTypeChange = useCallback((id: string, chartType: ChartKind) => {
     setBlocks((prev) =>
@@ -1114,25 +1247,37 @@ export default function NotebookDetailsPage() {
     );
   }, []);
 
-  const handleClarificationSelect = useCallback(async (clarificationId: string, optionId: string) => {
-    let selectedLabel = "";
+  const handleClarificationSelect = useCallback(async (clarificationId: string, optionId: string, optionLabel: string) => {
+    if (clarificationSubmitLockRef.current) return;
+    clarificationSubmitLockRef.current = true;
     const basePromptBlock = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim().length > 0);
     const basePrompt =
       basePromptBlock && basePromptBlock.type === "prompt" ? basePromptBlock.text : "Уточнение сценария";
+    const fromClick = (optionLabel ?? "").trim();
+    const block = blocks.find((b) => b.id === clarificationId && b.type === "clarification");
+    const fromState =
+      block && block.type === "clarification"
+        ? (block.options?.find((o) => o.id === optionId)?.label ?? optionId).trim()
+        : "";
+    const selectedLabel = fromClick || fromState;
+    if (!selectedLabel) {
+      setPageError("Не удалось применить выбор: вариант не найден. Перезапустите промпт.");
+      clarificationSubmitLockRef.current = false;
+      return;
+    }
+
     forecastRunSeqRef.current += 1;
     setBlocks((prev) =>
       prev
         .filter((b) => b.type !== "forecast")
         .map((b) => {
           if (b.type === "clarification" && b.id === clarificationId) {
-            selectedLabel = b.options?.find((o) => o.id === optionId)?.label ?? optionId;
             return { ...b, selectedOptionId: optionId, status: "running", errorMessage: undefined };
           }
           return b;
         })
     );
 
-    if (!selectedLabel) return;
     const clarificationPrompt = `${basePrompt}\nУточнение: ${selectedLabel}`;
     setPageError(null);
     setComposerBusy(true);
@@ -1164,6 +1309,7 @@ export default function NotebookDetailsPage() {
           basePrompt,
           {
             selectedClarificationId: optionId,
+            resetClarification: clarificationRequested,
             hideClarification: !clarificationRequested,
             useDeterministicFallback
           },
@@ -1199,7 +1345,9 @@ export default function NotebookDetailsPage() {
       });
       setAuthRequired(false);
       setClarificationRunVersion((v) => v + 1);
-      void runForecastAfterInsight();
+      if (!mapped.some((b) => b.type === "forecast") && shouldRunFallbackForecast(clarificationPrompt, traceBase.interpretedIntent)) {
+        void runForecastAfterInsight();
+      }
     } catch (error) {
       if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
@@ -1229,6 +1377,7 @@ export default function NotebookDetailsPage() {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       setComposerBusy(false);
+      clarificationSubmitLockRef.current = false;
     }
   }, [
     blocks,
@@ -1274,10 +1423,22 @@ export default function NotebookDetailsPage() {
     setRunAllLoading(false);
   }, [blocks, runSingleCell]);
 
+  const rememberPromptInHistory = useCallback(
+    (text: string) => {
+      setPromptHistory((h) => {
+        const next = appendNotebookHistory(notebookId, text, h);
+        saveNotebookHistory(notebookId, next);
+        return next;
+      });
+    },
+    [notebookId]
+  );
+
   const runNewAnalyticsPrompt = useCallback(
     async (rawText: string) => {
       const text = rawText.trim();
       if (!text) return;
+      rememberPromptInHistory(text);
       setPageError(null);
       setComposerBusy(true);
       setClarificationRunVersion(0);
@@ -1318,13 +1479,10 @@ export default function NotebookDetailsPage() {
           );
         });
         setTraceModel(traceNext);
-        setPromptHistory((h) => {
-          const next = appendNotebookHistory(notebookId, text, h);
-          saveNotebookHistory(notebookId, next);
-          return next;
-        });
         setAuthRequired(false);
-        void runForecastAfterInsight();
+        if (!mapped.some((b) => b.type === "forecast") && shouldRunFallbackForecast(text, traceNext.interpretedIntent)) {
+          void runForecastAfterInsight();
+        }
       } catch (error) {
         if (isAuthError(error) && !isLocalDemoNotebook) {
           setAuthRequired(true);
@@ -1358,7 +1516,8 @@ export default function NotebookDetailsPage() {
       runAnalyticsWithLocalFallback,
       runForecastAfterInsight,
       useDeterministicFallback,
-      applyRuntimeModeNotice
+      applyRuntimeModeNotice,
+      rememberPromptInHistory
     ]
   );
 
@@ -1369,9 +1528,43 @@ export default function NotebookDetailsPage() {
     await runNewAnalyticsPrompt(text);
   }, [composer, runNewAnalyticsPrompt]);
 
+  useEffect(() => {
+    if (boot !== "ready" || demoCaseHydratedRef.current) return;
+    const demoCase = searchParams.get("demo_case")?.trim();
+    if (!demoCase) return;
+    demoCaseHydratedRef.current = true;
+
+    const longPrompt = (() => {
+      const base = "Покажи выручку по городам за прошлую неделю и поясни отклонения. ";
+      return `Guardrails demo: ${base.repeat(170)}`.slice(0, 9100);
+    })();
+    const cases: Record<string, string> = {
+      ru_table_chart_insight_forecast:
+        "Покажи прогноз заказов на следующую неделю по дням, добавь таблицу и краткий insight с предупреждением при низком качестве ряда",
+      trace_explainability: "Покажи выручку по городам за прошлую неделю",
+      ambiguity_revenue: "Покажи выручку по городам за неделю",
+      ambiguity_best_channels: "Лучшие каналы за месяц",
+      guardrails_long_prompt: longPrompt
+    };
+    const selectedPrompt = cases[demoCase];
+    if (!selectedPrompt) return;
+
+    setComposer(selectedPrompt);
+    setPageNotice("Подставлен демо-промпт сценария жюри. Запускаю автоматически…");
+    void runNewAnalyticsPrompt(selectedPrompt);
+  }, [boot, runNewAnalyticsPrompt, searchParams]);
+
+  useEffect(() => {
+    if (!pendingTemplateAutorun || composerBusy || templateAutorunRef.current) return;
+    templateAutorunRef.current = true;
+    void runNewAnalyticsPrompt(pendingTemplateAutorun);
+    setPendingTemplateAutorun(null);
+  }, [pendingTemplateAutorun, composerBusy, runNewAnalyticsPrompt]);
+
   const handlePromptSubmit = useCallback(async (id: string, rawText: string) => {
     const text = rawText.trim();
     if (!text) return;
+    rememberPromptInHistory(text);
     setPageError(null);
     setComposerBusy(true);
     setClarificationRunVersion(0);
@@ -1411,13 +1604,10 @@ export default function NotebookDetailsPage() {
         );
       });
       setTraceModel(traceNext);
-      setPromptHistory((h) => {
-        const next = appendNotebookHistory(notebookId, text, h);
-        saveNotebookHistory(notebookId, next);
-        return next;
-      });
       setAuthRequired(false);
-      void runForecastAfterInsight();
+      if (!mapped.some((b) => b.type === "forecast") && shouldRunFallbackForecast(text, traceNext.interpretedIntent)) {
+        void runForecastAfterInsight();
+      }
     } catch (error) {
       if (isAuthError(error) && !isLocalDemoNotebook) {
         setAuthRequired(true);
@@ -1442,12 +1632,14 @@ export default function NotebookDetailsPage() {
       setComposerBusy(false);
     }
   }, [
+    applyRuntimeModeNotice,
     isLocalDemoNotebook,
     notebookId,
     popPendingAnalyticsOpts,
     runAnalyticsWithLocalFallback,
     runForecastAfterInsight,
-    useDeterministicFallback
+    useDeterministicFallback,
+    rememberPromptInHistory
   ]);
 
   const handleTracePanelRerun = useCallback(
@@ -1583,7 +1775,7 @@ export default function NotebookDetailsPage() {
           title={title}
           subtitle="Промпт · план · SQL · результаты · графики · инсайты — с живым trace."
           notebookId={notebookId}
-          updatedAtLabel="Workspace"
+          updatedAtLabel="Система"
           runState={headerRunState}
           runPhaseHint={busyAnalyticsHint}
           trailing={
@@ -1670,11 +1862,54 @@ export default function NotebookDetailsPage() {
         <section className="rounded-card border border-border-subtle bg-surface-card px-4 py-3 shadow-xs">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full border border-border-subtle bg-surface-muted px-2.5 py-1 font-semibold text-foreground-secondary">
-              Demo Health
+              Состояние системы
             </span>
             <span className="rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 font-semibold text-brand-900">
               API: {apiModeLabel}
             </span>
+            {runtimeHealth ? (
+              <>
+                <span
+                  data-testid="runtime-env-badge"
+                  className="rounded-full border border-border-subtle bg-surface-muted px-2.5 py-1 font-semibold text-foreground-secondary"
+                >
+                  env: {runtimeHealth.environment}
+                </span>
+                <span
+                  data-testid="runtime-postgres-badge"
+                  className={`rounded-full border px-2.5 py-1 font-semibold ${
+                    runtimeHealth.postgres_required
+                      ? "border-amber-200 bg-amber-50 text-amber-900"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  }`}
+                  title="Требуется ли живой Postgres для текущего runtime-профиля"
+                >
+                  postgres: {runtimeHealth.postgres_required ? "required" : "optional"}
+                </span>
+                <span
+                  data-testid="runtime-sql-mode-badge"
+                  className={`rounded-full border px-2.5 py-1 font-semibold ${
+                    runtimeHealth.mock_mode || runtimeHealth.mock_sql_execution_fallback
+                      ? "border-amber-200 bg-amber-50 text-amber-900"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  }`}
+                  title="Профиль SQL-исполнения backend"
+                >
+                  sql: {runtimeHealth.mock_mode ? "mock" : runtimeHealth.mock_sql_execution_fallback ? "live+fallback" : "live"}
+                </span>
+                <span
+                  data-testid="runtime-auth-mode-badge"
+                  className={`rounded-full border px-2.5 py-1 font-semibold ${
+                    runtimeHealth.demo_auth_bypass_enabled
+                      ? "border-amber-200 bg-amber-50 text-amber-900"
+                      : "border-border-subtle bg-surface-muted text-foreground-secondary"
+                  }`}
+                  title="Авторизация backend: demo bypass или JWT"
+                >
+                  auth: {runtimeHealth.demo_auth_bypass_enabled ? "bypass" : runtimeHealth.jwt_required ? "jwt-required" : "jwt"}
+                </span>
+              </>
+            ) : null}
             <span
               className={`rounded-full border px-2.5 py-1 font-semibold ${
                 backendHealth === "up"

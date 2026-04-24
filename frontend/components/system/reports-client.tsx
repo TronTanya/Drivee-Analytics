@@ -165,7 +165,7 @@ export function ReportsClient() {
         id: s.id,
         name: s.name,
         notebookId: s.notebook_id,
-        owner: s.owner_email ?? "demo@drivee.local",
+        owner: s.owner_email ?? "user@drivee.local",
         updatedAt: new Date(s.updated_at).toISOString().slice(0, 16).replace("T", " "),
         schedule: toScheduleState(s.schedule),
         href: (`/notebooks/${s.notebook_id}` as Route)
@@ -357,7 +357,7 @@ export function ReportsClient() {
     try {
       const ws = workspaceQuery.data;
       if (!ws) {
-        setActionMsg("Нужен workspace (NEXT_PUBLIC_DEFAULT_WORKSPACE_ID или /auth/me).");
+        setActionMsg("Нужен доступ (NEXT_PUBLIC_DEFAULT_WORKSPACE_ID или /auth/me).");
         return;
       }
       const created = await createReport.mutateAsync({
@@ -406,7 +406,7 @@ export function ReportsClient() {
     const updated = nextSchedule(row.schedule);
     setScenarios((prev) => prev.map((x) => (x.id === row.id ? { ...x, schedule: updated } : x)));
     setActionMsg(
-      `Расписание сценария "${row.name}" обновлено в интерфейсе (демо: отдельного API расписаний для сценариев нет).`
+      `Расписание сценария "${row.name}" обновлено в интерфейсе (отдельного API расписаний для сценариев пока нет).`
     );
     setBusyKey(null);
   };
@@ -540,7 +540,7 @@ export function ReportsClient() {
       {showReports && catalogTab === "templates" ? (
         <SectionCard
           title="Базовые шаблоны и избранное"
-          description="Типовые NL-запросы. Отметьте избранное — список хранится в браузере. Полный каталог шаблонов workspace — на странице «Шаблоны»."
+          description="Типовые NL-запросы. Отметьте избранное — список хранится в браузере. Полный каталог шаблонов — на странице «Шаблоны»."
         >
           <div className="grid gap-3 md:grid-cols-2">
             {STARTER_TEMPLATES.map((t) => (

@@ -9,7 +9,8 @@ export type NavItem = {
 
 /** Stable primary navigation for defense demo. */
 export const PLATFORM_NAV: NavItem[] = [
-  { href: "/notebooks", label: "Сценарии" },
+  { href: "/notebooks", label: "Обзор" },
+  { href: "/scenarios", label: "Сценарии" },
   { href: "/templates", label: "Шаблоны", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/reports", label: "Отчеты", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/history", label: "История", roles: ["admin", "manager", "marketer", "executive"] },

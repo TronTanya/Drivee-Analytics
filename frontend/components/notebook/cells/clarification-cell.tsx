@@ -28,7 +28,7 @@ export function ClarificationCell({ block, onSelectOption, disabled = false }: C
                 type="button"
                 key={opt.id}
                 disabled={disabled}
-                onClick={() => onSelectOption?.(opt.id)}
+                onClick={() => onSelectOption?.(opt.id, opt.label)}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
                   selected
                     ? "border-brand-400 bg-brand-50 text-brand-900 shadow-xs"

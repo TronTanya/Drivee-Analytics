@@ -14,6 +14,7 @@ PromptTask = Literal[
     "followup_rewrite",
     "explainability_text",
     "insight_generation",
+    "general_query_answer",
 ]
 
 
@@ -34,6 +35,7 @@ def build_prompt(task: PromptTask, payload: dict[str, Any]) -> PromptTemplate:
     if task == "query_interpretation":
         example = {
             "intent": "comparison",
+            "query_scope": "data",
             "metrics": ["client_cancellations"],
             "dimensions": ["city_id"],
             "filters": ["last_week"],
@@ -46,8 +48,11 @@ def build_prompt(task: PromptTask, payload: dict[str, Any]) -> PromptTemplate:
         }
         return PromptTemplate(
             system_prompt=(
-                "You classify business analytics NL queries for an NL->SQL orchestrator. "
-                "Be conservative, avoid hallucinations, use only provided query."
+                "You classify user messages for an NL->SQL analytics product (orders, cancellations, cities, trends, forecasts). "
+                "Set query_scope to \"general\" only when the message is NOT asking for numbers, tables, metrics, or filters "
+                "over the order dataset — e.g. pure greetings, small talk, unrelated trivia, coding homework, or meta questions "
+                "with no analytics intent. If the user mixes greeting and a data question, use query_scope \"data\". "
+                "When in doubt, use \"data\". Be conservative; avoid hallucinations."
             ),
             user_prompt=(
                 f"User query: {sanitize_prompt_text(str(payload.get('query', '')))}\n"
@@ -129,13 +134,31 @@ def build_prompt(task: PromptTask, payload: dict[str, Any]) -> PromptTemplate:
         return PromptTemplate(
             system_prompt=(
                 "You summarize tabular analytics result rows into one short business insight. "
-                "Use only provided rows. If data is weak, stay neutral."
+                "Use only provided rows. If data is weak, stay neutral. "
+                "If there is exactly one row and two or more numeric metric columns (e.g. accepted vs cancelled orders), "
+                "you MUST mention every such metric with its value — do not merge them into a single number or vague «units»."
             ),
             user_prompt=(
                 f"Intent: {payload.get('intent', '')}\n"
                 f"Columns: {json.dumps(payload.get('columns', []), ensure_ascii=False)}\n"
                 f"Rows sample: {json.dumps(trimmed_rows, ensure_ascii=False, default=str)}\n"
                 + _json_instruction(example)
+            ),
+        )
+
+    if task == "general_query_answer":
+        example = {"reply": "Краткий полезный ответ по сути вопроса (1–6 предложений)."}
+        return PromptTemplate(
+            system_prompt=(
+                "You are a concise assistant inside an order-analytics notebook. "
+                "You do NOT have access to the user's database or live order rows unless they asked an analytics question "
+                "(that path is handled elsewhere). Answer the user's general question helpfully but briefly in the same language "
+                "as the user (Russian if they wrote Russian). No SQL, no invented numbers. "
+                "If they likely meant analytics, gently say you can compute metrics from their data if they rephrase with "
+                "city/metric/period."
+            ),
+            user_prompt=(
+                f"User message: {sanitize_prompt_text(str(payload.get('query', '')))}\n" + _json_instruction(example)
             ),
         )
 

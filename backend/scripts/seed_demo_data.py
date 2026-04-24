@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from decimal import Decimal
 
@@ -410,6 +411,9 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
 
 
 def ensure_business_demo_data(session, workspace: Workspace) -> None:
+    if os.getenv("SKIP_DEMO_TRAIN_SEED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        print("Skipping demo train seed: SKIP_DEMO_TRAIN_SEED=true")
+        return
     n = replace_demo_orders_dataset(session)
     _ = workspace
     if n:

@@ -45,6 +45,42 @@ class IntentSqlTimeFilterTests(unittest.TestCase):
         self.assertIn("a.order_channel::text AS dim", sql)
         self.assertIn("LIMIT 5", sql)
 
+    def test_dual_accept_cancel_entities_not_only_cancellations_metric(self) -> None:
+        entities = IntentService(llm_service=None).extract_entities(
+            "сколько принятых и отмененных заказов в городе 67"
+        )
+        self.assertTrue(entities.get("dual_accept_cancel_counts"))
+        self.assertEqual(entities.get("city_id"), "67")
+        self.assertNotIn("metric_hint", entities)
+
+    def test_summary_sql_dual_accept_cancel_columns(self) -> None:
+        sql = SQLGenerationService().generate(
+            intent="summary",
+            entities={"dual_accept_cancel_counts": True, "city_id": "67"},
+            metric_sql="COUNT(*)",
+            use_campaigns_only=False,
+            workspace_id=None,
+        )
+        self.assertIn("accepted_rows", sql)
+        self.assertIn("cancelled_rows", sql)
+        self.assertIn("driveraccept_timestamp", sql)
+        self.assertIn("clientcancel_timestamp", sql)
+        self.assertIn("city_id::text = '67'", sql)
+        self.assertNotIn(" AS value ", sql)
+
+    def test_dual_sql_used_even_when_intent_is_comparison(self) -> None:
+        """Регрессия: LLM comparison + одна метрика давали dim/value вместо accepted_rows/cancelled_rows."""
+        sql = SQLGenerationService().generate(
+            intent="comparison",
+            entities={"dual_accept_cancel_counts": True, "city_id": "67"},
+            metric_sql="COUNT(*) FILTER (WHERE a.clientcancel_timestamp IS NOT NULL)",
+            use_campaigns_only=False,
+            workspace_id=None,
+        )
+        self.assertIn("accepted_rows", sql)
+        self.assertIn("cancelled_rows", sql)
+        self.assertNotIn("GROUP BY", sql)
+
 
 if __name__ == "__main__":
     unittest.main()

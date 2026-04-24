@@ -93,19 +93,7 @@ def quick_run_template(
         exec_res = SQLExecutionService().execute(sql=sql_body, role_key=role_key)
         rows_safe = jsonable_encoder(exec_res.rows) if exec_res.ok else []
         chart_t = (tpl.default_chart_type or "line").strip().lower() or "line"
-        if not exec_res.ok:
-            resp = TemplateQuickRunResponse(
-                template_id=template_id,
-                execution_status="failed",
-                safe_sql=exec_res.final_sql or sql_body,
-                insight=exec_res.error or "Не удалось выполнить SQL шаблона",
-                chart_type=chart_t,
-                table_records=rows_safe,
-                confidence=0.0,
-                warnings=list(exec_res.validation_warnings)
-                + ([exec_res.error] if exec_res.error else []),
-            )
-        else:
+        if exec_res.ok:
             n = len(rows_safe)
             resp = TemplateQuickRunResponse(
                 template_id=template_id,
@@ -116,6 +104,31 @@ def quick_run_template(
                 table_records=rows_safe,
                 confidence=0.9,
                 warnings=list(exec_res.validation_warnings),
+            )
+        else:
+            # Safety fallback: если прямой SQL шаблона не прошёл валидацию/исполнение,
+            # пытаемся выполнить тот же шаблон через NL→SQL pipeline.
+            fallback_result = analyze_natural_language(
+                tpl.nl_prompt_template,
+                notebook_context=dict(tpl.default_params_json or {}),
+                workspace_id=str(workspace_id),
+                role_key=role_key,
+                user_id=str(user.id),
+                db_session=session,
+            )
+            fallback_warnings = list(fallback_result.warnings)
+            fallback_warnings.extend(list(exec_res.validation_warnings))
+            if exec_res.error:
+                fallback_warnings.append(f"SQL template fallback: {exec_res.error}")
+            resp = TemplateQuickRunResponse(
+                template_id=template_id,
+                execution_status=fallback_result.execution_status,
+                safe_sql=fallback_result.safe_sql or exec_res.final_sql or sql_body,
+                insight=fallback_result.insight,
+                chart_type=fallback_result.chart_type or chart_t,
+                table_records=list(fallback_result.table_records),
+                confidence=fallback_result.confidence,
+                warnings=fallback_warnings,
             )
     else:
         result = analyze_natural_language(

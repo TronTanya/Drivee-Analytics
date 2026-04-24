@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e:defense": "playwright test --pass-with-no-tests e2e/demo-defense-flow.spec.ts",
+    "test:e2e:jury": "playwright test --pass-with-no-tests e2e/jury-scenarios-smoke.spec.ts",
+    "test:e2e:jury:quick": "playwright test --pass-with-no-tests --project=chromium-auth-quick e2e/jury-scenarios-quick.spec.ts",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -20,6 +25,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20.16.10",
     "@types/react": "^18.3.9",
     "@types/react-dom": "^18.3.0",

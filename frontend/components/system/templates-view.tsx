@@ -2,7 +2,7 @@
 
 import type { Route } from "next";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { DemoQuickActions } from "@/components/system/demo-quick-actions";
 import { SystemPageIntro } from "@/components/system/system-page-intro";
@@ -12,7 +12,7 @@ import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import type { UserRole } from "@/lib/types";
 import type { NotebookTemplateRow, QueryTemplateRow } from "@/lib/system/mock-data";
 import { MOCK_NOTEBOOK_TEMPLATES, MOCK_QUERY_TEMPLATES } from "@/lib/system/mock-data";
-import type { QueryTemplateDto } from "@/types/api/templates";
+import type { QueryTemplateDto, QuickRunTemplateResultDto } from "@/types/api/templates";
 
 const ROLE_ORDER: UserRole[] = ["admin", "manager", "marketer", "executive"];
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -83,7 +83,7 @@ function QuickRunButton({ href, label }: { href: Route; label: string }) {
 }
 
 function QueryTemplateCardMock({ row }: { row: QueryTemplateRow }) {
-  const scenarioHref = `${row.runHref}?template_prompt=${encodeURIComponent(row.prefillPrompt ?? row.name)}` as Route;
+  const scenarioHref = `${row.runHref}?template_prompt=${encodeURIComponent(row.prefillPrompt ?? row.name)}&autorun=1` as Route;
   return (
     <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -111,11 +111,19 @@ function QueryTemplateCardMock({ row }: { row: QueryTemplateRow }) {
 function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; workspaceId: string }) {
   const quickRun = useQuickRunQueryTemplate();
   const [msg, setMsg] = useState<string | null>(null);
+  const [runSource, setRunSource] = useState<"sql" | "fallback" | null>(null);
+  const [lastRun, setLastRun] = useState<QuickRunTemplateResultDto | null>(null);
   const [runningTemplateId, setRunningTemplateId] = useState<string | null>(null);
+  const resultRef = useRef<HTMLDivElement | null>(null);
   const thisRunning = runningTemplateId === row.id;
   const nb = row.default_notebook_id ?? "ops-health";
   const scenarioHref =
-    `/notebooks/${nb}?template_prompt=${encodeURIComponent(row.nl_prompt_template || row.name)}` as Route;
+    `/notebooks/${nb}?template_prompt=${encodeURIComponent(row.nl_prompt_template || row.name)}&autorun=1` as Route;
+
+  useEffect(() => {
+    if (!lastRun || runningTemplateId) return;
+    resultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [lastRun, runningTemplateId]);
 
   return (
     <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
@@ -136,9 +144,14 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
             disabled={thisRunning}
             onClick={async () => {
               setMsg(null);
+              setRunSource(null);
+              setLastRun(null);
               setRunningTemplateId(row.id);
               try {
                 const res = await quickRun.mutateAsync({ workspaceId, templateId: row.id });
+                const usedFallback = (res.warnings ?? []).some((w) => w.toLowerCase().includes("sql template fallback"));
+                setRunSource(usedFallback ? "fallback" : "sql");
+                setLastRun(res);
                 setMsg(
                   `Статус: ${res.execution_status}. График: ${res.chart_type}. ${res.insight?.slice(0, 140) ?? ""}`.trim()
                 );
@@ -164,9 +177,65 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
           >
             История запусков
           </Link>
+          {runSource ? (
+            <span
+              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                runSource === "fallback"
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+              }`}
+            >
+              {runSource === "fallback" ? "Источник: NL fallback" : "Источник: SQL template"}
+            </span>
+          ) : null}
           {msg ? <p className="max-w-xs text-[11px] text-foreground-secondary">{msg}</p> : null}
+          {lastRun?.execution_status === "clarification_required" ? (
+            <Link
+              href={scenarioHref}
+              className="inline-flex rounded-control border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+            >
+              Уточнить и запустить в сценарии
+            </Link>
+          ) : null}
         </div>
       </div>
+      {Array.isArray(lastRun?.table_records) && lastRun.table_records.length > 0 ? (
+        <div ref={resultRef} className="mt-2 overflow-x-auto rounded-control border border-border-subtle bg-surface-card p-2">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Превью результата</p>
+          <table className="w-full min-w-[460px] border-collapse text-left text-[11px]">
+            <thead>
+              <tr className="border-b border-border-subtle text-foreground-muted">
+                {Object.keys(lastRun.table_records[0] ?? {}).slice(0, 5).map((k) => (
+                  <th key={k} className="px-2 py-1 font-semibold">
+                    {k}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lastRun.table_records.slice(0, 4).map((r, idx) => (
+                <tr key={idx} className="border-b border-border-subtle/70 last:border-b-0">
+                  {Object.keys(lastRun.table_records?.[0] ?? {})
+                    .slice(0, 5)
+                    .map((k) => (
+                      <td key={`${idx}-${k}`} className="px-2 py-1 text-foreground-secondary">
+                        {String((r as Record<string, unknown>)[k] ?? "—")}
+                      </td>
+                    ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {lastRun && (!Array.isArray(lastRun.table_records) || lastRun.table_records.length === 0) ? (
+        <div
+          ref={resultRef}
+          className="mt-2 rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-[11px] text-foreground-secondary"
+        >
+          Запуск выполнен, но табличные строки не возвращены. Откройте сценарий для полного результата и trace.
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -242,7 +311,7 @@ export function TemplatesView() {
     <div className="min-w-0 max-w-full space-y-8">
       <SystemPageIntro
         title="Шаблоны"
-        subtitle="NL- и SQL-шаблоны workspace, быстрый запуск через API и заготовки сценариев."
+        subtitle="NL- и SQL-шаблоны, быстрый запуск через API и заготовки сценариев."
       />
       <DemoQuickActions
         items={[
@@ -254,11 +323,11 @@ export function TemplatesView() {
 
       {!workspaceId ? (
         <div className="min-w-0 break-words rounded-card border border-border-subtle bg-surface-card px-4 py-3 text-sm text-foreground-secondary">
-          Workspace не задан (войдите в систему или укажите{" "}
+          Контекст не задан (войдите в систему или укажите{" "}
           <code className="break-all rounded bg-surface-muted px-1 py-0.5 text-xs">
             NEXT_PUBLIC_DEFAULT_WORKSPACE_ID
           </code>
-          ). Ниже показан демо-каталог; для живых шаблонов нужен workspace.
+          ). Ниже показан каталог по умолчанию; для живых шаблонов нужен доступ к данным.
         </div>
       ) : null}
 
@@ -270,7 +339,7 @@ export function TemplatesView() {
 
       {workspaceId && templatesQuery.isError ? (
         <div className="rounded-card border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger-bold">
-          Не удалось загрузить шаблоны workspace. Показан демо-каталог.
+          Не удалось загрузить шаблоны. Показан каталог по умолчанию.
         </div>
       ) : null}
 
@@ -307,8 +376,8 @@ export function TemplatesView() {
         title="Шаблоны запросов"
         description={
           workspaceId && queryTemplatesForGroup
-            ? "Шаблоны из API для выбранного workspace (POST /templates/{id}/run)."
-            : "Демо-заготовки до появления workspace или при пустом ответе API."
+            ? "Шаблоны из API для выбранного контекста (POST /templates/{id}/run)."
+            : "Локальные заготовки до появления контекста или при пустом ответе API."
         }
       >
         <div className="space-y-8">

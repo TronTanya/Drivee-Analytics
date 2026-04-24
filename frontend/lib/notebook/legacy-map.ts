@@ -101,13 +101,25 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
         ]
       };
     case "insight": {
-      const lines = cell.content.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      const raw = cell.content.trim();
+      const lines = raw.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      // Один абзац с бэка: не дублируем тот же текст в summary и bullets (раньше было два одинаковых блока в UI).
+      if (lines.length <= 1) {
+        return {
+          ...base,
+          type: "insight",
+          title: "Инсайт",
+          summary: raw.slice(0, 4000),
+          bullets: [],
+          confidence: 0.82
+        };
+      }
       return {
         ...base,
         type: "insight",
         title: "Инсайт",
         summary: lines[0]?.slice(0, 220),
-        bullets: lines.length ? lines : [cell.content],
+        bullets: lines,
         confidence: 0.82
       };
     }
@@ -125,6 +137,7 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
           return {
             ...base,
             type: "forecast",
+            forecastSource: "pipeline",
             headline: typeof asObj.headline === "string" ? asObj.headline : "Baseline-прогноз по ряду",
             subtext: typeof asObj.subtext === "string" ? asObj.subtext : undefined,
             horizon: typeof asObj.horizon === "string" ? asObj.horizon : "Горизонт не задан",
@@ -190,6 +203,7 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
           return {
             ...base,
             type: "forecast",
+            forecastSource: "pipeline",
             headline: parsed.headline ?? "Прогнозный горизонт",
             subtext: parsed.subtext,
             horizon: parsed.horizon ?? "Следующие 8 недель",
@@ -214,6 +228,7 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
         return {
           ...base,
           type: "forecast",
+          forecastSource: "pipeline",
           headline: "Baseline-прогноз по ряду",
           subtext: "Линейный тренд по SQL-результату (компактный JSON-массив точек).",
           horizon: `Следующие ${legacyRows.length} шаг(ов) ряда`,
@@ -227,6 +242,7 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
       return {
         ...base,
         type: "forecast",
+        forecastSource: "pipeline",
         headline: "Прогнозный горизонт",
         subtext: cell.content,
         horizon: "Следующие 8 недель",

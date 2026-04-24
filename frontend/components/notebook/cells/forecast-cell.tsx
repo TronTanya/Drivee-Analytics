@@ -41,6 +41,10 @@ export function ForecastCell({ block }: ForecastCellProps) {
     (p) => p && Number.isFinite(p.value) && (p.segment === "history" || p.segment === "forecast")
   );
   const grainRu = block.timeGrain ? grainLabelRu[block.timeGrain] ?? block.timeGrain : null;
+  const sourceBadge =
+    block.forecastSource === "fallback"
+      ? { label: "Источник: DS fallback", className: "border-amber-200 bg-amber-50 text-amber-900" }
+      : { label: "Источник: Pipeline", className: "border-emerald-200 bg-emerald-50 text-emerald-900" };
 
   return (
     <div className="surface-decision px-4 py-4">
@@ -49,9 +53,7 @@ export function ForecastCell({ block }: ForecastCellProps) {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Прогноз</p>
           <h3 className="mt-1 text-heading-3 text-foreground">{block.headline}</h3>
           {block.subtext ? <p className="mt-1 text-sm text-foreground-secondary">{block.subtext}</p> : null}
-          <p className="mt-1 text-xs text-foreground-muted">
-            Срок в бейдже ({block.horizon}) — параметр прогноза по умолчанию; он не извлекается из текста запроса.
-          </p>
+          <p className="mt-1 text-xs text-foreground-muted">Срок в бейдже ({block.horizon}) — активный горизонт прогноза.</p>
           {block.metricColumn ? (
             <p className="mt-1 text-xs text-foreground-muted">
               Метрика ряда: <span className="font-mono">{block.metricColumn}</span>
@@ -71,9 +73,14 @@ export function ForecastCell({ block }: ForecastCellProps) {
             </p>
           ) : null}
         </div>
-        <span className="rounded-full border border-border-subtle bg-surface-muted px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary">
-          {block.horizon}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceBadge.className}`}>
+            {sourceBadge.label}
+          </span>
+          <span className="rounded-full border border-border-subtle bg-surface-muted px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary">
+            {block.horizon}
+          </span>
+        </div>
       </div>
       {block.warningRu ? (
         <div

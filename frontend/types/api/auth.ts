@@ -1,3 +1,4 @@
+import type { ReportPdfMode } from "@/lib/preferences/report-pdf";
 import type { UserRole } from "@/lib/types";
 
 export type LoginRequestDto = {
@@ -19,6 +20,23 @@ export type TokenPairDto = {
   expires_in?: number;
 };
 
+export type UserProfileDto = {
+  first_name: string | null;
+  last_name: string | null;
+  timezone: string;
+  locale: string;
+  default_report_pdf_mode: ReportPdfMode;
+};
+
+/** Частичное обновление профиля (PATCH `/auth/me/profile`). */
+export type UserProfilePatchDto = Partial<{
+  first_name: string | null;
+  last_name: string | null;
+  timezone: string;
+  locale: string;
+  default_report_pdf_mode: ReportPdfMode;
+}>;
+
 export type UserDto = {
   id: string;
   email: string;
@@ -27,6 +45,7 @@ export type UserDto = {
   workspace_id?: string;
   /** Соответствует backend `UserMeResponse.default_workspace_id`. */
   default_workspace_id?: string | null;
+  profile: UserProfileDto;
 };
 
 export type AuthSessionDto = {

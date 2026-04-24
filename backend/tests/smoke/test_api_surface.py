@@ -26,6 +26,23 @@ def test_health_returns_payload(client: TestClient) -> None:
     body = r.json()
     assert body.get("status") in ("ok", "degraded")
     assert "database" in body
+    assert "llm_provider" in body
+    assert "llm_configured" in body
+
+
+@pytest.mark.smoke
+def test_runtime_health_returns_mode_summary(client: TestClient) -> None:
+    r = client.get("/health/runtime")
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("environment")
+    assert "demo_auth_bypass_enabled" in body
+    assert "mock_mode" in body
+    assert "mock_sql_execution_fallback" in body
+    assert "postgres_required" in body
+    assert "jwt_required" in body
+    assert "llm_provider" in body
+    assert "llm_configured" in body
 
 
 @pytest.mark.smoke

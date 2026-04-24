@@ -30,8 +30,8 @@ export default function AdminDashboardPage() {
     const failed = history.filter((x) => !x.validation_ok).length;
     const failedPct = totalQueries > 0 ? (failed / totalQueries) * 100 : 0;
     return [
-      { id: "nb", label: "Сценарии в workspace", value: fmtNumber((notebooksQuery.data ?? []).length) },
-      { id: "rep", label: "Отчеты в workspace", value: fmtNumber((reportsQuery.data ?? []).length) },
+      { id: "nb", label: "Сценарии в системе", value: fmtNumber((notebooksQuery.data ?? []).length) },
+      { id: "rep", label: "Отчеты в системе", value: fmtNumber((reportsQuery.data ?? []).length) },
       {
         id: "failed",
         label: "SQL warnings",
@@ -66,7 +66,7 @@ export default function AdminDashboardPage() {
     <div className="layout-page-stack">
       <DashboardHero
         eyebrow="Администрирование"
-        title="Панель управления workspace"
+        title="Панель управления платформой"
         description="Настройка источников, семантики, доступа и аудита без выхода из аналитической платформы."
         trailing={
           <Link
@@ -90,7 +90,7 @@ export default function AdminDashboardPage() {
         <SectionCard title="Разделы администрирования">
           <RecentLinksList items={adminLinks} />
         </SectionCard>
-        <SectionCard title="Последняя активность workspace">
+        <SectionCard title="Последняя активность">
           <RecentLinksList items={recentActivity} />
         </SectionCard>
       </div>
@@ -98,7 +98,7 @@ export default function AdminDashboardPage() {
       <AdminDemoFlows />
 
       <div className="rounded-card border border-border-subtle bg-surface-muted/50 px-4 py-3 text-xs text-foreground-secondary">
-        <span className="font-semibold text-foreground">Workspace</span> · Виджеты дашборда построены на реальных
+        <span className="font-semibold text-foreground">Платформа</span> · Виджеты дашборда построены на реальных
         списках сценариев, отчетов и истории SQL-запросов.
       </div>
     </div>

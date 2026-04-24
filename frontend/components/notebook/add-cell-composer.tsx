@@ -17,6 +17,7 @@ export function AddCellComposer({
         <span className="hidden text-[11px] text-foreground-muted sm:inline">Enter - отправить · Shift+Enter - новая строка</span>
       </div>
       <textarea
+        data-testid="notebook-prompt-input"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
@@ -36,6 +37,7 @@ export function AddCellComposer({
       <div className="mt-3 flex justify-end">
         <Button
           type="button"
+          data-testid="notebook-submit-prompt"
           onClick={onSubmit}
           disabled={disabled || loading || !value.trim()}
           loading={loading}

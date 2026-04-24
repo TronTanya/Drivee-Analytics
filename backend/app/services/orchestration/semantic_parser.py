@@ -25,7 +25,7 @@ _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
     ("orders_count", ("заказ", "order", "количество заказ")),
     ("train_row_count", ("количество запис", "число строк", "row count", "строк датасет", "records count")),
     ("sum_order_price", ("выручк", "revenue", "сумм", "оборот", "gmv")),
-    ("avg_order_price", ("средн чек", "средн стоимость", "average price", "avg price")),
+    ("avg_order_price", ("средн чек", "средний чек", "средн стоимость", "average price", "avg price")),
     ("done_conversion", ("конверс", "conversion")),
     ("tenders_count", ("тендер", "tender")),
 ]
@@ -125,7 +125,10 @@ class SemanticParser:
             ):
                 ambiguities.append("revenue_definition_unclear")
 
-        if ("по город" in ql or "городам" in ql) and intent in ("comparison", "ranking") and not filters.get("city_id"):
+        if ("по город" in ql or "городам" in ql or "городов" in ql) and intent in (
+            "comparison",
+            "ranking",
+        ) and not filters.get("city_id"):
             if "city_scope" not in ambiguities:
                 ambiguities.append("city_scope_all_vs_one")
         if intent == "ranking" and not metrics:

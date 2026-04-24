@@ -49,7 +49,7 @@ export default function ManagerDashboardPage() {
         id: "nb",
         label: "Сценарии",
         value: fmtNumber(notebooks.length),
-        sub: "в workspace"
+        sub: "в системе"
       },
       {
         id: "reports",

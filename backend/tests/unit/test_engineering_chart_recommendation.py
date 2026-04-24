@@ -78,3 +78,13 @@ def test_scatter_two_numeric_without_time(charts: ChartRecommendationService) ->
     viz = charts.recommend("summary", cols, rows, effective_query="")
     assert viz.recommended_chart_type == "scatter"
     assert "table" in viz.alternative_chart_types
+
+
+def test_single_row_two_numeric_counts_horizontal_bar_not_scatter(charts: ChartRecommendationService) -> None:
+    """Одна строка с двумя счётчиками — сравнение KPI, не точечная «корреляция» (одна точка)."""
+    rows = [{"accepted_rows": 9048, "cancelled_rows": 270}]
+    cols = ["accepted_rows", "cancelled_rows"]
+    viz = charts.recommend("summary", cols, rows, effective_query="сколько принятых и отменённых в городе 67")
+    assert viz.recommended_chart_type == "horizontal_bar"
+    assert "scatter" in viz.alternative_chart_types
+    assert "table" in viz.alternative_chart_types

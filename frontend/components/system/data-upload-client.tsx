@@ -37,7 +37,7 @@ export function DataUploadClient() {
     }
     const wid = workspaceQuery.data;
     if (!wid) {
-      setErrorMessage("Не удалось определить workspace. Войдите в систему и повторите.");
+      setErrorMessage("Не удалось определить доступ к данным. Войдите в систему и повторите.");
       return;
     }
     setErrorMessage(null);
@@ -258,7 +258,7 @@ export function DataUploadClient() {
                 disabled={importing}
                 className="interactive-focus micro-lift rounded-control bg-brand-500 px-4 py-2 text-sm font-semibold text-black shadow-xs hover:bg-brand-400 active:translate-y-0"
               >
-                {importing ? "Импорт..." : "Импортировать в workspace"}
+                {importing ? "Импорт..." : "Импортировать"}
               </button>
               <button
                 type="button"
