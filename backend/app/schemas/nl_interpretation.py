@@ -34,7 +34,7 @@ class TimeRangeSpec(BaseModel):
     window_days: Optional[int] = None
     calendar_year: Optional[int] = Field(
         default=None,
-        description="При preset=calendar_year — календарный год окна (UTC).",
+        description="При preset=calendar_year — год окна; для order_timestamp — UTC, для driverdone — дата в Europe/Moscow.",
     )
     time_window_anchor: Optional[Literal["order_timestamp", "driverdone_timestamp"]] = Field(
         default=None,

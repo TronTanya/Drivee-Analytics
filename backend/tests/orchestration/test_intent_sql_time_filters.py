@@ -91,9 +91,10 @@ class IntentSqlTimeFilterTests(unittest.TestCase):
             use_campaigns_only=False,
             workspace_id=None,
         )
-        self.assertIn("make_timestamptz(2026", sql)
+        self.assertIn("Europe/Moscow", sql)
         self.assertIn("driverdone_timestamp", sql)
-        self.assertIn("make_timestamptz(2027", sql)
+        self.assertIn("DATE '2026-01-01'", sql)
+        self.assertIn("DATE '2026-12-31'", sql)
 
     def test_summary_sql_without_time_stays_open_ended(self) -> None:
         sql = SQLGenerationService().generate(

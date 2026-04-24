@@ -98,6 +98,13 @@ class SQLGenerationService:
                 col = str(entities.get("time_window_anchor") or "order_timestamp")
                 if col not in ("order_timestamp", "driverdone_timestamp"):
                     col = "order_timestamp"
+                # Завершение поездки: календарный год в Europe/Moscow (как в эталонах по train),
+                # иначе границы UTC сдвигают ночные поездки относительно «2026 года» в РФ.
+                if col == "driverdone_timestamp":
+                    return (
+                        f"(a.{col} AT TIME ZONE 'Europe/Moscow')::date >= DATE '{y}-01-01' "
+                        f"AND (a.{col} AT TIME ZONE 'Europe/Moscow')::date <= DATE '{y}-12-31'"
+                    )
                 return (
                     f"a.{col}::timestamptz >= make_timestamptz({y}, 1, 1, 0, 0, 0, 'UTC') "
                     f"AND a.{col}::timestamptz < make_timestamptz({y + 1}, 1, 1, 0, 0, 0, 'UTC')"

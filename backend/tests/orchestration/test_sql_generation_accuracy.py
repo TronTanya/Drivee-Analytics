@@ -58,9 +58,10 @@ class SqlGenerationAccuracyTests(unittest.TestCase):
         sql, merged = _nl_pipeline_sql(q)
         self.assertEqual(merged.get("calendar_year"), 2026)
         self.assertEqual(merged.get("time_window_anchor"), "driverdone_timestamp")
-        self.assertIn("make_timestamptz(2026, 1, 1, 0, 0, 0, 'UTC')", sql)
-        self.assertIn("make_timestamptz(2027, 1, 1, 0, 0, 0, 'UTC')", sql)
-        self.assertIn("a.driverdone_timestamp::timestamptz", sql)
+        self.assertIn("Europe/Moscow", sql)
+        self.assertIn("DATE '2026-01-01'", sql)
+        self.assertIn("DATE '2026-12-31'", sql)
+        self.assertIn("a.driverdone_timestamp", sql)
         self.assertIn("AS value", sql)
 
     def test_orders_count_2024_summary_uses_order_timestamp_bounds(self) -> None:
@@ -106,8 +107,8 @@ class SqlGenerationAccuracyTests(unittest.TestCase):
             SELECT COUNT(DISTINCT order_id)::bigint AS value
             FROM public.train a
             WHERE a.driverdone_timestamp IS NOT NULL
-              AND a.driverdone_timestamp::timestamptz >= make_timestamptz(2026, 1, 1, 0, 0, 0, 'UTC')
-              AND a.driverdone_timestamp::timestamptz < make_timestamptz(2027, 1, 1, 0, 0, 0, 'UTC')
+              AND (a.driverdone_timestamp AT TIME ZONE 'Europe/Moscow')::date >= DATE '2026-01-01'
+              AND (a.driverdone_timestamp AT TIME ZONE 'Europe/Moscow')::date <= DATE '2026-12-31'
         """
         with engine.connect() as conn:
             gen_val = conn.execute(text(sql)).scalar_one()
