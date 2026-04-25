@@ -340,7 +340,10 @@ export function TracePanel({
     model.chartRecommendation.rationale.trim().length > 0 ||
     (chartType.length > 0 && chartType !== "table");
   const hasPipeline = model.steps.length > 0 || model.logs.length > 0;
-  const hasGuardrailsBlock = model.guardrails.blocked && model.guardrails.messagesRu.length > 0;
+  const hasGuardrailsBlock =
+    model.guardrails.blocked ||
+    model.guardrails.messagesRu.length > 0 ||
+    model.guardrails.codes.length > 0;
   const hasSqlGuardrails = Object.keys(model.sqlGuardrails ?? {}).length > 0;
   const hasResolvedSource = Boolean(model.resolvedSourceTable?.trim());
   const hasBody = Boolean(
@@ -884,7 +887,12 @@ export function TracePanel({
                   </p>
                 ) : null}
                 <ul className="mt-2 list-inside list-disc space-y-0.5 text-sm text-foreground">
-                  {model.guardrails.messagesRu.map((m, i) => (
+                  {(model.guardrails.messagesRu.length
+                    ? model.guardrails.messagesRu
+                    : [
+                        "Подробные сообщения не переданы в trace — см. explainability_text / guardrails в полном JSON trace."
+                      ]
+                  ).map((m, i) => (
                     <li key={`${m}-${i}`}>{m}</li>
                   ))}
                 </ul>

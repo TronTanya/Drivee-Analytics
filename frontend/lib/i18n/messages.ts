@@ -21,8 +21,10 @@ const RU = {
   nav_templates: "Шаблоны",
   nav_reports: "Отчёты",
   nav_history: "История",
+  nav_semantic_dictionary: "Бизнес-термины",
   nav_dictionary: "Словарь",
   nav_corrections: "Коррекции",
+  nav_data_upload: "Загрузка БД (CSV)",
   nav_settings: "Настройки",
   nav_dashboard: "Дашборд",
 
@@ -76,8 +78,10 @@ const EN: Record<keyof typeof RU, string> = {
   nav_templates: "Templates",
   nav_reports: "Reports",
   nav_history: "History",
+  nav_semantic_dictionary: "Business terms",
   nav_dictionary: "Dictionary",
   nav_corrections: "Corrections",
+  nav_data_upload: "Database upload (CSV)",
   nav_settings: "Settings",
   nav_dashboard: "Dashboard",
 
@@ -122,8 +126,10 @@ export const NAV_LABEL_KEY: Partial<Record<string, UiMessageKey>> = {
   "/templates": "nav_templates",
   "/reports": "nav_reports",
   "/history": "nav_history",
+  "/semantic-dictionary": "nav_semantic_dictionary",
   "/dictionary": "nav_dictionary",
   "/corrections": "nav_corrections",
+  "/data-upload": "nav_data_upload",
   "/settings": "nav_settings"
 };
 

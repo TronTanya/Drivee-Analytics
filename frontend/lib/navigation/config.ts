@@ -14,8 +14,14 @@ export const PLATFORM_NAV: NavItem[] = [
   { href: "/templates", label: "Шаблоны", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/reports", label: "Отчеты", roles: ["admin", "manager", "marketer", "executive"] },
   { href: "/history", label: "История", roles: ["admin", "manager", "marketer", "executive"] },
+  {
+    href: "/semantic-dictionary",
+    label: "Бизнес-термины",
+    roles: ["admin", "manager", "marketer", "executive"]
+  },
   { href: "/dictionary", label: "Словарь", roles: ["admin"] },
   { href: "/corrections", label: "Коррекции", roles: ["admin"] },
+  { href: "/data-upload", label: "Загрузка БД (CSV)", roles: ["admin"] },
   { href: "/settings", label: "Настройки" }
 ];
 
@@ -23,8 +29,7 @@ export const PLATFORM_NAV: NavItem[] = [
 export const PLATFORM_ADVANCED_NAV: NavItem[] = [
   /** Не в боковом меню: оценка качества NL→SQL для админа; основной UX — «Сценарии». */
   { href: "/quality", label: "Quality Center", roles: ["admin"] },
-  { href: "/forecast-lab", label: "AutoML Lab", roles: ["admin", "manager", "marketer", "executive"] },
-  { href: "/data-upload", label: "Загрузка данных", roles: ["admin", "manager", "marketer"] }
+  { href: "/forecast-lab", label: "AutoML Lab", roles: ["admin", "manager", "marketer", "executive"] }
 ];
 
 export const DASHBOARD_BY_ROLE: Record<UserRole, string> = {

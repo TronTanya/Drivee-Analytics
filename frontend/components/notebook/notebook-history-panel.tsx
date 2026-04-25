@@ -9,6 +9,10 @@ type NotebookHistoryPanelProps = {
   disabled?: boolean;
   lastPromptText?: string;
   onClear?: () => void;
+  /** Заголовок карточки (по умолчанию «История»). */
+  heading?: string;
+  /** Подзаголовок под заголовком. */
+  subheading?: string;
 };
 
 export function NotebookHistoryPanel({
@@ -17,14 +21,16 @@ export function NotebookHistoryPanel({
   onRerunLast,
   disabled,
   lastPromptText,
-  onClear
+  onClear,
+  heading = "История",
+  subheading = "Повторите запрос или вставьте текст в композер."
 }: NotebookHistoryPanelProps) {
   return (
     <aside className="space-y-3 rounded-card border border-border-subtle bg-surface-card p-4 shadow-xs">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">История</p>
-          <p className="mt-0.5 text-xs text-foreground-secondary">Повторите запрос или вставьте текст в композер.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">{heading}</p>
+          <p className="mt-0.5 text-xs text-foreground-secondary">{subheading}</p>
         </div>
         {onClear && items.length ? (
           <button

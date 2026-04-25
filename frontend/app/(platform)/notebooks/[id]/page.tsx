@@ -10,6 +10,7 @@ import { NotebookCanvas } from "@/components/notebook/notebook-canvas";
 import { NotebookCell } from "@/components/notebook/notebook-cell";
 import { NotebookHeader } from "@/components/notebook/notebook-header";
 import { AnalysisRunSummary } from "@/components/notebook/analysis-run-summary";
+import { AnalyticsPostProcessCards } from "@/components/notebook/analytics-post-process-cards";
 import { NotebookHistoryChips, NotebookHistoryPanel } from "@/components/notebook/notebook-history-panel";
 import {
   NotebookClarificationNeededState,
@@ -51,6 +52,10 @@ import {
 } from "@/lib/api";
 import type { ChartKind, NotebookBlock, PromptBlock, TracePanelModel } from "@/lib/notebook/block-types";
 import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
+import {
+  snapshotAnalyticsSqlPostProcess,
+  type AnalyticsSqlPostProcessSnapshot
+} from "@/lib/notebook/analytics-sql-post-process";
 import { enrichBlocksWithAutoChart } from "@/lib/notebook/enrich-blocks-chart";
 import { appendNotebookHistory, loadNotebookHistory, saveNotebookHistory, type NotebookHistoryItem } from "@/lib/notebook/notebook-history";
 import {
@@ -496,6 +501,12 @@ function finalizeScenarioBlocks(
   return enrichBlocksWithAutoChart(stable, trace);
 }
 
+/** При guardrails.blocked не подмешиваем демо SQL/таблицу из buildDemoBlocks (иначе «DROP TABLE» покажет фейковый SELECT). */
+function effectiveDeterministicFallback(trace: TracePanelModel, useDeterministicFallback: boolean): boolean {
+  if (trace.guardrails.blocked) return false;
+  return useDeterministicFallback;
+}
+
 function scenarioPresetByNotebookId(notebookId: string): {
   prompt: string;
   clarificationPrompt: string;
@@ -613,11 +624,15 @@ export default function NotebookDetailsPage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const notebookId = String(params.id ?? "");
+  const urlTemplatePrompt = useMemo(() => searchParams.get("template_prompt")?.trim() ?? "", [searchParams]);
+  const urlAutorunDemo = useMemo(() => searchParams.get("autorun") === "1", [searchParams]);
+  const urlDemoCase = useMemo(() => searchParams.get("demo_case")?.trim() ?? "", [searchParams]);
 
   const [boot, setBoot] = useState<"loading" | "ready" | "error">("loading");
   const [blocks, setBlocks] = useState<NotebookBlock[]>([]);
   const [traceModel, setTraceModel] = useState<TracePanelModel>(EMPTY_TRACE);
   const [traceOpen, setTraceOpen] = useState(true);
+  const [checkHistoryOpen, setCheckHistoryOpen] = useState(false);
   const [composer, setComposer] = useState("");
   const [composerBusy, setComposerBusy] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -641,6 +656,7 @@ export default function NotebookDetailsPage() {
   const clarificationSubmitLockRef = useRef(false);
   const pendingAnalyticsOptsRef = useRef<NotebookAnalyticsRunOptions>({});
   const demoCaseHydratedRef = useRef(false);
+  const [sqlPostSnapshot, setSqlPostSnapshot] = useState<AnalyticsSqlPostProcessSnapshot | null>(null);
   const [backendHealth, setBackendHealth] = useState<"checking" | "up" | "down">("checking");
   const [backendCheckedAt, setBackendCheckedAt] = useState<string | null>(null);
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealthModel | null>(null);
@@ -915,11 +931,15 @@ export default function NotebookDetailsPage() {
     localDraftHydratedRef.current = false;
     demoCaseHydratedRef.current = false;
     setPendingTemplateAutorun(null);
-  }, [notebookId]);
+  }, [notebookId, urlTemplatePrompt, urlAutorunDemo, urlDemoCase]);
 
   useEffect(() => {
     if (boot !== "ready" || persistedPromptHydratedRef.current) return;
     if (templatePromptHydratedRef.current) return;
+    if (urlTemplatePrompt) {
+      persistedPromptHydratedRef.current = true;
+      return;
+    }
     if (!serverRestoredPrompt) return;
     persistedPromptHydratedRef.current = true;
     setComposer(serverRestoredPrompt);
@@ -930,13 +950,13 @@ export default function NotebookDetailsPage() {
       return prev;
     });
     clearNotebookPromptDraft(notebookId);
-  }, [boot, notebookId, serverRestoredPrompt]);
+  }, [boot, notebookId, serverRestoredPrompt, urlTemplatePrompt]);
 
   useEffect(() => {
     if (boot !== "ready") return;
     if (useDeterministicFallback) return;
     if (localDraftHydratedRef.current) return;
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("template_prompt")?.trim()) {
+    if (urlTemplatePrompt) {
       localDraftHydratedRef.current = true;
       return;
     }
@@ -974,25 +994,23 @@ export default function NotebookDetailsPage() {
     canPersistNotebook,
     notebookMetaQuery.isFetched,
     serverRestoredPrompt,
-    useDeterministicFallback
+    useDeterministicFallback,
+    urlTemplatePrompt
   ]);
 
   useEffect(() => {
     if (boot !== "ready" || templatePromptHydratedRef.current) return;
-    if (typeof window === "undefined") return;
-    const q = new URLSearchParams(window.location.search).get("template_prompt")?.trim();
-    if (!q) return;
-    const autorun = new URLSearchParams(window.location.search).get("autorun") === "1";
+    if (!urlTemplatePrompt) return;
     templatePromptHydratedRef.current = true;
     clearNotebookPromptDraft(notebookId);
     // Template navigation must override stale notebook draft text
     // so user always sees prompt from the selected template.
-    setComposer(q);
+    setComposer(urlTemplatePrompt);
     setBlocks([
       {
         id: `${notebookId}-prompt-template`,
         type: "prompt",
-        text: q,
+        text: urlTemplatePrompt,
         status: "idle"
       }
     ]);
@@ -1003,13 +1021,13 @@ export default function NotebookDetailsPage() {
       warnings: [],
       tablesUsed: []
     });
-    if (autorun) {
-      setPendingTemplateAutorun(q);
-      setPageNotice("Промпт из шаблона подставлен. Запускаю автоматически…");
+    if (urlAutorunDemo) {
+      setPendingTemplateAutorun(urlTemplatePrompt);
+      setPageNotice("Промпт подставлен из ссылки. Запускаю pipeline автоматически…");
     } else {
-      setPageNotice("Промпт из шаблона подставлен. Нажмите «Run all» или выполните ячейку.");
+      setPageNotice("Промпт подставлен из ссылки. Нажмите «Run all» или выполните ячейку.");
     }
-  }, [boot, notebookId]);
+  }, [boot, notebookId, urlTemplatePrompt, urlAutorunDemo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1220,12 +1238,14 @@ export default function NotebookDetailsPage() {
         ? sqlBlock.sql
         : traceModel.generatedSql?.trim() || null;
     const nowIso = new Date().toISOString();
+    const sourceCellRaw = sqlBlock?.id ?? promptBlock?.id ?? null;
+    const sourceCellId = sourceCellRaw && isUuidString(sourceCellRaw) ? sourceCellRaw : null;
     try {
       const report = await createReport.mutateAsync({
         workspace_id: workspaceId,
         title: reportTitle,
-        notebook_id: notebookId,
-        source_cell_id: sqlBlock?.id ?? promptBlock?.id ?? null,
+        notebook_id: isUuidString(notebookId) ? notebookId : null,
+        source_cell_id: sourceCellId,
         payload: {
           prompt: promptText,
           interpreted_query: traceModel.interpretedIntent || null,
@@ -1402,28 +1422,29 @@ export default function NotebookDetailsPage() {
       const mapped = cellDtosToBlocks(result.cells);
       const clarificationRequested = traceClarificationRequested(result.trace);
       const traceBase = traceFromAnalyticsRun(result.trace, result.resolved_source_table);
-      applyRuntimeModeNotice(result.runtime_mode);
-      setBlocks((prev) => {
-        const incoming = mapped.filter((b) => b.type !== "prompt");
-        const updated = prev.map((b) =>
-          b.id === clarificationId && b.type === "clarification"
-            ? { ...b, selectedOptionId: optionId, status: "success" as const }
-            : b
-        );
-        const merged = mergeBlocksById(updated, incoming);
-        return finalizeScenarioBlocks(
-          merged,
-          notebookId,
-          basePrompt,
-          {
-            selectedClarificationId: optionId,
-            resetClarification: clarificationRequested,
-            hideClarification: !clarificationRequested,
-            useDeterministicFallback
-          },
-          traceBase
-        );
-      });
+        applyRuntimeModeNotice(result.runtime_mode);
+        setSqlPostSnapshot(snapshotAnalyticsSqlPostProcess(result));
+        setBlocks((prev) => {
+          const incoming = mapped.filter((b) => b.type !== "prompt");
+          const updated = prev.map((b) =>
+            b.id === clarificationId && b.type === "clarification"
+              ? { ...b, selectedOptionId: optionId, status: "success" as const }
+              : b
+          );
+          const merged = mergeBlocksById(updated, incoming);
+          return finalizeScenarioBlocks(
+            merged,
+            notebookId,
+            basePrompt,
+            {
+              selectedClarificationId: optionId,
+              resetClarification: clarificationRequested,
+              hideClarification: !clarificationRequested,
+              useDeterministicFallback: effectiveDeterministicFallback(traceBase, useDeterministicFallback)
+            },
+            traceBase
+          );
+        });
       setTraceModel((t) => {
         const next = traceBase;
         return {
@@ -1446,6 +1467,9 @@ export default function NotebookDetailsPage() {
           ]
         };
       });
+      if (traceBase.guardrails.blocked) {
+        setTraceOpen(true);
+      }
       setPromptHistory((h) => {
         const next = appendNotebookHistory(notebookId, clarificationPrompt, h);
         saveNotebookHistory(notebookId, next);
@@ -1470,6 +1494,7 @@ export default function NotebookDetailsPage() {
         "Не удалось продолжить цепочку после уточнения: "
       );
       setPageError(page);
+      setSqlPostSnapshot(null);
       setBlocks((prev) =>
         prev.map((b) =>
           b.id === clarificationId && b.type === "clarification"
@@ -1508,29 +1533,6 @@ export default function NotebookDetailsPage() {
     );
   }, []);
 
-  const handleRunAll = useCallback(async () => {
-    const runnableIds = blocks
-      .filter((b) => b.type === "sql" || b.type === "table" || b.type === "chart")
-      .map((b) => b.id);
-    if (runnableIds.length === 0) return;
-    setRunAllLoading(true);
-    setTraceModel((t) => ({
-      ...t,
-      steps: t.steps.map((s) => (s.status === "pending" ? { ...s, status: "running" as const } : s))
-    }));
-    for (const id of runnableIds) {
-      await runSingleCell(id);
-    }
-    setTraceModel((t) => ({
-      ...t,
-      confidence: Math.min(0.95, t.confidence + 0.03),
-      validationStatus: "passed",
-      steps: t.steps.map((s) => ({ ...s, status: "done" as const })),
-      logs: [...t.logs, { level: "info", message: `Последовательно выполнено ячеек: ${runnableIds.length}.`, at: "t+end" }]
-    }));
-    setRunAllLoading(false);
-  }, [blocks, runSingleCell]);
-
   const rememberPromptInHistory = useCallback(
     (text: string) => {
       setPromptHistory((h) => {
@@ -1557,7 +1559,8 @@ export default function NotebookDetailsPage() {
         type: "prompt",
         text
       };
-      setBlocks((prev) => [...prev.filter((b) => b.type !== "forecast"), promptBlock]);
+      // Новый промпт из композера — не смешиваем с предыдущей демо-цепочкой (SQL/таблица от прошлого запуска).
+      setBlocks([promptBlock]);
 
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
       try {
@@ -1572,6 +1575,7 @@ export default function NotebookDetailsPage() {
         const clarificationRequested = traceClarificationRequested(result.trace);
         const traceNext = traceFromAnalyticsRun(result.trace, result.resolved_source_table);
         applyRuntimeModeNotice(result.runtime_mode);
+        setSqlPostSnapshot(snapshotAnalyticsSqlPostProcess(result));
         setBlocks((prev) => {
           const merged = mergeBlocksById(prev, mapped, { skipPromptText: text });
           return finalizeScenarioBlocks(
@@ -1581,12 +1585,15 @@ export default function NotebookDetailsPage() {
             {
               resetClarification: clarificationRequested,
               hideClarification: !clarificationRequested,
-              useDeterministicFallback
+              useDeterministicFallback: effectiveDeterministicFallback(traceNext, useDeterministicFallback)
             },
             traceNext
           );
         });
         setTraceModel(traceNext);
+        if (traceNext.guardrails.blocked) {
+          setTraceOpen(true);
+        }
         setAuthRequired(false);
         if (!mapped.some((b) => b.type === "forecast") && shouldRunFallbackForecast(text, traceNext.interpretedIntent)) {
           void runForecastAfterInsight();
@@ -1605,6 +1612,7 @@ export default function NotebookDetailsPage() {
           "Ошибка запроса к pipeline: "
         );
         setPageError(page);
+        setSqlPostSnapshot(null);
         setBlocks((prev) =>
           prev.map((b) =>
             b.type === "prompt" && b.text.trim() === text
@@ -1629,6 +1637,76 @@ export default function NotebookDetailsPage() {
     ]
   );
 
+  const runnableBlockIdsForRunAll = useMemo(
+    () => blocks.filter((b) => b.type === "sql" || b.type === "table" || b.type === "chart").map((b) => b.id),
+    [blocks]
+  );
+
+  const runAllEffectivePrompt = useMemo(() => {
+    const p = [...blocks].reverse().find((b) => b.type === "prompt");
+    const fromBlock = p && p.type === "prompt" ? p.text.trim() : "";
+    return fromBlock || composer.trim();
+  }, [blocks, composer]);
+
+  const canRunAllNotebook = useMemo(
+    () => runnableBlockIdsForRunAll.length > 0 || runAllEffectivePrompt.trim().length > 0,
+    [runnableBlockIdsForRunAll, runAllEffectivePrompt]
+  );
+
+  const runAllButtonTitle = useMemo(() => {
+    if (authRequired) return "Требуется вход в систему";
+    if (!canRunAllNotebook) {
+      return "Введите запрос в промпт-ячейке или в поле ввода внизу страницы, затем нажмите снова";
+    }
+    if (composerBusy && !runAllLoading) return "Дождитесь завершения текущего запуска pipeline";
+    return "Полный NL→SQL pipeline по промпту или повторный прогон ячеек SQL / таблица / график";
+  }, [authRequired, canRunAllNotebook, composerBusy, runAllLoading]);
+
+  const handleRunAll = useCallback(async () => {
+    if (authRequired || composerBusy) return;
+    const runnableIds = runnableBlockIdsForRunAll;
+    if (runnableIds.length > 0) {
+      setRunAllLoading(true);
+      setTraceModel((t) => ({
+        ...t,
+        steps: t.steps.map((s) => (s.status === "pending" ? { ...s, status: "running" as const } : s))
+      }));
+      try {
+        for (const id of runnableIds) {
+          await runSingleCell(id);
+        }
+        setTraceModel((t) => ({
+          ...t,
+          confidence: Math.min(0.95, t.confidence + 0.03),
+          validationStatus: "passed",
+          steps: t.steps.map((s) => ({ ...s, status: "done" as const })),
+          logs: [
+            ...t.logs,
+            { level: "info" as const, message: `Последовательно выполнено ячеек: ${runnableIds.length}.`, at: "t+end" }
+          ]
+        }));
+      } finally {
+        setRunAllLoading(false);
+      }
+      return;
+    }
+    const text = runAllEffectivePrompt.trim();
+    if (!text) return;
+    setRunAllLoading(true);
+    try {
+      await runNewAnalyticsPrompt(text);
+    } finally {
+      setRunAllLoading(false);
+    }
+  }, [
+    authRequired,
+    composerBusy,
+    runnableBlockIdsForRunAll,
+    runAllEffectivePrompt,
+    runNewAnalyticsPrompt,
+    runSingleCell
+  ]);
+
   const handleComposerSubmit = useCallback(async () => {
     const text = composer.trim();
     if (!text) return;
@@ -1638,7 +1716,7 @@ export default function NotebookDetailsPage() {
 
   useEffect(() => {
     if (boot !== "ready" || demoCaseHydratedRef.current) return;
-    const demoCase = searchParams.get("demo_case")?.trim();
+    const demoCase = urlDemoCase;
     if (!demoCase) return;
     demoCaseHydratedRef.current = true;
 
@@ -1660,7 +1738,7 @@ export default function NotebookDetailsPage() {
     setComposer(selectedPrompt);
     setPageNotice("Подставлен демо-промпт сценария жюри. Запускаю автоматически…");
     void runNewAnalyticsPrompt(selectedPrompt);
-  }, [boot, runNewAnalyticsPrompt, searchParams]);
+  }, [boot, runNewAnalyticsPrompt, urlDemoCase]);
 
   useEffect(() => {
     if (!pendingTemplateAutorun || composerBusy || templateAutorunRef.current) return;
@@ -1696,6 +1774,7 @@ export default function NotebookDetailsPage() {
       const clarificationRequested = traceClarificationRequested(result.trace);
       const traceNext = traceFromAnalyticsRun(result.trace, result.resolved_source_table);
       applyRuntimeModeNotice(result.runtime_mode);
+      setSqlPostSnapshot(snapshotAnalyticsSqlPostProcess(result));
       setBlocks((prev) => {
         const updated = prev.map((b) => (b.id === id ? { ...b, status: "success" as const, errorMessage: undefined } : b));
         const merged = mergeBlocksById(updated, mapped, { skipPromptText: text });
@@ -1706,12 +1785,15 @@ export default function NotebookDetailsPage() {
           {
             resetClarification: clarificationRequested,
             hideClarification: !clarificationRequested,
-            useDeterministicFallback
+            useDeterministicFallback: effectiveDeterministicFallback(traceNext, useDeterministicFallback)
           },
           traceNext
         );
       });
       setTraceModel(traceNext);
+      if (traceNext.guardrails.blocked) {
+        setTraceOpen(true);
+      }
       setAuthRequired(false);
       if (!mapped.some((b) => b.type === "forecast") && shouldRunFallbackForecast(text, traceNext.interpretedIntent)) {
         void runForecastAfterInsight();
@@ -1730,6 +1812,7 @@ export default function NotebookDetailsPage() {
         "Ошибка запроса к pipeline: "
       );
       setPageError(page);
+      setSqlPostSnapshot(null);
       setBlocks((prev) =>
         prev.map((b) =>
           b.id === id ? { ...b, status: "error" as const, errorMessage: cell.slice(0, 320) } : b
@@ -1848,8 +1931,12 @@ export default function NotebookDetailsPage() {
   }
 
   return (
-    <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,230px)_minmax(0,1fr)] xl:items-start">
-      <div className="hidden min-w-0 xl:block">
+    <div
+      className={`grid min-w-0 gap-6 xl:items-start ${
+        checkHistoryOpen ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,230px)_minmax(0,1fr)]"
+      }`}
+    >
+      <div className={`hidden min-w-0 xl:block ${checkHistoryOpen ? "xl:hidden" : ""}`}>
         <NotebookHistoryPanel
           items={promptHistory}
           onSelect={handlePickHistoryPrompt}
@@ -1888,14 +1975,44 @@ export default function NotebookDetailsPage() {
           runPhaseHint={busyAnalyticsHint}
           trailing={
             <>
-              <button
-                type="button"
-                onClick={() => setTraceOpen((v) => !v)}
-                className="w-full rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-xs font-semibold text-foreground-secondary shadow-xs hover:border-brand-200 hover:text-brand-800 sm:w-auto"
+              <div
+                className="flex w-full min-w-0 rounded-control border border-border-subtle bg-surface-muted/45 p-0.5 sm:w-auto"
+                role="group"
+                aria-label="Trace и история проверок"
               >
-                {traceOpen ? "Скрыть trace" : "Показать trace"}
-              </button>
-              <RunAllButton onClick={handleRunAll} loading={runAllLoading} disabled={runAllLoading || authRequired} />
+                <button
+                  type="button"
+                  aria-pressed={traceOpen}
+                  onClick={() => setTraceOpen((v) => !v)}
+                  className={`min-w-0 flex-1 rounded-md px-2.5 py-2 text-center text-xs font-semibold transition sm:flex-none sm:px-3 ${
+                    traceOpen
+                      ? "bg-surface-card text-foreground shadow-xs"
+                      : "text-foreground-secondary hover:text-foreground"
+                  }`}
+                >
+                  {traceOpen ? "Скрыть trace" : "Показать trace"}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={checkHistoryOpen}
+                  aria-controls={checkHistoryOpen ? "notebook-check-history-panel" : undefined}
+                  id="notebook-check-history-tab"
+                  onClick={() => setCheckHistoryOpen((v) => !v)}
+                  className={`min-w-0 flex-1 rounded-md px-2.5 py-2 text-center text-xs font-semibold transition sm:flex-none sm:px-3 ${
+                    checkHistoryOpen
+                      ? "bg-surface-card text-foreground shadow-xs"
+                      : "text-foreground-secondary hover:text-foreground"
+                  }`}
+                >
+                  {checkHistoryOpen ? "Скрыть историю" : "История проверок"}
+                </button>
+              </div>
+              <RunAllButton
+                onClick={() => void handleRunAll()}
+                loading={runAllLoading}
+                disabled={runAllLoading || authRequired || composerBusy || !canRunAllNotebook}
+                title={runAllButtonTitle}
+              />
               <button
                 type="button"
                 onClick={() => void handleSaveNotebookScenario()}
@@ -1934,6 +2051,21 @@ export default function NotebookDetailsPage() {
             </>
           }
         />
+
+        {checkHistoryOpen ? (
+          <div id="notebook-check-history-panel" role="region" aria-labelledby="notebook-check-history-tab">
+            <NotebookHistoryPanel
+              heading="История проверок"
+              subheading="Промпты успешных запусков этого сценария — повторите или вставьте в композер."
+              items={promptHistory}
+              onSelect={handlePickHistoryPrompt}
+              onRerunLast={handleRerunLastPrompt}
+              disabled={composerBusy}
+              lastPromptText={lastPromptForHistory}
+              onClear={handleClearHistory}
+            />
+          </div>
+        ) : null}
 
         {authRequired && !isLocalDemoNotebook ? (
           <section className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
@@ -2182,6 +2314,8 @@ export default function NotebookDetailsPage() {
           interpretationActionsBusy={interpretationActionBusy}
           interpretationAccepted={interpretationAccepted}
         />
+
+        {sqlPostSnapshot ? <AnalyticsPostProcessCards snapshot={sqlPostSnapshot} /> : null}
 
         {blocks.length === 0 ? (
           <NotebookEmptyState />

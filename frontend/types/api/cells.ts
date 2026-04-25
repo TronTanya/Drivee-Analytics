@@ -69,6 +69,12 @@ export type RunNotebookAnalyticsResponseDto = {
   chart?: Record<string, unknown>;
   insight?: string;
   confidence?: number;
+  /** Краткие выводы post-SQL (pandas / эвристики). */
+  insights?: string[];
+  /** Простой прогноз по тренду; при нехватке данных — sufficient_data=false и note_ru. */
+  forecast?: Record<string, unknown>;
+  /** Сегменты с высоким |z-score|. */
+  anomalies?: Array<Record<string, unknown>>;
   /** Поверхность после enrich контекста (например public.train). */
   resolved_source_table?: string;
   runtime_mode?: "live" | "fallback" | "mock-only";

@@ -1,11 +1,12 @@
 import type { RunAllButtonProps } from "@/lib/notebook/block-types";
 
-export function RunAllButton({ onClick, loading, disabled }: RunAllButtonProps) {
+export function RunAllButton({ onClick, loading, disabled, title }: RunAllButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled || loading}
+      title={title}
       aria-busy={loading || undefined}
       className="interactive-focus micro-lift inline-flex items-center gap-2 rounded-control bg-brand-500 px-3 py-2 text-xs font-semibold text-black shadow-xs transition hover:bg-brand-400 active:translate-y-0 disabled:opacity-50"
     >

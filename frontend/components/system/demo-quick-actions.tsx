@@ -17,9 +17,11 @@ export function DemoQuickActions({
   className?: string;
 }) {
   return (
-    <section className={`rounded-card border border-border-subtle bg-surface-card px-4 py-3 ${className}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">{title}</p>
-      <div className="mt-2 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+    <section
+      className={`flex min-h-0 flex-col rounded-card border border-border-subtle bg-surface-card px-4 py-3 ${className}`}
+    >
+      <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">{title}</p>
+      <div className="mt-2 flex min-h-0 flex-1 flex-wrap content-start gap-2 overflow-x-auto pb-1 sm:overflow-visible sm:pb-0">
         {items.map((item) => (
           <Link
             key={`${item.href}-${item.label}`}

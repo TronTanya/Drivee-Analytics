@@ -379,4 +379,6 @@ export interface RunAllButtonProps {
   onClick: () => void;
   loading?: boolean;
   disabled?: boolean;
+  /** Подсказка при disabled (нет промпта / нет ячеек для прогона). */
+  title?: string;
 }

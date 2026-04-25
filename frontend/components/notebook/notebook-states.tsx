@@ -81,12 +81,26 @@ export function NotebookValidationBlockedState({
   title?: string;
   messages: string[];
 }) {
-  if (!messages.length) return null;
+  const lines =
+    messages.length > 0
+      ? messages
+      : [
+          "SQL не выполнен: сработали guardrails оркестратора (опасные конструкции, политика роли или лимиты).",
+          "Откройте панель trace справа — блок «Guardrails» и пошаговый trace показывают, на каком шаге запрос остановлен."
+        ];
   return (
-    <div className="rounded-card border border-danger/30 bg-danger-soft px-4 py-3 shadow-xs" role="alert">
+    <div
+      className="rounded-card border border-danger/30 bg-danger-soft px-4 py-3 shadow-xs"
+      role="alert"
+      data-testid="notebook-guardrails-blocked"
+    >
       <p className="text-sm font-semibold text-danger-bold">{title}</p>
+      <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">
+        Почему SQL не выполнен: политика безопасности не допускает исполнение такого запроса к данным (например, DDL,
+        запрещённые глаголы или обход whitelist).
+      </p>
       <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-foreground">
-        {messages.map((m, i) => (
+        {lines.map((m, i) => (
           <li key={i}>{m}</li>
         ))}
       </ul>
