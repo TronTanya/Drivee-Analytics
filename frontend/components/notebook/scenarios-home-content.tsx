@@ -78,7 +78,7 @@ export function ScenariosHomeContent() {
     queryFn: fetchNotebooks,
     placeholderData: MOCK_NOTEBOOKS
   });
-  const notebooks = data ?? [];
+  const notebooks = (data ?? []).filter((n) => !n.role_hint || n.role_hint === session.role);
 
   const startRename = (notebook: NotebookListItem) => {
     setListNotice(null);

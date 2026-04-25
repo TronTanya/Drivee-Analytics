@@ -22,6 +22,16 @@ const ROLE_LABEL: Record<UserRole, string> = {
   executive: "Руководитель"
 };
 
+function resolveTemplateTargets(targetRoleKey: unknown, ownerRole: unknown): UserRole[] {
+  if (typeof targetRoleKey === "string" && ROLE_ORDER.includes(targetRoleKey as UserRole)) {
+    return [targetRoleKey as UserRole];
+  }
+  if (typeof ownerRole === "string" && ROLE_ORDER.includes(ownerRole as UserRole)) {
+    return [ownerRole as UserRole];
+  }
+  return [...ROLE_ORDER];
+}
+
 function pipelineHref(notebookId: string, nl: string): Route {
   return `/notebooks/${encodeURIComponent(notebookId)}?template_prompt=${encodeURIComponent(nl)}&autorun=1` as Route;
 }
@@ -47,9 +57,7 @@ function groupQueryTemplatesByRole(rows: QueryTemplateDto[]): Record<UserRole, Q
     executive: []
   };
   for (const row of rows) {
-    const rk = row.target_role_key;
-    const targets: UserRole[] =
-      rk && ROLE_ORDER.includes(rk as UserRole) ? [rk as UserRole] : [...ROLE_ORDER];
+    const targets = resolveTemplateTargets(row.target_role_key, row.role);
     for (const t of targets) {
       out[t].push(row);
     }
@@ -65,9 +73,7 @@ function groupMockQueryTemplates(rows: QueryTemplateRow[]): Record<UserRole, Que
     executive: []
   };
   for (const row of rows) {
-    const rk = row.target_role_key;
-    const targets: UserRole[] =
-      rk && ROLE_ORDER.includes(rk as UserRole) ? [rk as UserRole] : [...ROLE_ORDER];
+    const targets = resolveTemplateTargets(row.target_role_key, row.role);
     for (const t of targets) {
       out[t].push(row);
     }
@@ -79,9 +85,7 @@ function groupMockQueryTemplates(rows: QueryTemplateRow[]): Record<UserRole, Que
 function queryTemplatesToScenarioNotebookRows(rows: QueryTemplateDto[]): NotebookTemplateRow[] {
   const out: NotebookTemplateRow[] = [];
   for (const row of rows) {
-    const rk = row.target_role_key;
-    const targets: UserRole[] =
-      rk && ROLE_ORDER.includes(rk as UserRole) ? [rk as UserRole] : [...ROLE_ORDER];
+    const targets = resolveTemplateTargets(row.target_role_key, row.role);
     const nb = row.default_notebook_id ?? "ops-health";
     const nl = (row.question ?? row.nl_prompt_template ?? row.name).trim();
     const href = pipelineHref(nb, nl);
@@ -154,6 +158,63 @@ function QueryTemplateCardMock({ row, sectionRole }: { row: QueryTemplateRow; se
         <pre className="surface-console mt-1 max-h-24 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all p-2 font-mono text-[10px] leading-relaxed text-foreground-secondary">
           {row.sql}
         </pre>
+        {row.interpretedIntent ? (
+          <p className="mt-2 text-[11px] text-foreground-secondary">
+            <span className="font-semibold text-foreground-muted">Интерпретация: </span>
+            {row.interpretedIntent}
+          </p>
+        ) : null}
+        {typeof row.confidenceScore === "number" ? (
+          <p className="mt-1 text-[11px] text-foreground-secondary">
+            <span className="font-semibold text-foreground-muted">Confidence: </span>
+            {row.confidenceScore.toFixed(2)}
+          </p>
+        ) : null}
+        {row.shortInsight ? (
+          <p className="mt-1 text-[11px] text-foreground-secondary">
+            <span className="font-semibold text-foreground-muted">Insight: </span>
+            {row.shortInsight}
+          </p>
+        ) : null}
+        {Array.isArray(row.explainabilityTrace) && row.explainabilityTrace.length > 0 ? (
+          <div className="mt-2 rounded-control border border-border-subtle bg-surface-muted/40 p-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Explainability trace</p>
+            <ol className="mt-1 list-inside list-decimal space-y-0.5 text-[11px] text-foreground-secondary">
+              {row.explainabilityTrace.slice(0, 7).map((step, idx) => (
+                <li key={`${row.id}-trace-${idx}`}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+        {Array.isArray(row.tableResultPreview) && row.tableResultPreview.length > 0 ? (
+          <div className="mt-2 overflow-x-auto rounded-control border border-border-subtle bg-surface-card p-2">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Table result (preview)</p>
+            <table className="w-full min-w-[340px] border-collapse text-left text-[11px]">
+              <thead>
+                <tr className="border-b border-border-subtle text-foreground-muted">
+                  {Object.keys(row.tableResultPreview[0]).slice(0, 4).map((k) => (
+                    <th key={`${row.id}-hdr-${k}`} className="px-1.5 py-1 font-semibold">
+                      {k}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {row.tableResultPreview.slice(0, 3).map((r, i) => (
+                  <tr key={`${row.id}-r-${i}`} className="border-b border-border-subtle/70 last:border-b-0">
+                    {Object.keys(row.tableResultPreview[0])
+                      .slice(0, 4)
+                      .map((k) => (
+                        <td key={`${row.id}-c-${i}-${k}`} className="px-1.5 py-1 text-foreground-secondary">
+                          {String(r[k] ?? "—")}
+                        </td>
+                      ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
         <p className="mt-3 text-[11px] font-semibold text-brand-800">Нажмите карточку — запуск pipeline в сценарии →</p>
       </Link>
     </article>
@@ -292,6 +353,25 @@ function QueryTemplateCardLive({
       </div>
       {Array.isArray(lastRun?.table_records) && lastRun.table_records.length > 0 ? (
         <div ref={resultRef} className="overflow-x-auto border-t border-border-subtle bg-surface-card p-2">
+          {lastRun.interpreted_intent ? (
+            <p className="mb-1 text-[11px] text-foreground-secondary">
+              <span className="font-semibold text-foreground-muted">Intent: </span>
+              {lastRun.interpreted_intent}
+            </p>
+          ) : null}
+          {lastRun.trace_summary ? (
+            <p className="mb-1 text-[11px] text-foreground-secondary">
+              <span className="font-semibold text-foreground-muted">Trace: </span>
+              {lastRun.trace_summary}
+            </p>
+          ) : null}
+          {Array.isArray(lastRun.explainability_trace) && lastRun.explainability_trace.length > 0 ? (
+            <ol className="mb-2 list-inside list-decimal space-y-0.5 text-[11px] text-foreground-secondary">
+              {lastRun.explainability_trace.slice(0, 5).map((step, idx) => (
+                <li key={`live-trace-${row.id}-${idx}`}>{step}</li>
+              ))}
+            </ol>
+          ) : null}
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Превью результата</p>
           <table className="w-full min-w-[460px] border-collapse text-left text-[11px]">
             <thead>
