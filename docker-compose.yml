@@ -44,7 +44,8 @@ services:
       && alembic upgrade head
       && python scripts/seed_demo_data.py
       && python scripts/import_train_csv.py --path ${EXTERNAL_TRAIN_CSV_PATH:-/data/train.csv} --replace --limit ${EXTERNAL_TRAIN_CSV_LIMIT:--1}
-      && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      && if [ \"${BACKEND_UVICORN_RELOAD:-false}\" = \"true\" ]; then RELOAD_FLAG=\"--reload\"; else RELOAD_FLAG=\"\"; fi
+      && uvicorn app.main:app --host 0.0.0.0 --port 8000 $$RELOAD_FLAG"
     # Пока не слушает 8000 (миграции/импорт train), фронт не должен проксировать — иначе ECONNREFUSED → 500 в браузере.
     healthcheck:
       test:

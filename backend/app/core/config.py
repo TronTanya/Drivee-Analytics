@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     csv_max_upload_mb: int = 50
     csv_staging_schema: str = "user_staging"
     csv_inference_max_rows: int = 100_000
-    ds_default_source_table: str = "public.train"
+    ds_default_source_table: str = "public.incity_orders"
     # Если False (по умолчанию), NL→SQL без явного source_table в notebook_context всегда использует ds_default_source_table (train).
     # True — подставлять последнюю успешную staging-таблицу из data_import_jobs (может расходиться с «всё из train»).
     ds_implicit_source_use_latest_staging: bool = False
