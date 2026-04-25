@@ -380,23 +380,7 @@ docker compose exec backend python scripts/import_drivee_dataset.py \
 
 ---
 
-## 12. Скриншоты
-
-Добавьте изображения в `docs/screenshots/` и обновите ссылки ниже (сейчас — плейсхолдеры для подготовки презентации).
-
-| Файл | Что показать |
-|------|----------------|
-| `./docs/screenshots/logo.png` | **TODO:** логотип продукта |
-| `./docs/screenshots/01-login.png` | **TODO:** форма входа (email + пароль) |
-| `./docs/screenshots/02-notebook-prompt.png` | **TODO:** ячейка с NL-запросом |
-| `./docs/screenshots/03-table-chart-trace.png` | **TODO:** таблица, график, панель trace / confidence |
-| `./docs/screenshots/04-clarification.png` | **TODO:** сценарий уточнения |
-| `./docs/screenshots/05-reports.png` | **TODO:** сохранённый отчёт |
-| `./docs/screenshots/06-quality-center.png` | **TODO:** Quality Center |
-
----
-
-## 13. Ограничения MVP и roadmap
+## 12. Ограничения MVP и roadmap
 
 Инженерно честные границы показа (live / fallback / mock): [`docs/demo-defense.md`](docs/demo-defense.md).  
 План развития: [`docs/improvement-roadmap.md`](docs/improvement-roadmap.md).  
@@ -404,7 +388,7 @@ docker compose exec backend python scripts/import_drivee_dataset.py \
 
 ---
 
-## 14. Tech stack
+## 13. Tech stack
 
 - **Frontend:** Next.js 14, TypeScript, Tailwind, React Query, Recharts  
 - **Backend:** FastAPI, SQLAlchemy 2, Pydantic  
@@ -412,7 +396,7 @@ docker compose exec backend python scripts/import_drivee_dataset.py \
 
 ---
 
-## 15. Документация (карта)
+## 14. Документация (карта)
 
 | Документ | Назначение |
 |----------|------------|
