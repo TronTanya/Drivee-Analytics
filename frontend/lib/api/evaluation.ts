@@ -1,11 +1,13 @@
 import { ApiError, apiFetchJson } from "@/lib/api/client";
 import type {
   CaseEvaluationResultDto,
+  DemoReadinessDto,
   EvaluationMode,
   GoldenCasePublic,
   GuardrailsRunResponse,
   NlSqlEvalRunResponse,
   NlSqlEvalSummary,
+  NlSqlGoldenEvalSummaryDto,
   PromptStabilityResponse,
   QualityCenterOverview,
   QualityLastRunBundle,
@@ -56,6 +58,14 @@ export async function runSqlCorrectnessEvaluation(mode: EvaluationMode = "mock")
 export async function fetchQualityCenterSummary(mode: EvaluationMode = "deterministic"): Promise<QualityCenterOverview> {
   const q = new URLSearchParams({ mode });
   return apiFetchJson<QualityCenterOverview>(`/api/v1/quality/summary?${q.toString()}`);
+}
+
+export async function fetchNlSqlGoldenEvalSummary(): Promise<NlSqlGoldenEvalSummaryDto> {
+  return apiFetchJson<NlSqlGoldenEvalSummaryDto>("/api/v1/quality/nl-sql-golden-summary");
+}
+
+export async function fetchDemoReadiness(): Promise<DemoReadinessDto> {
+  return apiFetchJson<DemoReadinessDto>("/api/v1/demo/readiness");
 }
 
 export async function runQualityCenterEvaluation(

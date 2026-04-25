@@ -77,8 +77,8 @@ export function DataUploadClient() {
   return (
     <div className="space-y-6">
       <SystemPageIntro
-        title="Загрузка данных"
-        subtitle="Загрузка CSV с inferred schema, sample rows и предупреждениями guardrails. Импорт выполняется через live API."
+        title="Загрузка базы данных (CSV)"
+        subtitle="Файл CSV: предпросмотр, inferred schema, пример строк и guardrails. Импорт в staging через API."
       />
       <DemoQuickActions
         items={[

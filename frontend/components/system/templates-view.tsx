@@ -22,6 +22,10 @@ const ROLE_LABEL: Record<UserRole, string> = {
   executive: "Руководитель"
 };
 
+function pipelineHref(notebookId: string, nl: string): Route {
+  return `/notebooks/${encodeURIComponent(notebookId)}?template_prompt=${encodeURIComponent(nl)}&autorun=1` as Route;
+}
+
 function groupByRole<T extends { role: UserRole }>(rows: T[]): Record<UserRole, T[]> {
   const out: Record<UserRole, T[]> = {
     admin: [],
@@ -71,44 +75,100 @@ function groupMockQueryTemplates(rows: QueryTemplateRow[]): Record<UserRole, Que
   return out;
 }
 
-function QuickRunButton({ href, label }: { href: Route; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="interactive-focus micro-lift inline-flex w-full justify-center rounded-control bg-brand-500 px-2.5 py-1 text-[11px] font-semibold text-black shadow-xs hover:bg-brand-400 active:translate-y-0 sm:w-auto"
-    >
-      {label}
-    </Link>
-  );
+/** Сценарии на канве: те же роли, что и у «шаблонов запросов» (общий шаблон → все роли). */
+function queryTemplatesToScenarioNotebookRows(rows: QueryTemplateDto[]): NotebookTemplateRow[] {
+  const out: NotebookTemplateRow[] = [];
+  for (const row of rows) {
+    const rk = row.target_role_key;
+    const targets: UserRole[] =
+      rk && ROLE_ORDER.includes(rk as UserRole) ? [rk as UserRole] : [...ROLE_ORDER];
+    const nb = row.default_notebook_id ?? "ops-health";
+    const nl = (row.question ?? row.nl_prompt_template ?? row.name).trim();
+    const href = pipelineHref(nb, nl);
+    for (const t of targets) {
+      out.push({
+        id: `${row.id}-${t}`,
+        name: row.name,
+        description: (row.description || row.business_value || "Запуск сценария по шаблону").trim(),
+        role: t,
+        href
+      });
+    }
+  }
+  return out;
 }
 
-function QueryTemplateCardMock({ row }: { row: QueryTemplateRow }) {
-  const scenarioHref = `${row.runHref}?template_prompt=${encodeURIComponent(row.prefillPrompt ?? row.name)}&autorun=1` as Route;
+function TemplateCardTags({ tags }: { tags: string[] }) {
+  if (!tags.length) return null;
   return (
-    <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
-      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">{row.name}</p>
-          <p className="mt-0.5 text-xs text-foreground-secondary">{row.description}</p>
-          <pre className="surface-console mt-2 max-h-20 min-w-0 max-w-full overflow-x-auto overflow-y-auto whitespace-pre p-2 font-mono text-[10px]">
-            {row.sql}
-          </pre>
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-          <QuickRunButton href={row.runHref} label="Быстрый запуск" />
-          <Link
-            href={scenarioHref}
-            className="text-center text-[11px] font-semibold text-brand-800 underline-offset-2 hover:underline"
-          >
-            В сценарий (подставить текст)
-          </Link>
-        </div>
-      </div>
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="rounded-full border border-border-subtle bg-surface-muted px-2 py-0.5 text-[10px] font-medium text-foreground-secondary"
+        >
+          {t}
+        </span>
+      ))}
     </div>
   );
 }
 
-function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; workspaceId: string }) {
+function QueryTemplateCardMock({ row, sectionRole }: { row: QueryTemplateRow; sectionRole: UserRole }) {
+  const title = row.title ?? row.name;
+  const href = pipelineHref(row.notebookId, row.question);
+  return (
+    <article className="group flex min-h-[220px] min-w-0 flex-col overflow-hidden rounded-card border border-border-subtle bg-surface-card shadow-xs transition hover:border-brand-300 hover:shadow-md">
+      <Link href={href} className="interactive-focus flex flex-1 flex-col p-4 text-left">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h3 className="text-sm font-semibold text-foreground group-hover:text-brand-900">{title}</h3>
+          <span className="shrink-0 rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-900">
+            {ROLE_LABEL[sectionRole]}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-foreground-secondary">{row.description}</p>
+        <p className="mt-2 text-xs leading-relaxed text-foreground">
+          <span className="font-semibold text-foreground-muted">Вопрос: </span>
+          {row.question}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-800">
+            График: {row.expected_chart}
+          </span>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+              row.reusable_scenario
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-amber-200 bg-amber-50 text-amber-950"
+            }`}
+          >
+            {row.reusable_scenario ? "Повторяемый сценарий" : "Разовый анализ"}
+          </span>
+        </div>
+        <p className="mt-2 text-[11px] leading-snug text-foreground-secondary">
+          <span className="font-semibold text-foreground-muted">Ценность: </span>
+          {row.business_value}
+        </p>
+        <TemplateCardTags tags={row.tags} />
+        <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Канонический SQL</p>
+        <pre className="surface-console mt-1 max-h-24 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all p-2 font-mono text-[10px] leading-relaxed text-foreground-secondary">
+          {row.sql}
+        </pre>
+        <p className="mt-3 text-[11px] font-semibold text-brand-800">Нажмите карточку — запуск pipeline в сценарии →</p>
+      </Link>
+    </article>
+  );
+}
+
+function QueryTemplateCardLive({
+  row,
+  workspaceId,
+  sectionRole
+}: {
+  row: QueryTemplateDto;
+  workspaceId: string;
+  sectionRole: UserRole;
+}) {
   const quickRun = useQuickRunQueryTemplate();
   const [msg, setMsg] = useState<string | null>(null);
   const [runSource, setRunSource] = useState<"sql" | "fallback" | null>(null);
@@ -117,8 +177,12 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
   const resultRef = useRef<HTMLDivElement | null>(null);
   const thisRunning = runningTemplateId === row.id;
   const nb = row.default_notebook_id ?? "ops-health";
-  const scenarioHref =
-    `/notebooks/${nb}?template_prompt=${encodeURIComponent(row.nl_prompt_template || row.name)}&autorun=1` as Route;
+  const nl = row.question?.trim() || row.nl_prompt_template || row.name;
+  const scenarioHref = pipelineHref(nb, nl);
+  const title = row.title?.trim() || row.name;
+  const expectedChart = row.expected_chart?.trim() || row.default_chart_type || "—";
+  const tags = row.tags ?? [];
+  const businessValue = row.business_value?.trim() || row.description;
 
   useEffect(() => {
     if (!lastRun || runningTemplateId) return;
@@ -126,23 +190,55 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
   }, [lastRun, runningTemplateId]);
 
   return (
-    <div className="surface-content min-w-0 bg-surface-page px-3 py-3">
-      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">{row.name}</p>
-          {row.template_key ? (
-            <p className="mt-0.5 text-[10px] font-mono text-foreground-muted">{row.template_key}</p>
-          ) : null}
-          <p className="mt-0.5 text-xs text-foreground-secondary">{row.description}</p>
-          <pre className="surface-console mt-2 max-h-24 min-w-0 max-w-full overflow-x-auto overflow-y-auto whitespace-pre p-2 font-mono text-[10px]">
-            {(row.sql_template && row.sql_template.trim()) || row.nl_prompt_template || row.sql}
-          </pre>
+    <article className="flex min-h-[220px] min-w-0 flex-col overflow-hidden rounded-card border border-border-subtle bg-surface-card shadow-xs transition hover:border-brand-300 hover:shadow-md">
+      <Link href={scenarioHref} className="interactive-focus flex flex-1 flex-col p-4 text-left">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h3 className="text-sm font-semibold text-foreground hover:text-brand-900">{title}</h3>
+          <span className="shrink-0 rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-900">
+            {ROLE_LABEL[sectionRole]}
+          </span>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+        {row.template_key ? (
+          <p className="mt-0.5 text-[10px] font-mono text-foreground-muted">{row.template_key}</p>
+        ) : null}
+        <p className="mt-1 text-xs text-foreground-secondary">{row.description}</p>
+        <p className="mt-2 text-xs leading-relaxed text-foreground">
+          <span className="font-semibold text-foreground-muted">Вопрос: </span>
+          {nl}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-800">
+            График: {expectedChart}
+          </span>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+              row.reusable_scenario
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-amber-200 bg-amber-50 text-amber-950"
+            }`}
+          >
+            {row.reusable_scenario ? "Повторяемый сценарий" : "Разовый анализ"}
+          </span>
+        </div>
+        <p className="mt-2 text-[11px] leading-snug text-foreground-secondary">
+          <span className="font-semibold text-foreground-muted">Ценность: </span>
+          {businessValue}
+        </p>
+        <TemplateCardTags tags={tags} />
+        <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">SQL / подсказка</p>
+        <pre className="surface-console mt-1 max-h-24 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all p-2 font-mono text-[10px] leading-relaxed text-foreground-secondary">
+          {(row.sql_template && row.sql_template.trim()) || row.nl_prompt_template || row.sql}
+        </pre>
+        <p className="mt-3 text-[11px] font-semibold text-brand-800">Нажмите карточку — запуск pipeline в сценарии →</p>
+      </Link>
+      <div className="flex flex-col gap-2 border-t border-border-subtle bg-surface-muted/30 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={thisRunning}
-            onClick={async () => {
+            onClick={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
               setMsg(null);
               setRunSource(null);
               setLastRun(null);
@@ -166,14 +262,9 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
             {thisRunning ? "Запуск…" : "Быстрый запуск (API)"}
           </button>
           <Link
-            href={scenarioHref}
-            className="text-center text-[11px] font-semibold text-brand-800 underline-offset-2 hover:underline"
-          >
-            В сценарий (подставить текст)
-          </Link>
-          <Link
             href={"/history" as Route}
-            className="text-center text-[11px] font-semibold text-foreground-secondary underline-offset-2 hover:underline"
+            className="text-[11px] font-semibold text-foreground-secondary underline-offset-2 hover:underline"
+            onClick={(e) => e.stopPropagation()}
           >
             История запусков
           </Link>
@@ -188,19 +279,19 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
               {runSource === "fallback" ? "Источник: NL fallback" : "Источник: SQL template"}
             </span>
           ) : null}
-          {msg ? <p className="max-w-xs text-[11px] text-foreground-secondary">{msg}</p> : null}
-          {lastRun?.execution_status === "clarification_required" ? (
-            <Link
-              href={scenarioHref}
-              className="inline-flex rounded-control border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
-            >
-              Уточнить и запустить в сценарии
-            </Link>
-          ) : null}
         </div>
+        {msg ? <p className="text-[11px] text-foreground-secondary">{msg}</p> : null}
+        {lastRun?.execution_status === "clarification_required" ? (
+          <Link
+            href={scenarioHref}
+            className="inline-flex w-fit rounded-control border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            Уточнить и запустить в сценарии
+          </Link>
+        ) : null}
       </div>
       {Array.isArray(lastRun?.table_records) && lastRun.table_records.length > 0 ? (
-        <div ref={resultRef} className="mt-2 overflow-x-auto rounded-control border border-border-subtle bg-surface-card p-2">
+        <div ref={resultRef} className="overflow-x-auto border-t border-border-subtle bg-surface-card p-2">
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Превью результата</p>
           <table className="w-full min-w-[460px] border-collapse text-left text-[11px]">
             <thead>
@@ -231,12 +322,12 @@ function QueryTemplateCardLive({ row, workspaceId }: { row: QueryTemplateDto; wo
       {lastRun && (!Array.isArray(lastRun.table_records) || lastRun.table_records.length === 0) ? (
         <div
           ref={resultRef}
-          className="mt-2 rounded-control border border-border-subtle bg-surface-card px-3 py-2 text-[11px] text-foreground-secondary"
+          className="border-t border-border-subtle bg-surface-card px-3 py-2 text-[11px] text-foreground-secondary"
         >
           Запуск выполнен, но табличные строки не возвращены. Откройте сценарий для полного результата и trace.
         </div>
       ) : null}
-    </div>
+    </article>
   );
 }
 
@@ -255,7 +346,12 @@ function NotebookTemplateCard({ row }: { row: NotebookTemplateRow }) {
           >
             Открыть
           </Link>
-          <QuickRunButton href={row.href as Route} label="Быстрый запуск" />
+          <Link
+            href={row.href as Route}
+            className="interactive-focus micro-lift inline-flex justify-center rounded-control bg-brand-500 px-2.5 py-1 text-center text-[11px] font-semibold text-black shadow-xs hover:bg-brand-400"
+          >
+            Быстрый запуск
+          </Link>
         </div>
       </div>
     </div>
@@ -287,6 +383,9 @@ export function TemplatesView() {
   const byQueryMockGrouped = useMemo(() => groupMockQueryTemplates(MOCK_QUERY_TEMPLATES), []);
 
   const notebookRows = useMemo((): NotebookTemplateRow[] => {
+    if (useLiveQueryTemplates && queryTemplatesForGroup) {
+      return queryTemplatesToScenarioNotebookRows(queryTemplatesForGroup);
+    }
     const d = nbTemplatesQuery.data;
     if (d && d.length > 0) {
       return d.map((x) => ({
@@ -298,7 +397,7 @@ export function TemplatesView() {
       }));
     }
     return MOCK_NOTEBOOK_TEMPLATES;
-  }, [nbTemplatesQuery.data]);
+  }, [useLiveQueryTemplates, queryTemplatesForGroup, nbTemplatesQuery.data]);
 
   const byNb = groupByRole(notebookRows);
   const currentRole = (meQuery.data?.role as UserRole | undefined) ?? null;
@@ -386,16 +485,21 @@ export function TemplatesView() {
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-brand-800">
                 {ROLE_LABEL[role]}
               </h3>
-              <div className="space-y-2">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {(useLiveQueryTemplates ? byQueryLiveGrouped![role] : byQueryMockGrouped[role]).map((row) =>
                   useLiveQueryTemplates ? (
                     <QueryTemplateCardLive
                       key={`${row.id}-${role}`}
                       row={row as QueryTemplateDto}
                       workspaceId={workspaceId!}
+                      sectionRole={role}
                     />
                   ) : (
-                    <QueryTemplateCardMock key={`${row.id}-${role}`} row={row as QueryTemplateRow} />
+                    <QueryTemplateCardMock
+                      key={`${row.id}-${role}`}
+                      row={row as QueryTemplateRow}
+                      sectionRole={role}
+                    />
                   )
                 )}
                 {(useLiveQueryTemplates ? byQueryLiveGrouped![role] : byQueryMockGrouped[role]).length === 0 ? (

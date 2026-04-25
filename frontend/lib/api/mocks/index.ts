@@ -41,6 +41,7 @@ import {
   topCityCancellations,
   topCityLimitFromPrompt
 } from "@/lib/demo/seeded-data";
+import { MOCK_QUERY_TEMPLATES, queryTemplateRowToDto } from "@/lib/system/mock-data";
 
 function applyMockNotebookAnalyticsOptions(
   body: RunNotebookAnalyticsRequestDto,
@@ -110,6 +111,9 @@ function applyMockNotebookAnalyticsOptions(
 
   return { ...response, trace, cells };
 }
+
+const MOCK_SQL_REVENUE_BY_CITY_WEEK =
+  "SELECT city_id::text, SUM(price_order_local)::numeric AS revenue FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - INTERVAL '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE) GROUP BY 1 ORDER BY 2 DESC LIMIT 20";
 
 const trace: AnalyticsTraceDto = {
   schema_version: 1,
@@ -280,11 +284,77 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
   const notebookId = body.notebook_id;
   const prompt = body.prompt;
   const normalizedPrompt = prompt.toLowerCase();
+
+  const isDestructiveNl =
+    /\bdrop\s+table\b/i.test(prompt) ||
+    /\btruncate\s+table\b/i.test(prompt) ||
+    /\bdelete\s+from\b/i.test(prompt) ||
+    /\binsert\s+into\b/i.test(prompt) ||
+    /\bupdate\s+\S+\s+set\b/i.test(prompt);
+  if (isDestructiveNl) {
+    const blockedTrace: AnalyticsTraceDto = {
+      ...trace,
+      clarification_requested: false,
+      generated_sql: "",
+      validation_status: "failed",
+      guardrails: {
+        blocked: true,
+        codes: ["destructive_ddl"],
+        messages_ru: ["Запрос содержит опасные конструкции DDL/DML — выполнение запрещено."]
+      }
+    };
+    const rawBlocked: RunNotebookAnalyticsResponseDto = {
+      notebook_id: notebookId,
+      resolved_source_table: "public.train",
+      cells: [
+        {
+          id: `${notebookId}-p1`,
+          notebook_id: notebookId,
+          type: "prompt",
+          content: prompt,
+          position: 0
+        },
+        {
+          id: `${notebookId}-tr1`,
+          notebook_id: notebookId,
+          type: "trace",
+          content: "Guardrails: запрос не дошёл до генерации SQL.",
+          position: 1,
+          payload: {
+            summary: "Заблокировано политикой",
+            interpreted_intent: "",
+            confidence: 0,
+            warnings: []
+          }
+        }
+      ],
+      trace: blockedTrace,
+      question: prompt,
+      interpreted_query: "",
+      safe_sql: "",
+      insight: "",
+      confidence: 0,
+      insights: [],
+      forecast: {
+        sufficient_data: false,
+        note_ru: "Недостаточно данных для прогноза",
+        summary: ""
+      },
+      anomalies: []
+    };
+    return applyMockNotebookAnalyticsOptions(body, rawBlocked);
+  }
   const isComparative =
     /сравни/.test(normalizedPrompt) &&
     /алматы/.test(normalizedPrompt) &&
     /астан/.test(normalizedPrompt);
+  const isRevenueByCityWeek =
+    /выручк|revenue|оборот|gmv/.test(normalizedPrompt) &&
+    /город|city/.test(normalizedPrompt) &&
+    /недел|прошл|week|7\s*дн|7\s*дней/i.test(normalizedPrompt);
+
   const isRevenueTrend =
+    !isRevenueByCityWeek &&
     /выручк|revenue|оборот|gmv/.test(normalizedPrompt) &&
     /по дням|динамик|7\s*дн|недел|дней|week|day/i.test(normalizedPrompt);
   const isChannelConversion =
@@ -352,6 +422,44 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
       `Алматы: доля завершённых ${a?.done_share ?? "—"} при ${a?.total_orders ?? 0} заказах в выборке.`,
       `Астана: доля завершённых ${b?.done_share ?? "—"} при ${b?.total_orders ?? 0} заказах в выборке.`,
       "Примечание: это агрегат из SEEDED_ORDERS при недоступности live SQL."
+    ].join("\n");
+  } else if (isRevenueByCityWeek) {
+    const rows = [
+      { city_id: "101", revenue: 128_400 },
+      { city_id: "205", revenue: 96_200 },
+      { city_id: "312", revenue: 74_050 }
+    ];
+    tablePayload = {
+      columns: ["city_id", "revenue"],
+      rows,
+      caption: "Controlled fallback: выручка по городам за прошлую неделю (SEEDED_ORDERS / mock)."
+    };
+    chartPayload = {
+      chartType: "bar",
+      recommendedChartType: "bar",
+      alternativeChartTypes: ["horizontal_bar", "table"],
+      visualizationExplanation: "Сравнение городов по выручке — bar chart.",
+      title: "Выручка по городам",
+      xKey: "city_id",
+      series: [{ key: "revenue", name: "Выручка" }],
+      data: rows
+    };
+    traceModel = {
+      ...trace,
+      interpreted_intent: "ranking · revenue_by_city · last_week",
+      extracted_entities: { period: "last_week" },
+      generated_sql: MOCK_SQL_REVENUE_BY_CITY_WEEK,
+      chart_recommendation: {
+        chart_type: "bar",
+        rationale: "Рейтинг городов по сумме — bar.",
+        alternatives: ["table", "horizontal_bar"]
+      }
+    };
+    traceText = "Намерение: выручка по городам · период: прошлая неделя";
+    insightBody = [
+      `Инсайт по запросу: «${prompt}».`,
+      `Лидер по выручке в мок-окне: ${rows[0]?.city_id ?? "—"} (${rows[0]?.revenue?.toLocaleString("ru-RU") ?? "—"}).`,
+      "В live режиме SQL читает реальные price_order_local из train."
     ].join("\n");
   } else if (isChannelConversion) {
     const rows = demoChannelFunnelRows();
@@ -627,17 +735,19 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
 
   const sqlContent = isComparative
     ? deterministicSqlComparativeDoneShare()
-    : isChannelConversion
-      ? deterministicSqlChannelConversion()
-      : isRevenueTrend
-        ? deterministicSqlDailyRevenue()
-        : isShareByCity
-          ? deterministicSqlShareByCity()
-          : isGeoMapDemo
-            ? deterministicSqlGeoMapCities()
-            : isReporting
-              ? deterministicSqlDailyCancellations()
-              : deterministicSqlTopCancelledCities(topLimit);
+    : isRevenueByCityWeek
+      ? MOCK_SQL_REVENUE_BY_CITY_WEEK
+      : isChannelConversion
+        ? deterministicSqlChannelConversion()
+        : isRevenueTrend
+          ? deterministicSqlDailyRevenue()
+          : isShareByCity
+            ? deterministicSqlShareByCity()
+            : isGeoMapDemo
+              ? deterministicSqlGeoMapCities()
+              : isReporting
+                ? deterministicSqlDailyCancellations()
+                : deterministicSqlTopCancelledCities(topLimit);
 
   const rawResponse: RunNotebookAnalyticsResponseDto = {
     notebook_id: notebookId,
@@ -693,7 +803,25 @@ export async function mockRunAnalytics(body: RunNotebookAnalyticsRequestDto): Pr
         position: 6
       }
     ],
-    trace: traceFinal
+    trace: traceFinal,
+    insights: [
+      "Выручка выросла на 12% относительно прошлого периода (демо post-SQL)."
+    ],
+    forecast: {
+      summary: "Прогноз на следующую неделю: +8% при сохранении текущего тренда (демо).",
+      delta_pct: 8,
+      sufficient_data: true,
+      note_ru: ""
+    },
+    anomalies: [
+      {
+        dimension: "city_id",
+        segment: "203",
+        z_score: -2.4,
+        message_ru:
+          "В городе 203 заметно падение заказов на 18%, стоит проверить канал привлечения (демо)."
+      }
+    ]
   };
 
   return applyMockNotebookAnalyticsOptions(body, rawResponse);
@@ -794,120 +922,7 @@ export async function mockListScenarios(): Promise<NotebookScenarioDto[]> {
 }
 
 export async function mockListQueryTemplates(): Promise<QueryTemplateDto[]> {
-  return [
-    {
-      id: "qt-mock-revenue-city",
-      name: "Выручка по городам (30 дней)",
-      description: "Сумма price_order_local по city_id",
-      role: "executive",
-      sql: "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_notebook_id: "strategy-board",
-      template_key: "revenue_by_city_last_month",
-      nl_prompt_template: "Покажи выручку по городам за последний месяц",
-      sql_template:
-        "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_chart_type: "bar",
-      target_role_key: "executive"
-    },
-    {
-      id: "qt-mock-orders-channel",
-      name: "Заказы по каналам",
-      description: "Сравнение объёма по order_channel",
-      role: "marketer",
-      sql: "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_notebook_id: "campaign-q1",
-      template_key: "orders_count_by_channel",
-      nl_prompt_template: "Сравни количество заказов по каналам",
-      sql_template:
-        "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_chart_type: "bar",
-      target_role_key: "marketer"
-    },
-    {
-      id: "qt-mock-cancel-daily",
-      name: "Динамика отмен по дням",
-      description: "За 30 дней",
-      role: "manager",
-      sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
-      default_notebook_id: "ops-health",
-      template_key: "cancellations_by_period",
-      nl_prompt_template: "Покажи динамику отмен по дням",
-      sql_template:
-        "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
-      default_chart_type: "line",
-      target_role_key: null
-    },
-    {
-      id: "qt-mock-top5",
-      name: "Топ-5 городов по выручке",
-      description: "SUM + LIMIT 5",
-      role: "executive",
-      sql: "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
-      default_notebook_id: "strategy-board",
-      template_key: "top5_cities_by_revenue",
-      nl_prompt_template: "Покажи топ-5 городов по выручке",
-      sql_template:
-        "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
-      default_chart_type: "bar",
-      target_role_key: "executive"
-    },
-    {
-      id: "qt-mock-wow",
-      name: "Заказы: неделя к неделе",
-      description: "Две колонки — прошлая и текущая неделя",
-      role: "manager",
-      sql: "SELECT COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS orders_prev_week, COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS orders_this_week FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day'",
-      default_notebook_id: "ops-health",
-      template_key: "orders_week_over_week",
-      nl_prompt_template: "Сравни недели между собой по числу заказов",
-      sql_template:
-        "SELECT COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS orders_prev_week, COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS orders_this_week FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day'",
-      default_chart_type: "bar",
-      target_role_key: "manager"
-    },
-    {
-      id: "qt-mock-avg-channel",
-      name: "Средний чек по каналам",
-      description: "Сегмент = order_channel",
-      role: "marketer",
-      sql: "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_notebook_id: "campaign-q1",
-      template_key: "avg_check_by_order_channel",
-      nl_prompt_template: "Покажи средний чек по категориям",
-      sql_template:
-        "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_chart_type: "bar",
-      target_role_key: "marketer"
-    },
-    {
-      id: "qt-mock-cancel-share",
-      name: "Доля отмен по городам",
-      description: "За 14 дней",
-      role: "manager",
-      sql: "SELECT city_id, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS cancellation_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_notebook_id: "ops-health",
-      template_key: "cancel_rate_by_city",
-      nl_prompt_template: "Покажи долю отмен по городам",
-      sql_template:
-        "SELECT city_id, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS cancellation_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
-      default_chart_type: "bar",
-      target_role_key: null
-    },
-    {
-      id: "qt-mock-trend-30",
-      name: "Тренд заказов за 30 дней",
-      description: "По дням",
-      role: "marketer",
-      sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
-      default_notebook_id: "campaign-q1",
-      template_key: "orders_trend_30d",
-      nl_prompt_template: "Покажи тренд заказов за 30 дней",
-      sql_template:
-        "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
-      default_chart_type: "line",
-      target_role_key: null
-    }
-  ];
+  return MOCK_QUERY_TEMPLATES.map(queryTemplateRowToDto);
 }
 
 export async function mockListNotebookTemplates(): Promise<NotebookTemplateDto[]> {

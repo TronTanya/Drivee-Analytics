@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { ApiError } from "@/lib/api/client";
 import {
+  fetchDemoReadiness,
+  fetchNlSqlGoldenEvalSummary,
   fetchQualityCenterSummary,
   fetchQualityLastRunDetails,
   fetchRepairBriefLatest,
@@ -19,7 +21,9 @@ import {
 } from "@/lib/api/evaluation";
 import type {
   CaseEvaluationResultDto,
+  DemoReadinessDto,
   GuardrailsCaseResultDto,
+  NlSqlGoldenEvalSummaryDto,
   QualityCenterOverview,
   QualityLastRunBundle,
   RepairBriefLatestResponse,
@@ -143,6 +147,9 @@ export default function DriveeQualityCenterPage() {
   const [overview, setOverview] = useState<QualityCenterOverview | null>(null);
   const [bundle, setBundle] = useState<QualityLastRunBundle | null>(null);
   const [repair, setRepair] = useState<RepairBriefLatestResponse | null>(null);
+  const [goldenSummary, setGoldenSummary] = useState<NlSqlGoldenEvalSummaryDto | null>(null);
+  const [goldenLoadFailed, setGoldenLoadFailed] = useState(false);
+  const [demoReadiness, setDemoReadiness] = useState<DemoReadinessDto | null>(null);
   const [selected, setSelected] = useState<CaseDetail | null>(null);
 
   const [stabPrompt, setStabPrompt] = useState("Покажи лучшие каналы");
@@ -178,6 +185,19 @@ export default function DriveeQualityCenterPage() {
       }
     } finally {
       setLoading(false);
+      try {
+        const gld = await fetchNlSqlGoldenEvalSummary();
+        setGoldenSummary(gld);
+        setGoldenLoadFailed(false);
+      } catch {
+        setGoldenSummary(null);
+        setGoldenLoadFailed(true);
+      }
+      try {
+        setDemoReadiness(await fetchDemoReadiness());
+      } catch {
+        setDemoReadiness(null);
+      }
     }
   }, [mode]);
 
@@ -204,6 +224,19 @@ export default function DriveeQualityCenterPage() {
       setBundle(det);
       setRepair(rb);
       setDemoFallback(false);
+      try {
+        const gld = await fetchNlSqlGoldenEvalSummary();
+        setGoldenSummary(gld);
+        setGoldenLoadFailed(false);
+      } catch {
+        setGoldenSummary(null);
+        setGoldenLoadFailed(true);
+      }
+      try {
+        setDemoReadiness(await fetchDemoReadiness());
+      } catch {
+        setDemoReadiness(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось выполнить прогон");
       setOverview(DEMO_OVERVIEW);
@@ -292,9 +325,10 @@ export default function DriveeQualityCenterPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Drivee Analytics</p>
-            <h1 className="mt-1 text-2xl font-semibold text-foreground">Drivee Quality Center</h1>
+            <h1 className="mt-1 text-2xl font-semibold text-foreground">Quality Center / Центр качества</h1>
             <p className="mt-2 max-w-3xl text-sm text-foreground-secondary">
-              Мы измеряем качество NL→SQL, SQL correctness, визуализации и guardrails, а не просто доверяем LLM.
+              Мы измеряем качество NL→SQL, SQL correctness, визуализации и guardrails, а не просто доверяем LLM. Ниже —
+              сводка последнего golden-прогона из репозитория (файл результатов eval).
             </p>
           </div>
           {demoFallback ? <Badge kind="warn">Demo deterministic mode</Badge> : <Badge kind="passed">Live API</Badge>}
@@ -336,7 +370,109 @@ export default function DriveeQualityCenterPage() {
           </Link>
         </div>
         {error && !demoFallback ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
+        {demoReadiness ? (
+          <div
+            className={`mt-4 flex flex-wrap items-center justify-between gap-2 rounded-control border px-4 py-2.5 text-sm ${
+              demoReadiness.status === "ready"
+                ? "border-emerald-200 bg-emerald-50/90 text-emerald-950"
+                : demoReadiness.status === "degraded"
+                  ? "border-amber-200 bg-amber-50/90 text-amber-950"
+                  : "border-danger/30 bg-danger-soft text-danger-bold"
+            }`}
+          >
+            <span className="font-semibold">
+              Demo readiness: <span className="uppercase tracking-wide">{demoReadiness.status}</span>
+            </span>
+            <span className="text-xs text-foreground-secondary">
+              score {(demoReadiness.score * 100).toFixed(0)}% · <code className="font-mono">/api/v1/demo/readiness</code>
+            </span>
+          </div>
+        ) : null}
       </header>
+
+      {goldenSummary && goldenSummary.total_cases > 0 ? (
+        <section className="flex flex-col gap-4">
+          <SectionCard
+            title="Почему это важно для жюри?"
+            description="Объективные метрики по golden suite, а не субъективная оценка одного ответа."
+          >
+            <p className="text-sm leading-relaxed text-foreground-secondary">
+              Мы измеряем качество NL→SQL не вручную, а через набор golden cases: intent, semantic mapping, SQL
+              validation, chart selection, ambiguity handling и guardrails.
+            </p>
+          </SectionCard>
+
+          <div className="rounded-control border border-border-subtle bg-surface-card p-4 shadow-xs">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Golden NL→SQL (файл)</p>
+                <p className="mt-1 text-sm text-foreground-secondary">
+                  {goldenSummary.passed_cases}/{goldenSummary.total_cases} кейсов ·{" "}
+                  {goldenSummary.generated_at ? `обновлено ${goldenSummary.generated_at}` : "дата не указана"}
+                  {goldenSummary.mode ? ` · режим ${goldenSummary.mode}` : ""}
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-xs font-semibold uppercase text-foreground-muted">Общий score</div>
+                <div className="text-3xl font-semibold text-brand-800">{pct(goldenSummary.score)}</div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <StatCard label="NL→SQL accuracy" value={pct(goldenSummary.metrics.nl_sql_accuracy)} />
+              <StatCard label="SQL safety" value={pct(goldenSummary.metrics.sql_safety)} />
+              <StatCard label="Chart recommendation" value={pct(goldenSummary.metrics.chart_accuracy)} />
+              <StatCard label="Clarification accuracy" value={pct(goldenSummary.metrics.clarification_accuracy)} />
+              <StatCard label="Trace completeness" value={pct(goldenSummary.metrics.trace_completeness)} />
+            </div>
+          </div>
+
+          <SectionCard title="Кейсы golden-прогона" description="Сопоставление ожиданий и фактического статуса пайплайна">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-border-subtle text-xs uppercase text-foreground-muted">
+                    <th className="py-2 pr-2">Вопрос</th>
+                    <th className="py-2 pr-2">Ожидаемый статус</th>
+                    <th className="py-2 pr-2">Фактический статус</th>
+                    <th className="py-2 pr-2">Chart</th>
+                    <th className="py-2 pr-2">Guardrails</th>
+                    <th className="py-2">Результат</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {goldenSummary.cases.map((row) => (
+                    <tr key={row.id} className="border-b border-border-subtle/80 odd:bg-surface-base even:bg-surface-muted/15">
+                      <td className="max-w-[320px] py-2 pr-2 align-top">
+                        <span className="text-xs text-foreground-muted">{row.id}</span>
+                        <div className="mt-0.5 text-foreground">{row.question}</div>
+                      </td>
+                      <td className="py-2 pr-2 align-top font-mono text-xs">{row.expected_status}</td>
+                      <td className="py-2 pr-2 align-top font-mono text-xs">{row.actual_status}</td>
+                      <td className="py-2 pr-2 align-top">{row.chart || "—"}</td>
+                      <td className="py-2 pr-2 align-top">{row.guardrails}</td>
+                      <td className="py-2 align-top">
+                        {row.passed ? <Badge kind="passed">passed</Badge> : <Badge kind="failed">failed</Badge>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        </section>
+      ) : goldenLoadFailed ? (
+        <div className="rounded-control border border-dashed border-border-subtle bg-surface-muted/20 p-4 text-sm text-foreground-secondary">
+          Не удалось загрузить golden-сводку (`GET /api/v1/quality/nl-sql-golden-summary`) или файл результатов
+          пуст. Для локального прогона:{" "}
+          <code className="rounded bg-surface-muted px-1 py-0.5 font-mono text-xs">python evals/run_nl_sql_eval.py</code>{" "}
+          из каталога backend.
+        </div>
+      ) : goldenSummary && goldenSummary.source === "missing" ? (
+        <div className="rounded-control border border-dashed border-amber-200 bg-amber-50/40 p-4 text-sm text-amber-950">
+          Файл <code className="font-mono text-xs">evals/results/latest_eval_results.json</code> не найден на сервере.
+          Сгенерируйте его прогоном eval.
+        </div>
+      ) : null}
 
       {!loading && overview ? (
         <section className="grid gap-3 lg:grid-cols-4">

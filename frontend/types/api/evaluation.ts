@@ -211,3 +211,39 @@ export type PromptStabilityResponse = {
   outcomes: Record<string, number>;
   results: PromptStabilityRow[];
 };
+
+/** GET /api/v1/quality/nl-sql-golden-summary — файл `evals/results/latest_eval_results.json`. */
+export type NlSqlGoldenEvalMetricsDto = {
+  nl_sql_accuracy: number;
+  sql_safety: number;
+  chart_accuracy: number;
+  clarification_accuracy: number;
+  trace_completeness: number;
+};
+
+export type NlSqlGoldenEvalCaseRowDto = {
+  id: string;
+  question: string;
+  expected_status: string;
+  actual_status: string;
+  chart: string;
+  guardrails: string;
+  passed: boolean;
+};
+
+export type DemoReadinessDto = {
+  status: "ready" | "degraded" | "not_ready";
+  checks: Record<string, "ok" | "fail" | "warn" | "skipped">;
+  score: number;
+};
+
+export type NlSqlGoldenEvalSummaryDto = {
+  total_cases: number;
+  passed_cases: number;
+  score: number;
+  metrics: NlSqlGoldenEvalMetricsDto;
+  cases: NlSqlGoldenEvalCaseRowDto[];
+  generated_at?: string | null;
+  mode?: string | null;
+  source: string;
+};

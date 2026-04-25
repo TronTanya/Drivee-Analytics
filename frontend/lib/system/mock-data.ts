@@ -1,4 +1,5 @@
 import type { Route } from "next";
+import type { QueryTemplateDto } from "@/types/api/templates";
 import type { UserRole } from "@/lib/types";
 
 const r = (path: string) => path as Route;
@@ -66,17 +67,51 @@ export type QueryHistoryRow = {
 
 export type QueryTemplateRow = {
   id: string;
+  /** Краткий заголовок карточки (если не задан — используется name). */
+  title?: string;
   name: string;
   description: string;
+  /** Роль-владелец шаблона в каталоге. */
   role: UserRole;
+  /** Текст запроса для NL→SQL pipeline. */
+  question: string;
+  /** Ожидаемый тип графика (bar | line | area | pie | table | …). */
+  expected_chart: string;
+  /** Почему шаблон полезен бизнесу. */
+  business_value: string;
+  tags: string[];
+  /** Подходит как повторяемый стартовый сценарий. */
+  reusable_scenario: boolean;
   sql: string;
-  /** NL-текст для подстановки в сценарий (?template_prompt=) */
-  prefillPrompt?: string;
+  /** Notebook id для запуска (без пути). */
+  notebookId: string;
   /** null — показывать во всех ролевых секциях каталога */
-  target_role_key?: string | null;
-  /** Target notebook for “Quick run” (mock) */
+  target_role_key?: UserRole | null;
+  /** Маршрут канвы сценария */
   runHref: Route;
 };
+
+export function queryTemplateRowToDto(row: QueryTemplateRow): QueryTemplateDto {
+  return {
+    id: row.id,
+    title: row.title ?? row.name,
+    name: row.name,
+    description: row.description,
+    role: row.role,
+    question: row.question,
+    expected_chart: row.expected_chart,
+    business_value: row.business_value,
+    tags: row.tags,
+    reusable_scenario: row.reusable_scenario,
+    sql: row.sql,
+    default_notebook_id: row.notebookId,
+    template_key: row.id,
+    nl_prompt_template: row.question,
+    sql_template: row.sql,
+    default_chart_type: row.expected_chart,
+    target_role_key: row.target_role_key ?? null
+  };
+}
 
 export type NotebookTemplateRow = {
   id: string;
@@ -232,84 +267,319 @@ export const MOCK_QUERY_HISTORY: QueryHistoryRow[] = [
 
 export const MOCK_QUERY_TEMPLATES: QueryTemplateRow[] = [
   {
-    id: "qt-revenue-city",
-    name: "Выручка по городам (30 дней)",
-    description: "Сумма price_order_local по city_id — как «месяц» в демо-окне",
-    role: "executive",
-    target_role_key: "executive",
-    prefillPrompt: "Покажи выручку по городам за последний месяц",
-    sql: "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
-    runHref: r("/notebooks/strategy-board")
+    id: "qt-admin-status-mix",
+    name: "Заказы по статусам (14 дней)",
+    description: "Распределение по status_order для аудита воронки.",
+    question: "Покажи количество заказов по статусам за последние 14 дней",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "bar",
+    business_value: "Контроль качества данных и «здоровья» статусов на платформе.",
+    tags: ["статус", "админ", "воронка"],
+    reusable_scenario: true,
+    notebookId: "template-governance",
+    sql: "SELECT status_order, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '14 day' GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/template-governance")
   },
   {
-    id: "qt-orders-channel",
-    name: "Заказы по каналам",
-    description: "Сравнение объёма заказов по order_channel",
-    role: "marketer",
-    target_role_key: "marketer",
-    prefillPrompt: "Сравни количество заказов по каналам",
-    sql: "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
-    runHref: r("/notebooks/campaign-q1")
+    id: "qt-admin-cancel-split",
+    name: "Отмены: клиент vs водитель",
+    description: "Сравнение clientcancel и drivercancel за 30 дней.",
+    question: "Сравни отмены клиента и отмены водителя за последние 30 дней",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "bar",
+    business_value: "Баланс причин отмен для операционной и продуктовой диагностики.",
+    tags: ["отмены", "админ", "SLA"],
+    reusable_scenario: true,
+    notebookId: "template-governance",
+    sql: "SELECT COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL)::bigint AS client_cancels, COUNT(*) FILTER (WHERE drivercancel_timestamp IS NOT NULL)::bigint AS driver_cancels FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day'",
+    runHref: r("/notebooks/template-governance")
   },
   {
-    id: "qt-cancel-daily",
-    name: "Динамика отмен по дням",
-    description: "Отмены по дням за 30 дней",
-    role: "manager",
-    target_role_key: null,
-    prefillPrompt: "Покажи динамику отмен по дням",
-    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
-    runHref: r("/notebooks/ops-health")
+    id: "qt-admin-platform-daily",
+    name: "Платформа: заказы по дням (14 дней)",
+    description: "Суточный объём заказов для мониторинга нагрузки.",
+    question: "Покажи суточный объём заказов на платформе за последние 14 дней",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "line",
+    business_value: "Быстрый health-check объёма без срезов по ролям пользователей продукта.",
+    tags: ["платформа", "объём", "14д"],
+    reusable_scenario: true,
+    notebookId: "template-governance",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '14 day' GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/template-governance")
   },
   {
-    id: "qt-top5-revenue",
-    name: "Топ-5 городов по выручке",
-    description: "SUM(price_order_local), LIMIT 5",
-    role: "executive",
-    target_role_key: "executive",
-    prefillPrompt: "Покажи топ-5 городов по выручке",
-    sql: "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
-    runHref: r("/notebooks/strategy-board")
+    id: "qt-admin-top-cities-orders",
+    name: "Топ городов по заказам (30 дней)",
+    description: "Ранжирование city_id по числу заказов.",
+    question: "Покажи топ городов по количеству заказов за 30 дней",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "bar",
+    business_value: "Балансировка инфраструктуры и поддержки по географии спроса.",
+    tags: ["город", "топ", "админ"],
+    reusable_scenario: true,
+    notebookId: "template-governance",
+    sql: "SELECT city_id::text, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day' GROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+    runHref: r("/notebooks/template-governance")
   },
   {
-    id: "qt-week-compare",
-    name: "Заказы: неделя к неделе",
-    description: "Текущая vs прошлая календарная неделя",
+    id: "qt-admin-duration-daily",
+    name: "Средняя длительность по дням (30 дней)",
+    description: "SLA-прокси: AVG(duration_in_seconds) по дням.",
+    question: "Покажи среднюю длительность поездки по дням за 30 дней",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "line",
+    business_value: "Выявить деградацию сервиса по времени выполнения заказа.",
+    tags: ["SLA", "длительность", "админ"],
+    reusable_scenario: true,
+    notebookId: "template-governance",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(duration_in_seconds)::numeric(18,2) AS avg_duration_sec FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day' AND duration_in_seconds IS NOT NULL GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/template-governance")
+  },
+  {
+    id: "qt-revenue-city-last-week",
+    name: "Выручка по городам за прошлую неделю",
+    description: "Сумма price_order_local по city_id в окне прошлой календарной недели.",
+    question: "Покажи выручку по городам за прошлую неделю",
     role: "manager",
     target_role_key: "manager",
-    prefillPrompt: "Сравни недели между собой по числу заказов",
-    sql: "SELECT COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS orders_prev_week, COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS orders_this_week FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day'",
+    expected_chart: "bar",
+    business_value: "Сравнить вклад городов после промо и скорректировать локальные SLA.",
+    tags: ["выручка", "город", "неделя"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id::text, SUM(price_order_local)::numeric(18,2) AS revenue FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - INTERVAL '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE) GROUP BY 1 ORDER BY 2 DESC",
     runHref: r("/notebooks/ops-health")
   },
   {
-    id: "qt-avg-check-channel",
+    id: "qt-revenue-by-month",
+    name: "Динамика выручки по месяцам",
+    description: "Агрегат выручки по календарным месяцам за последние 12 месяцев.",
+    question: "Покажи динамику выручки по месяцам за последний год",
+    role: "executive",
+    target_role_key: "executive",
+    expected_chart: "line",
+    business_value: "Увидеть сезонность и тренд для планирования выручки и бюджета.",
+    tags: ["выручка", "месяц", "тренд"],
+    reusable_scenario: true,
+    notebookId: "strategy-board",
+    sql: "SELECT date_trunc('month', order_timestamp)::date AS month, SUM(price_order_local)::numeric(18,2) AS revenue FROM public.train WHERE order_timestamp >= date_trunc('month', CURRENT_DATE) - INTERVAL '12 month' GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/strategy-board")
+  },
+  {
+    id: "qt-orders-by-day",
+    name: "Количество заказов по дням",
+    description: "Число уникальных заказов по календарным дням.",
+    question: "Покажи количество заказов по дням за последние 30 дней",
+    role: "manager",
+    target_role_key: "manager",
+    expected_chart: "line",
+    business_value: "Операционный контроль объёма и выявление провалов по дням.",
+    tags: ["заказы", "день", "объём"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day' GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/ops-health")
+  },
+  {
+    id: "qt-avg-check-by-channel",
     name: "Средний чек по каналам",
-    description: "Категория = order_channel (сегмент продаж)",
+    description: "Среднее price_order_local в разрезе order_channel.",
+    question: "Покажи средний чек по каналам привлечения за последние 28 дней",
     role: "marketer",
     target_role_key: "marketer",
-    prefillPrompt: "Покажи средний чек по категориям",
-    sql: "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+    expected_chart: "bar",
+    business_value: "Оценить качество трафика и эффективность маркетинговых каналов.",
+    tags: ["чек", "канал", "маркетинг"],
+    reusable_scenario: true,
+    notebookId: "campaign-q1",
+    sql: "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day' GROUP BY 1 ORDER BY 2 DESC",
     runHref: r("/notebooks/campaign-q1")
   },
   {
-    id: "qt-cancel-share-city",
-    name: "Доля отмен по городам",
-    description: "Доля отменённых к заказам по city_id за 14 дней",
+    id: "qt-top10-cities-orders",
+    name: "Топ-10 городов по заказам",
+    description: "Рейтинг city_id по числу заказов за выбранное окно.",
+    question: "Покажи топ-10 городов по количеству заказов за последние 14 дней",
     role: "manager",
-    target_role_key: null,
-    prefillPrompt: "Покажи долю отмен по городам",
-    sql: "SELECT city_id, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS cancellation_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+    target_role_key: "manager",
+    expected_chart: "bar",
+    business_value: "Сфокусировать операционные ресурсы на крупнейших хабах спроса.",
+    tags: ["топ", "город", "заказы"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id::text, COUNT(DISTINCT order_id)::bigint AS orders FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '14 day' GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
     runHref: r("/notebooks/ops-health")
   },
   {
-    id: "qt-orders-trend-30",
-    name: "Тренд заказов за 30 дней",
-    description: "Число заказов по дням",
+    id: "qt-order-status-mix",
+    name: "Доля статусов заказов",
+    description: "Распределение заказов по status_order (доли / counts).",
+    question: "Покажи долю заказов по статусам за последние 30 дней",
+    role: "manager",
+    target_role_key: "manager",
+    expected_chart: "pie",
+    business_value: "Понять «здоровье» воронки: отмены, завершения, в пути.",
+    tags: ["статус", "доля", "воронка"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT status_order, COUNT(DISTINCT order_id)::bigint AS cnt FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day' GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/ops-health")
+  },
+  {
+    id: "qt-marketer-revenue-channel",
+    name: "Выручка по каналам (28 дней)",
+    description: "Сумма price_order_local по order_channel.",
+    question: "Покажи выручку по каналам привлечения за 28 дней",
     role: "marketer",
-    target_role_key: null,
-    prefillPrompt: "Покажи тренд заказов за 30 дней",
-    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+    target_role_key: "marketer",
+    expected_chart: "bar",
+    business_value: "Связать маркетинговые каналы с деньгами, а не только с кликами.",
+    tags: ["выручка", "канал", "маркетинг"],
+    reusable_scenario: true,
+    notebookId: "campaign-q1",
+    sql: "SELECT order_channel, SUM(price_order_local)::numeric(18,2) AS revenue_local, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day' GROUP BY 1 ORDER BY 2 DESC",
     runHref: r("/notebooks/campaign-q1")
+  },
+  {
+    id: "qt-channel-efficiency",
+    name: "Эффективность каналов",
+    description: "Конверсия в завершённую поездку и объём по order_channel.",
+    question: "Покажи эффективность каналов: заказы и конверсия в завершённые за 28 дней",
+    role: "marketer",
+    target_role_key: "marketer",
+    expected_chart: "bar",
+    business_value: "Сравнить каналы по качеству, а не только по кликам и лидам.",
+    tags: ["канал", "конверсия", "эффективность"],
+    reusable_scenario: true,
+    notebookId: "campaign-q1",
+    sql: "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS completed FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day' GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/campaign-q1")
+  },
+  {
+    id: "qt-marketer-done-by-channel",
+    name: "Завершённые поездки по каналу (28 дней)",
+    description: "Число завершённых поездок в разрезе order_channel.",
+    question: "Покажи количество завершённых поездок по каналам за 28 дней",
+    role: "marketer",
+    target_role_key: "marketer",
+    expected_chart: "bar",
+    business_value: "Сопоставить каналы привлечения с реальными завершёнными поездками.",
+    tags: ["канал", "завершения", "маркетинг"],
+    reusable_scenario: true,
+    notebookId: "campaign-q1",
+    sql: "SELECT order_channel, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day' GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/campaign-q1")
+  },
+  {
+    id: "qt-marketer-client-cancel-channel",
+    name: "Доля отмен клиента по каналу (28 дней)",
+    description: "Отношение отмен клиента к заказам по order_channel.",
+    question: "Покажи долю отмен клиента по каналам за 28 дней",
+    role: "marketer",
+    target_role_key: "marketer",
+    expected_chart: "bar",
+    business_value: "Понять, какие каналы дают больше отказов до сервиса.",
+    tags: ["отмены", "канал", "маркетинг"],
+    reusable_scenario: true,
+    notebookId: "campaign-q1",
+    sql: "SELECT order_channel, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS client_cancel_rate FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day' GROUP BY 1 ORDER BY 2 DESC",
+    runHref: r("/notebooks/campaign-q1")
+  },
+  {
+    id: "qt-exec-weekly-revenue",
+    name: "Выручка по неделям",
+    description: "Сумма price_order_local по календарным неделям за 4 недели.",
+    question: "Покажи выручку по неделям за последние четыре недели",
+    role: "executive",
+    target_role_key: "executive",
+    expected_chart: "line",
+    business_value: "Короткий горизонт для совещаний руководства и контроля тренда.",
+    tags: ["выручка", "неделя", "KPI"],
+    reusable_scenario: true,
+    notebookId: "strategy-board",
+    sql: "SELECT date_trunc('week', order_timestamp)::date AS week_start, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '28 day' GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/strategy-board")
+  },
+  {
+    id: "qt-revenue-forecast",
+    name: "Прогноз выручки",
+    description: "Ряд выручки по дням + baseline-прогноз на горизонт (оркестратор).",
+    question: "Покажи прогноз выручки на следующую неделю по дням с таблицей и кратким предупреждением при низком качестве ряда",
+    role: "executive",
+    target_role_key: "executive",
+    expected_chart: "line",
+    business_value: "Короткий горизонтный сценарий для совещаний и cash-visibility.",
+    tags: ["прогноз", "выручка", "тренд"],
+    reusable_scenario: false,
+    notebookId: "strategy-board",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, SUM(price_order_local)::numeric(18,2) AS revenue FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '60 day' GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/strategy-board")
+  },
+  {
+    id: "qt-exec-orders-weekly",
+    name: "Заказы по неделям (8 недель)",
+    description: "Число заказов по календарной неделе.",
+    question: "Покажи динамику числа заказов по неделям за последние 8 недель",
+    role: "executive",
+    target_role_key: "executive",
+    expected_chart: "line",
+    business_value: "Объём спроса на уровне совета без операционной детализации.",
+    tags: ["заказы", "неделя", "KPI"],
+    reusable_scenario: true,
+    notebookId: "strategy-board",
+    sql: "SELECT date_trunc('week', order_timestamp)::date AS week_start, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '56 day' GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/strategy-board")
+  },
+  {
+    id: "qt-exec-revenue-orders-summary",
+    name: "Выручка и заказы за 30 дней (сводка)",
+    description: "Один ряд: сумма выручки и число заказов.",
+    question: "Покажи суммарную выручку и число заказов за последние 30 дней",
+    role: "executive",
+    target_role_key: "executive",
+    expected_chart: "table",
+    business_value: "Короткий снимок для брифинга руководства.",
+    tags: ["сводка", "выручка", "KPI"],
+    reusable_scenario: true,
+    notebookId: "strategy-board",
+    sql: "SELECT SUM(price_order_local)::numeric(18,2) AS revenue_30d, COUNT(DISTINCT order_id)::bigint AS orders_30d FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '30 day'",
+    runHref: r("/notebooks/strategy-board")
+  },
+  {
+    id: "qt-city-anomalies",
+    name: "Аномалии по городам",
+    description: "Сравнение отмен / заказов по city_id с отклонениями от среднего.",
+    question: "Покажи города с аномальным ростом или падением отмен за последние 14 дней",
+    role: "manager",
+    target_role_key: "manager",
+    expected_chart: "bar",
+    business_value: "Раннее выявление локальных сбоев и проблем канала в городе.",
+    tags: ["аномалия", "город", "отмены"],
+    reusable_scenario: false,
+    notebookId: "ops-health",
+    sql: "SELECT city_id::text, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations, COUNT(DISTINCT order_id)::bigint AS orders FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '14 day' GROUP BY 1 HAVING COUNT(DISTINCT order_id) > 50 ORDER BY 2 DESC",
+    runHref: r("/notebooks/ops-health")
+  },
+  {
+    id: "qt-manager-weekly-pack",
+    name: "Отчёт для менеджера за неделю",
+    description: "Сводка: заказы, выручка, отмены за текущую календарную неделю.",
+    question: "Собери отчёт для менеджера за текущую неделю: заказы, выручка и отмены по дням",
+    role: "manager",
+    target_role_key: "manager",
+    expected_chart: "line",
+    business_value: "Один запуск закрывает еженедельный операционный бриф без ручной сборки.",
+    tags: ["отчёт", "неделя", "сводка"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders, SUM(price_order_local)::numeric(18,2) AS revenue, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) GROUP BY 1 ORDER BY 1",
+    runHref: r("/notebooks/ops-health")
   }
 ];
 
@@ -318,6 +588,13 @@ export const MOCK_NOTEBOOK_TEMPLATES: NotebookTemplateRow[] = [
     id: "nt-1",
     name: "Стартовый governance-шаблон",
     description: "Ссылки на словарь и проверки guardrails",
+    role: "admin",
+    href: r("/notebooks/template-governance")
+  },
+  {
+    id: "nt-admin-health",
+    name: "Платформенный health-check",
+    description: "Статусы заказов и отмены за окно — для админ-обзора",
     role: "admin",
     href: r("/notebooks/template-governance")
   },
@@ -336,9 +613,23 @@ export const MOCK_NOTEBOOK_TEMPLATES: NotebookTemplateRow[] = [
     href: r("/notebooks/campaign-q1")
   },
   {
+    id: "nt-mk-funnel",
+    name: "Каналы и конверсия",
+    description: "Сегменты order_channel и доля завершений",
+    role: "marketer",
+    href: r("/notebooks/campaign-q1")
+  },
+  {
     id: "nt-4",
     name: "Нарратив для совета",
     description: "KPI + прогноз + риски",
+    role: "executive",
+    href: r("/notebooks/strategy-board")
+  },
+  {
+    id: "nt-exec-snapshot",
+    name: "Сводка KPI за месяц",
+    description: "Выручка, недельный тренд, топ городов",
     role: "executive",
     href: r("/notebooks/strategy-board")
   }

@@ -2,9 +2,20 @@ import type { UserRole } from "@/lib/types";
 
 export type QueryTemplateDto = {
   id: string;
+  /** Заголовок карточки (как правило совпадает с name). */
+  title?: string;
   name: string;
   description: string;
   role: UserRole;
+  /** NL-вопрос для запуска pipeline в сценарии. */
+  question?: string;
+  /** Ожидаемый тип графика в ответе оркестратора. */
+  expected_chart?: string;
+  /** Зачем этот шаблон бизнесу (1–2 предложения). */
+  business_value?: string;
+  tags?: string[];
+  /** Можно безопасно переиспользовать как стартовый сценарий. */
+  reusable_scenario?: boolean;
   sql: string;
   default_notebook_id?: string;
   template_key?: string;

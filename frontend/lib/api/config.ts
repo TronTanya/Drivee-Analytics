@@ -36,9 +36,10 @@ export function isApiMockOnly(): boolean {
 }
 
 export function isApiMockFallback(): boolean {
-  const v = process.env.NEXT_PUBLIC_API_MOCK?.toLowerCase();
+  const raw = process.env.NEXT_PUBLIC_API_MOCK?.toLowerCase().trim() ?? "";
+  const v = raw === "" || raw === "false" || raw === "0" ? "" : raw;
   if (v === "fallback") return true;
-  // In robust demo mode, fallback is the safe default.
+  // В demo без явного live-only — подстраховка моком при 401/5xx (docker задаёт API_MOCK=false → "0").
   if (!v && isDemoModeEnabled()) return true;
   return false;
 }
