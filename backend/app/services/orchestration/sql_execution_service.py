@@ -102,7 +102,7 @@ class SQLExecutionService:
                     columns = list(result.keys()) if result.keys() else []
                     perf = getattr(validation, "performance", None) or {}
                     fetch_cap = int(perf.get("fetch_cap") or settings.sql_default_limit)
-                    hard = int(getattr(settings, "sql_execution_hard_row_cap", 5000) or 5000)
+                    hard = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
                     fetch_n = max(1, min(fetch_cap, settings.sql_default_limit, hard))
                     raw_rows = result.fetchmany(fetch_n)
                     rows = [dict(zip(columns, row)) for row in raw_rows]

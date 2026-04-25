@@ -267,7 +267,9 @@ class SQLValidatorService:
 
         final_sql = single
         if is_valid:
-            max_lim = min(self._s.sql_default_limit, int(getattr(self._s, "sql_execution_hard_row_cap", 5000) or 5000))
+            max_lim = min(
+                self._s.sql_default_limit, int(getattr(self._s, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
+            )
             final_sql, clamped = clamp_limit_clause(final_sql, normalized, max_lim)
             if clamped:
                 warnings.append(f"LIMIT capped at {max_lim} per policy.")

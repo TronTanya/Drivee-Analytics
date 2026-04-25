@@ -51,7 +51,7 @@ class BusinessDataRepository:
                 LIMIT :limit
                 """
             ),
-            {"limit": max(1, min(limit, 5000))},
+            {"limit": max(1, min(limit, int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)))},
         ).mappings()
         return [dict(r) for r in rows]
 

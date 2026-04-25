@@ -40,8 +40,9 @@ class Settings(BaseSettings):
     mock_mode: bool = False
     # Если true и MOCK_MODE=false: при ошибке выполнения SQL в Postgres вернуть stub-строки (демо без падения UI).
     mock_sql_execution_fallback: bool = False
-    sql_default_limit: int = 1000
-    sql_timeout_seconds: int = 8
+    # Верхняя граница строк для NL→SQL (подстановка/поджатие LIMIT). Не снижайте в проде без осознанной политики.
+    sql_default_limit: int = 1_000_000
+    sql_timeout_seconds: int = 120
     # Аналитический MVP: по умолчанию запрещаем UNION (снижает риск обхода allowlist).
     sql_allow_union: bool = False
     # Продуктивный режим: запрет SELECT * / alias.* (кроме COUNT(*) внутри выражений).
@@ -151,12 +152,13 @@ class Settings(BaseSettings):
     sql_warn_group_by_columns: int = 5
     sql_slow_query_complexity_score: int = 50
     sql_sample_complexity_score_min: int = 55
-    sql_sample_max_rows: int = 300
-    sql_execution_hard_row_cap: int = 5000
+    # Если включён sample-mode по сложности (см. sql_trust), не ниже этого потолка; по умолчанию совпадает с hard cap.
+    sql_sample_max_rows: int = 1_000_000
+    sql_execution_hard_row_cap: int = 1_000_000
     sql_result_cache_enabled: bool = True
     sql_result_cache_ttl_seconds: int = 60
     sql_result_cache_max_entries: int = 200
-    sql_result_cache_max_rowcount: int = 800
+    sql_result_cache_max_rowcount: int = 100_000
     dictionary_api_cache_ttl_seconds: int = 120
     template_quick_run_cache_ttl_seconds: int = 90
     template_quick_run_cache_max_entries: int = 64

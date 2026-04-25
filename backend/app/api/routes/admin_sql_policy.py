@@ -63,7 +63,7 @@ def put_sql_policy(
     _: User = Depends(require_roles("admin")),
     session: Session = Depends(get_db_session),
 ) -> AdminSqlPolicyResponse:
-    hard = int(getattr(settings, "sql_execution_hard_row_cap", 5000) or 5000)
+    hard = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
     base_lim = int(settings.sql_default_limit)
     cap = body.nl_max_result_rows
     if cap is not None:

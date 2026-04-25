@@ -61,7 +61,7 @@ def get_effective_sql_settings() -> Settings:
     merge_tables = list(dict.fromkeys([*(str(t).lower() for t in base.sql_whitelist_tables), *extra_t]))
     merge_cols = list(dict.fromkeys([*(str(c).lower() for c in base.sql_whitelist_columns), *extra_c]))
 
-    hard = int(getattr(base, "sql_execution_hard_row_cap", 5000) or 5000)
+    hard = int(getattr(base, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
     base_lim = int(base.sql_default_limit)
     eff_limit = min(base_lim, hard)
     if nl_cap is not None:

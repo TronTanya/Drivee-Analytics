@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
 from typing import Any, Optional
@@ -900,9 +901,6 @@ class QueryOrchestrator:
             )
         )
 
-        insight = self._insight_service.generate(intent_res.intent, exec_res.rows, exec_res.columns)
-        steps.append(_step("generate_insight", True))
-
         forecast_records: list[dict[str, Any]] = []
         forecast_meta: dict[str, Any] = {}
         if inp.forecast_sidecar == "off":
@@ -968,14 +966,29 @@ class QueryOrchestrator:
                 "combined_series": forecast_meta.get("combined_series") or [],
             }
 
+        # Инсайт и explainability не зависят друг от друга — раньше шли последовательно и удваивали
+        # задержку сети к LLM (каждый вызов до llm_timeout_seconds).
+        def _insight_task() -> str:
+            return self._insight_service.generate(intent_res.intent, exec_res.rows, exec_res.columns)
+
+        def _explain_task() -> str:
+            return self._explainability.generate(
+                query=effective,
+                intent=intent_res.intent,
+                entities=entities,
+                clarification_required=False,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_insight = pool.submit(_insight_task)
+            fut_explain = pool.submit(_explain_task)
+            insight = fut_insight.result()
+            explainability_text = fut_explain.result()
+        steps.append(_step("generate_insight", True))
+        steps.append(_step("generate_explainability", True))
+
         steps.append(_step("build_trace_payload", True))
         steps.append(_step("persist_results", True, hook=bool(self._persistence)))
-        explainability_text = self._explainability.generate(
-            query=effective,
-            intent=intent_res.intent,
-            entities=entities,
-            clarification_required=False,
-        )
 
         qg_reasons: list[str] = []
         if combined_validation_warnings:
@@ -1032,7 +1045,7 @@ class QueryOrchestrator:
             validation_warnings=list(exec_res.validation_warnings),
             execution_status="succeeded",
             rows_returned=exec_res.rowcount,
-            result_preview=exec_res.rows[:100],
+            result_preview=list(exec_res.rows),
             result_columns=exec_res.columns,
             chart=chart,
             insight_text=insight,

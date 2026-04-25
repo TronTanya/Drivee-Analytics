@@ -82,7 +82,7 @@ docker compose run --rm -v "$HOME/Downloads/train.csv:/import/train.csv:ro" back
 
 Строки с пустыми обязательными полями (`order_id`, `tender_id`, …) **отбрасываются** — в логе будет `Warning: dropped N rows`.
 
-Для больших файлов (сотни тысяч строк) в `backend/.env` уже имеет смысл поднять `SQL_DEFAULT_LIMIT`, `SQL_EXECUTION_HARD_ROW_CAP`, `SQL_TIMEOUT_SECONDS` — см. комментарии в `backend/.env.example`.
+По умолчанию в `backend/.env.example` заданы высокие потолки выборки (`SQL_DEFAULT_LIMIT` / `SQL_EXECUTION_HARD_ROW_CAP`) и `SQL_TIMEOUT_SECONDS`, чтобы не обрезать полный датасет. На слабом стенде при необходимости **снизьте** эти значения — см. комментарии в `backend/.env.example`.
 
 ## 5) Загрузить свой `train.csv` в Postgres вручную (например ~16k строк)
 

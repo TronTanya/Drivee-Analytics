@@ -182,8 +182,8 @@ flowchart TB
 10. **Исполнение** — `SQLExecutionService`: PostgreSQL с таймаутом и лимитом строк, либо mock при `MOCK_MODE` / ошибках согласно конфигурации.
 11. **Постобработка результата** — `analytics_post_process.py`: приведение типов, ограничения выдачи для UI.
 12. **График** — `ChartRecommendationService`: эвристики по форме результата и intent.
-13. **Инсайт и прогноз** — `InsightGenerationService`, при флаге — `run_baseline_forecast_sidecar` из `ds/baseline_forecast.py`.
-14. **Explainability** — `ExplainabilityService`, `human_trace.build_human_trace_ru`, сбор `OrchestrationOutput` / `trace_payload` для ячейки и аудита.
+13. **Прогноз (опционально)** — `run_baseline_forecast_sidecar` при явном запросе прогноза / режиме `forecast_sidecar`.
+14. **Инсайт и explainability** — после прогноза два независимых обращения к LLM (`InsightGenerationService.generate`, `ExplainabilityService.generate`) выполняются **параллельно** (`ThreadPoolExecutor`), чтобы задержка была порядка **одного** сетевого round-trip к провайдеру, а не двух подряд. Затем сбор `human_trace` / `trace_payload`.
 
 После успешного или неуспешного прогона вызывается **`_audit_emit`** — событие в аудит guardrails (`nl_query_succeeded`, `nl_query_guardrails_block`, и т.д.).
 
@@ -234,7 +234,23 @@ flowchart TB
 
 ---
 
-## 11. Связанные документы
+## 11. Задержка ответа на промпт (что занимает время)
+
+При включённом LLM (`LLM_PROVIDER=deepseek` и валидный ключ) основная задержка — **синхронные HTTP-вызовы** к API модели, каждый с таймаутом **`LLM_TIMEOUT_SECONDS`** (по умолчанию 45 с, см. `backend/.env.example`).
+
+| Этап | Типичный вклад |
+|------|-----------------|
+| **`interpret_user_query`** | Один вызов в начале цепочки (`IntentService._get_llm_interpretation`); результат кэшируется в рамках одного запроса для `classify_intent` и `extract_entities`. |
+| **Инсайт + explainability** | Два вызова после SQL и графика; **выполняются параллельно**, итоговая задержка ≈ **max** из двух, не сумма. |
+| **Провайдер** | У DeepSeek до 2 повторов при ошибке с короткой паузой `0.25 * (attempt + 1)` с (`deepseek_provider.py`). |
+| **SQL** | Ограничен `sql_timeout_seconds` (по умолчанию 8 с) на стороне Postgres. |
+| **Клиент** | В notebook UI таймаут ожидания ответа аналитики задаётся большим значением (`ANALYTICS_TIMEOUT_MS` в `frontend/.../notebooks/[id]/page.tsx`), чтобы не обрывать длинные LLM. |
+
+Если LLM отключён (`LLM_PROVIDER` пустой / без ключа), intent и сущности определяются эвристиками, инсайт и explainability уходят в **детерминированные fallback** — ответ обычно приходит за сотни миллисекунд плюс время SQL.
+
+---
+
+## 12. Связанные документы
 
 | Документ | Зачем читать |
 |----------|----------------|

@@ -143,7 +143,15 @@ _PHASE_SPECS: list[tuple[str, str, frozenset[str]]] = [
     (
         "done",
         "Инсайт и финализация",
-        frozenset({"generate_insight", "forecast_sidecar", "build_trace_payload", "persist_results"}),
+        frozenset(
+            {
+                "generate_insight",
+                "generate_explainability",
+                "forecast_sidecar",
+                "build_trace_payload",
+                "persist_results",
+            }
+        ),
     ),
 ]
 

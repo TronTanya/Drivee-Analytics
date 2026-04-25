@@ -16,7 +16,7 @@ class AdminSqlPolicyResponse(BaseModel):
     nl_max_result_rows: Optional[int] = None
     effective_whitelist_tables: list[str] = Field(default_factory=list)
     effective_whitelist_columns: list[str] = Field(default_factory=list)
-    effective_sql_default_limit: int = 1000
+    effective_sql_default_limit: int = 1_000_000
 
 
 class AdminSqlPolicyUpdate(BaseModel):

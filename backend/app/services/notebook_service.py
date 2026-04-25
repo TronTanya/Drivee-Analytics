@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
+from app.core.config import settings
 from app.core.exceptions import (
     ForbiddenException,
     NotFoundException,
@@ -250,7 +251,8 @@ class NotebookService:
         run.finished_at = utc_now()
         run.duration_ms = int((run.finished_at - started).total_seconds() * 1000)
         run.rows_returned = len(analysis.table_records)
-        run.result_preview_json = analysis.table_records[: min(100, len(analysis.table_records))]
+        cap = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
+        run.result_preview_json = list(analysis.table_records)[: min(len(analysis.table_records), cap)]
         run.confidence_score = cell.confidence_score
         run.trace_payload_json = dict(cell.trace_payload_json)
         run.validation_report_json = {"status": cell.validation_status, "warnings": analysis.warnings}

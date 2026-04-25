@@ -393,17 +393,17 @@ def build_performance_assessment(
     if score >= slow_score or scan_risk == "high":
         explain.append("Запрос может выполняться долго.")
 
-    hard_cap = int(getattr(settings, "sql_execution_hard_row_cap", 5000) or 5000)
-    default_lim = int(getattr(settings, "sql_default_limit", 1000) or 1000)
-    sample_max = int(getattr(settings, "sql_sample_max_rows", 300) or 300)
+    hard_cap = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
+    default_lim = int(getattr(settings, "sql_default_limit", 1_000_000) or 1_000_000)
     fetch_cap = min(default_lim, hard_cap)
     sample_applied = False
+    # Раньше при высокой сложности LIMIT принудительно урезался до sql_sample_max_rows (сотни строк),
+    # что скрывало реальный объём данных. Оставляем только предупреждения — потолок выборки задаёт конфиг.
     if score >= sample_score or scan_risk == "high":
-        new_cap = min(fetch_cap, sample_max)
-        if new_cap < fetch_cap:
-            sample_applied = True
-            fetch_cap = new_cap
-            explain.append("Для ускорения система сократила детализацию (уменьшен LIMIT выборки).")
+        explain.append(
+            "Запрос помечен как потенциально тяжёлый по эвристике сложности; при долгом выполнении сузьте период или используйте агрегаты. "
+            f"Потолок выборки по политике: до {fetch_cap} строк; таймаут SQL задаётся в настройках (SQL_TIMEOUT_SECONDS)."
+        )
 
     rollup_hint = ""
     if (window_days or 0) > 30 or gb_n > 3:
