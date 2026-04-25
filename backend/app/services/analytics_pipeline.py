@@ -33,6 +33,7 @@ from app.schemas.trace_payload import (
 )
 from app.schemas.clarification import clarification_reason_summary_ru
 from app.schemas.pipeline import PipelineCellItem
+from app.services.analytics_post_process import post_process_sql_result
 from app.services.orchestration.query_orchestrator import (
     QueryOrchestrator,
     build_default_orchestrator,
@@ -394,6 +395,8 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
     entities = ft.get("entities")
     if not isinstance(entities, dict):
         entities = {}
+    ht_raw = ft.get("human_trace")
+    human_trace_v1: dict[str, Any] = dict(ht_raw) if isinstance(ht_raw, dict) else {}
     return AnalyticsExplainabilityTraceV1(
         language_detected=str(ft.get("language_detected") or "ru"),
         role_policy_result_ru=str(ft.get("role_policy_result_ru") or ""),
@@ -425,6 +428,7 @@ def build_explainability_trace_v1(result: NaturalLanguageAnalysisResult) -> Anal
         quality_gate=_quality_gate(result, ft),
         execution_phases=build_execution_phases(result, ft),
         guardrails=_guardrails_trace(ft),
+        human_trace=human_trace_v1,
     )
 
 
@@ -1207,6 +1211,7 @@ def run_pipeline_with_analysis(
     chart_payload = _build_chart_cell_payload(result)
     table_rows = list(result.table_records or [])
     table_columns = list(table_rows[0].keys()) if table_rows else []
+    post = post_process_sql_result(table_rows, table_columns)
     resp = RunAnalyticsResponse(
         notebook_id=notebook_id,
         cells=cells,
@@ -1222,6 +1227,9 @@ def run_pipeline_with_analysis(
         chart=chart_payload,
         insight=result.insight,
         confidence=_coerce_unit_interval(result.confidence, default=0.0),
+        insights=list(post.get("insights") or []),
+        forecast=dict(post.get("forecast") or {}),
+        anomalies=list(post.get("anomalies") or []),
         resolved_source_table=str(getattr(result, "resolved_source_table", "") or "").strip()
         or str(settings.ds_default_source_table),
     )

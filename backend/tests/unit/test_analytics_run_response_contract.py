@@ -76,3 +76,9 @@ def test_run_pipeline_returns_unified_contract(monkeypatch) -> None:
     fc_payload = json.loads(forecast_cell.content)
     assert fc_payload.get("schema_version") == 1
     assert "horizon" in fc_payload and "records" in fc_payload
+
+    assert isinstance(response.insights, list)
+    assert isinstance(response.forecast, dict)
+    assert response.forecast.get("sufficient_data") is False
+    assert "Недостаточно" in str(response.forecast.get("note_ru") or "")
+    assert isinstance(response.anomalies, list)

@@ -17,6 +17,11 @@ class SqlSafetyModuleTests(unittest.TestCase):
         sql = "SELECT 1 AS x FROM train a LIMIT 1 UNION ALL SELECT 2 AS x FROM train a LIMIT 1"
         self.assertEqual(collect_sql_mvp_safety_violations(sql, allow_union=True), [])
 
+    def test_union_with_password_blocked_even_when_union_allowed(self) -> None:
+        sql = "SELECT 1 AS x FROM train a LIMIT 1 UNION ALL SELECT password FROM train a LIMIT 1"
+        errs = collect_sql_mvp_safety_violations(sql, allow_union=True)
+        self.assertTrue(any("password" in e.lower() for e in errs))
+
     def test_comment_split_pattern(self) -> None:
         bad = "SELECT 1 FROM train a WHERE 1=1 /*hide*/; DROP TABLE train;"
         errs = collect_sql_mvp_safety_violations(bad, allow_union=True)

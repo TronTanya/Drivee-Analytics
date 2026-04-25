@@ -23,8 +23,13 @@ class WorkspaceRepository(BaseRepository):
         return self.session.execute(statement).scalar_one_or_none()
 
     def user_has_workspace_access(self, user_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
-        statement = select(WorkspaceMembership.id).where(
-            WorkspaceMembership.user_id == user_id,
-            WorkspaceMembership.workspace_id == workspace_id,
+        # LIMIT 1: при дубликатах membership без уникального индекса scalar_one_or_none() бросает MultipleResultsFound.
+        statement = (
+            select(WorkspaceMembership.id)
+            .where(
+                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.workspace_id == workspace_id,
+            )
+            .limit(1)
         )
         return self.session.execute(statement).scalar_one_or_none() is not None

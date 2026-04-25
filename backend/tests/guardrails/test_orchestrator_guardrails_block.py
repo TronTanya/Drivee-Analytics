@@ -29,3 +29,10 @@ def test_orchestrator_blocks_entity_policy_and_exposes_trace(monkeypatch) -> Non
     assert "entity_policy" in list(guardrails.get("codes") or [])
     messages = [str(m) for m in (guardrails.get("messages_ru") or [])]
     assert any("чувствительные сущности" in m.lower() for m in messages)
+
+    ht = trace.get("human_trace") or {}
+    assert isinstance(ht, dict)
+    assert ht.get("guardrails_explanation")
+    assert "блок" in (ht.get("sql_generation_explanation") or "").lower() or "политик" in (
+        ht.get("sql_generation_explanation") or ""
+    ).lower()

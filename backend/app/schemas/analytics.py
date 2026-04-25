@@ -48,6 +48,15 @@ class RunAnalyticsResponse(BaseModel):
     chart: dict[str, Any]
     insight: str
     confidence: float
+    insights: list[str] = Field(default_factory=list, description="Краткие выводы по таблице результата (post-SQL).")
+    forecast: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Простой прогноз по тренду; при нехватке данных — sufficient_data=false и note_ru.",
+    )
+    anomalies: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Сегменты с отклонением от среднего (z-score и т.п.).",
+    )
     resolved_source_table: str = Field(
         default="",
         description="Поверхность данных после enrich контекста (например public.train); для UI и согласованности с отчётами.",

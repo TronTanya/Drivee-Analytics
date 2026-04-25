@@ -64,3 +64,11 @@ def test_nl_chain_prompt_through_validated_result(sql_exec_mock_mode: None, llm_
     assert isinstance(out.result_preview, list)
     assert len(out.result_preview) >= 1
     assert out.chart.chart_type
+
+    ht = (out.trace_payload or {}).get("human_trace") or {}
+    assert isinstance(ht, dict)
+    assert ht.get("question")
+    assert "intent" in (ht.get("intent_explanation") or "").lower() or "«" in (ht.get("intent_explanation") or "")
+    assert ht.get("metric_explanation")
+    assert ht.get("sql_safety_explanation")
+    assert "confidence" in ht

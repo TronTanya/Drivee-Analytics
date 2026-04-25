@@ -113,6 +113,26 @@ def test_quality_center_summary(eval_client: TestClient) -> None:
     assert 0.0 <= body["overall_quality_score"] <= 1.0
 
 
+def test_nl_sql_golden_eval_summary(eval_client: TestClient) -> None:
+    r = eval_client.get("/api/v1/quality/nl-sql-golden-summary")
+    assert r.status_code == 200
+    body = r.json()
+    assert "total_cases" in body
+    assert "passed_cases" in body
+    assert "score" in body
+    assert "metrics" in body
+    m = body["metrics"]
+    for k in ("nl_sql_accuracy", "sql_safety", "chart_accuracy", "clarification_accuracy", "trace_completeness"):
+        assert k in m
+        assert 0.0 <= float(m[k]) <= 1.0
+    assert "cases" in body and isinstance(body["cases"], list)
+    assert "source" in body
+    if body["total_cases"] > 0 and body["cases"]:
+        row0 = body["cases"][0]
+        for k in ("question", "expected_status", "actual_status", "chart", "guardrails", "passed"):
+            assert k in row0
+
+
 def test_understanding_cases_api(eval_client: TestClient) -> None:
     r = eval_client.get("/api/v1/evaluation/understanding/cases")
     assert r.status_code == 200

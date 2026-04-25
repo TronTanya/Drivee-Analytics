@@ -4,7 +4,7 @@ import os
 from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.security import hash_password, verify_password
 from app.db.session import SessionLocal
@@ -19,6 +19,23 @@ from app.models.user_profile import UserProfile
 from app.models.workspace import Workspace, WorkspaceMembership
 
 from app.demo_data.seed_analytics_orders import replace_demo_orders_dataset
+
+
+def dedupe_workspace_memberships(session) -> None:
+    """Оставляет по одной строке на пару (user_id, workspace_id); убирает дубликаты без уникального индекса."""
+    session.execute(
+        text(
+            """
+            DELETE FROM workspace_memberships wm
+            WHERE wm.id NOT IN (
+                SELECT DISTINCT ON (user_id, workspace_id) id
+                FROM workspace_memberships
+                ORDER BY user_id, workspace_id, joined_at ASC NULLS LAST, id ASC
+            );
+            """
+        )
+    )
+
 
 DEFAULT_ROLES = [
     ("admin", "Administrator"),
@@ -120,12 +137,14 @@ def ensure_workspace(session, owner: User, admin_role: Role) -> Workspace:
         session.add(workspace)
         session.flush()
 
-    membership = session.scalar(
-        select(WorkspaceMembership).where(
+    membership = session.scalars(
+        select(WorkspaceMembership)
+        .where(
             WorkspaceMembership.workspace_id == workspace.id,
             WorkspaceMembership.user_id == owner.id,
         )
-    )
+        .limit(1)
+    ).first()
     if membership is None:
         membership = WorkspaceMembership(
             workspace_id=workspace.id,
@@ -139,12 +158,14 @@ def ensure_workspace(session, owner: User, admin_role: Role) -> Workspace:
 
 def ensure_workspace_memberships(session, workspace: Workspace, users: dict[str, User], roles: dict[str, Role]) -> None:
     for role_key, user in users.items():
-        membership = session.scalar(
-            select(WorkspaceMembership).where(
+        membership = session.scalars(
+            select(WorkspaceMembership)
+            .where(
                 WorkspaceMembership.workspace_id == workspace.id,
                 WorkspaceMembership.user_id == user.id,
             )
-        )
+            .limit(1)
+        ).first()
         if membership is None:
             session.add(
                 WorkspaceMembership(
@@ -204,7 +225,7 @@ def ensure_semantic_terms(session, workspace: Workspace, admin_user: User, admin
 
 
 def _template_target_role_key(template_key: str) -> str | None:
-    """None — шаблон доступен всем ролям; иначе ключ роли (manager/marketer/executive)."""
+    """None — шаблон доступен всем ролям; иначе ключ роли (admin/manager/marketer/executive)."""
     shared_all_roles = {
         "weekly_cancellations_by_city",
         "daily_done_rides",
@@ -215,18 +236,36 @@ def _template_target_role_key(template_key: str) -> str | None:
         "weekly_conversion",
         "orders_trend_30d",
     }
+    admin_keys = {
+        "admin_orders_by_status_14d",
+        "admin_cancel_client_vs_driver_30d",
+        "admin_platform_volume_daily_14d",
+        "admin_top_cities_orders_30d",
+        "admin_sla_proxy_avg_duration_30d",
+    }
     executive_keys = {
         "revenue_by_city_last_month",
         "top5_cities_by_revenue",
+        "executive_revenue_last_4_weeks",
+        "executive_done_rate_trend_30d",
+        "executive_orders_weekly_trend_8w",
+        "executive_avg_order_value_daily_30d",
+        "executive_total_revenue_orders_30d",
     }
     marketer_keys = {
         "conversion_by_channel",
         "orders_dynamics",
         "orders_count_by_channel",
         "avg_check_by_order_channel",
+        "marketer_channel_revenue_28d",
+        "marketer_weekly_orders_by_channel",
+        "marketer_done_rides_by_channel_28d",
+        "marketer_client_cancel_rate_channel_28d",
     }
     if template_key in shared_all_roles:
         return None
+    if template_key in admin_keys:
+        return "admin"
     if template_key in executive_keys:
         return "executive"
     if template_key in marketer_keys:
@@ -389,6 +428,118 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "line",
             "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
         ),
+        (
+            "admin_orders_by_status_14d",
+            "Заказы по статусам (14 дней)",
+            "Распределение заказов по status_order для контроля воронки",
+            "Покажи количество заказов по статусам за последние 14 дней",
+            "bar",
+            "SELECT status_order, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+        ),
+        (
+            "admin_cancel_client_vs_driver_30d",
+            "Отмены: клиент vs водитель (30 дней)",
+            "Сравнение отмен клиента и водителя за месяц",
+            "Сравни отмены клиента и отмены водителя за последние 30 дней",
+            "bar",
+            "SELECT COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL)::bigint AS client_cancels, COUNT(*) FILTER (WHERE drivercancel_timestamp IS NOT NULL)::bigint AS driver_cancels FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day')",
+        ),
+        (
+            "marketer_channel_revenue_28d",
+            "Выручка по каналам заказа (28 дней)",
+            "Сумма price_order_local по order_channel",
+            "Покажи выручку по каналам привлечения за 28 дней",
+            "bar",
+            "SELECT order_channel, SUM(price_order_local)::numeric(18,2) AS revenue_local, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+        ),
+        (
+            "marketer_weekly_orders_by_channel",
+            "Заказы по неделям и каналу",
+            "Недельная динамика объёма заказов в разрезе order_channel",
+            "Покажи недельную динамику заказов по каналам за последние 8 недель",
+            "line",
+            "SELECT date_trunc('week', order_timestamp)::date AS week_start, order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1, 2 ORDER BY 1, 2",
+        ),
+        (
+            "executive_revenue_last_4_weeks",
+            "Выручка по неделям (4 недели)",
+            "Сумма price_order_local по календарным неделям",
+            "Покажи выручку по неделям за последние четыре недели",
+            "line",
+            "SELECT date_trunc('week', order_timestamp)::date AS week_start, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "executive_done_rate_trend_30d",
+            "Доля завершённых по дням (30 дней)",
+            "Доля строк с driverdone к числу заказов по дням",
+            "Покажи динамику доли завершённых поездок по дням за 30 дней",
+            "line",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS completion_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "admin_platform_volume_daily_14d",
+            "Платформа: заказы по дням (14 дней)",
+            "Суточный объём заказов без разреза по ролям пользователя",
+            "Покажи суточный объём заказов на платформе за последние 14 дней",
+            "line",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "admin_top_cities_orders_30d",
+            "Топ городов по числу заказов (30 дней)",
+            "Ранжирование city_id по заказам для балансировки нагрузки",
+            "Покажи топ городов по количеству заказов за 30 дней",
+            "bar",
+            "SELECT city_id, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+        ),
+        (
+            "admin_sla_proxy_avg_duration_30d",
+            "SLA-прокси: средняя длительность по дням",
+            "Среднее duration_in_seconds по календарным дням",
+            "Покажи среднюю длительность поездки по дням за 30 дней",
+            "line",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(duration_in_seconds)::numeric(18,2) AS avg_duration_sec FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') AND duration_in_seconds IS NOT NULL GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "marketer_done_rides_by_channel_28d",
+            "Завершённые поездки по каналу (28 дней)",
+            "Число завершённых поездок в разрезе order_channel",
+            "Покажи количество завершённых поездок по каналам за 28 дней",
+            "bar",
+            "SELECT order_channel, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+        ),
+        (
+            "marketer_client_cancel_rate_channel_28d",
+            "Доля отмен клиента по каналу (28 дней)",
+            "Отношение отмен клиента к числу заказов по order_channel",
+            "Покажи долю отмен клиента по каналам за 28 дней",
+            "bar",
+            "SELECT order_channel, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS client_cancel_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+        ),
+        (
+            "executive_orders_weekly_trend_8w",
+            "Заказы по неделям (8 недель)",
+            "Число уникальных заказов по календарной неделе",
+            "Покажи динамику числа заказов по неделям за последние 8 недель",
+            "line",
+            "SELECT date_trunc('week', order_timestamp)::date AS week_start, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "executive_avg_order_value_daily_30d",
+            "Средний чек по дням (30 дней)",
+            "Среднее price_order_local по календарным дням",
+            "Покажи динамику среднего чека по дням за 30 дней",
+            "line",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+        ),
+        (
+            "executive_total_revenue_orders_30d",
+            "Выручка и заказы за 30 дней (сводка)",
+            "Один ряд: сумма выручки и число заказов за месяц",
+            "Покажи суммарную выручку и число заказов за последние 30 дней",
+            "table",
+            "SELECT SUM(price_order_local)::numeric(18,2) AS revenue_30d, COUNT(DISTINCT order_id)::bigint AS orders_30d FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day')",
+        ),
     ]
     for template_key, template_name, description, nl_template, chart, sql_template in templates:
         tpl = session.scalar(
@@ -510,6 +661,7 @@ def ensure_demo_notebook_and_history(session, workspace: Workspace, admin_user: 
 
 def main() -> None:
     with SessionLocal() as session:
+        dedupe_workspace_memberships(session)
         roles = ensure_roles(session)
         admin = ensure_admin_user(session, roles["admin"])
         users = ensure_demo_users(session, roles)

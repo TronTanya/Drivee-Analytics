@@ -46,6 +46,7 @@ from app.services.correction_learning_service import AppliedCorrectionMatch, Cor
 from app.services.ds.baseline_forecast import run_baseline_forecast_sidecar
 from app.services.orchestration.sql_execution_service import ExecutionResult, SQLExecutionService
 from app.services.orchestration.sql_generation_service import SQLGenerationService
+from app.services.orchestration.human_trace import build_human_trace_ru
 from app.services.llm.factory import get_llm_service
 
 
@@ -1141,6 +1142,7 @@ def attach_interpretation_and_trace(out: OrchestrationOutput) -> OrchestrationOu
             msg = _trace_step_message_ru(name, ok, detail if isinstance(detail, dict) else {})
             trace_ui.append({"step": name, "status": "passed" if ok else "failed", "message": msg})
     tp["trace"] = trace_ui
+    tp["human_trace"] = build_human_trace_ru(trace_payload=tp, output=out)
     return out.model_copy(update={"trace_payload": tp})
 
 

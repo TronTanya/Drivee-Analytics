@@ -124,3 +124,7 @@ class AnalyticsExplainabilityTraceV1(BaseModel):
         description="Порядок: parsing → generating_sql → validating → executing → visualizing → done.",
     )
     guardrails: GuardrailsTrace = Field(default_factory=GuardrailsTrace)
+    human_trace: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Человекочитаемые пояснения (RU) поверх технического trace; ключи см. build_human_trace_ru.",
+    )

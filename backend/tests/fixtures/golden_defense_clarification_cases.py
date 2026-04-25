@@ -19,7 +19,7 @@ GOLDEN_DEFENSE_CLARIFICATION_CASES: list[dict[str, Any]] = [
     {
         "phrase": "Лучшие каналы за месяц",
         "clarification_required": True,
-        "clarification_reason": "best_metric_unspecified",
+        "clarification_reason": "best_channels_vague",
         "min_options": 3,
     },
     {

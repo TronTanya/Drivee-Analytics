@@ -87,6 +87,21 @@ def check_prompt_abuse(prompt: str, settings: Settings) -> list[str]:
     )
     if _destructive_ddl.search(visible):
         errors.append("Запрос содержит опасные конструкции DDL/DML — выполнение запрещено.")
+    if re.search(r"\bpg_sleep\s*\(", visible, re.IGNORECASE):
+        errors.append("Запрос содержит вызов pg_sleep — выполнение запрещено.")
+    low_vis = visible.lower()
+    if "information_schema" in low_vis:
+        errors.append("Обращение к information_schema в пользовательском запросе запрещено.")
+    if "pg_catalog" in low_vis:
+        errors.append("Обращение к pg_catalog в пользовательском запросе запрещено.")
+    if re.search(r"\bunion\b.+?\bpassword\b", visible, re.IGNORECASE | re.DOTALL):
+        errors.append("Запрос содержит опасную комбинацию UNION/password — выполнение запрещено.")
+    _jailbreak = re.compile(
+        r"(игнорируй\s+правил|игнорируй\s+инструкц|обойди\s+рол|обойти\s+рол|role\s*bypass|jailbreak\s*[:=])",
+        re.IGNORECASE,
+    )
+    if _jailbreak.search(visible):
+        errors.append("Запрос содержит попытку обхода правил — выполнение запрещено.")
     max_chars = int(getattr(settings, "guardrails_max_prompt_chars", 8000) or 8000)
     if len(prompt) > max_chars:
         errors.append(f"Промпт слишком длинный (>{max_chars} символов). Сократите запрос.")

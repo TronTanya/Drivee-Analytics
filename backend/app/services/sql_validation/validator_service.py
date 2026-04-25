@@ -125,7 +125,7 @@ class SQLValidatorService:
         padded = pad_tokens(normalized)
         applied.append("normalize_whitespace")
 
-        d_err, d_warn = scan_dangerous_constructs(padded)
+        d_err, d_warn = scan_dangerous_constructs(normalized, padded)
         errors.extend(d_err)
         warnings.extend(d_warn)
         if d_err:
@@ -341,12 +341,17 @@ class SQLValidatorService:
             time_notes=time_notes,
             empty_result=False,
         )
+        reason_reject_ru = "SQL отклонён guardrails-политикой."
+        if not is_valid and errors:
+            primary = str(errors[0]).strip()
+            reason_reject_ru = f"SQL отклонён: {primary}" if primary else reason_reject_ru
+
         explainability = {
             "decision": "allowed" if is_valid else "rejected",
             "reason_summary_ru": (
                 "SQL прошёл guardrails-проверки и разрешён к выполнению."
                 if is_valid
-                else "SQL отклонён guardrails-политикой."
+                else reason_reject_ru
             ),
             "triggered_rules": list(dict.fromkeys(applied)),
             "errors": list(errors),

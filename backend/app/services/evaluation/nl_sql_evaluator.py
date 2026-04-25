@@ -27,7 +27,8 @@ _LAST_CASES: list[CaseEvaluationResult] = []
 
 
 def _golden_json_path() -> Path:
-    return Path(__file__).resolve().parent.parent.parent / "evals" / "golden" / "nl_sql_golden_cases.json"
+    # Датасет в корне backend/evals (удобно для версионирования и CI); не внутри пакета app.
+    return Path(__file__).resolve().parents[3] / "evals" / "nl_sql_golden_cases.json"
 
 
 def load_golden_cases() -> list[GoldenCase]:

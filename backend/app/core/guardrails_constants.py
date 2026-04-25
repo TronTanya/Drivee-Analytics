@@ -32,7 +32,25 @@ ROLE_ALLOWED_CANONICAL_METRICS: Dict[str, Optional[FrozenSet[str]]] = {
 }
 
 # Колонки, которые нельзя светить роли без привилегий (PII-подобные).
-SQL_SENSITIVE_COLUMNS: FrozenSet[str] = frozenset({"user_id", "driver_id"})
+SQL_SENSITIVE_COLUMNS: FrozenSet[str] = frozenset(
+    {
+        "user_id",
+        "driver_id",
+        "phone",
+        "email",
+    }
+)
 
-# Роли, которым разрешены чувствительные колонки в SELECT/WHERE.
+# Запрещены для любой роли (даже admin) — секреты и явные PII-поля.
+SQL_SENSITIVE_COLUMNS_ALWAYS: FrozenSet[str] = frozenset(
+    {
+        "password",
+        "token",
+        "secret",
+        "passport",
+        "personal_data",
+    }
+)
+
+# Роли, которым разрешены чувствительные колонки в SELECT/WHERE (только из SQL_SENSITIVE_COLUMNS, не ALWAYS).
 ROLES_SENSITIVE_COLUMNS_OK: FrozenSet[str] = frozenset({"admin", "manager"})

@@ -147,17 +147,23 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_cors_origins(cls, value: list[str] | str) -> list[str]:
+        def _norm_token(s: str) -> str:
+            t = s.strip()
+            if len(t) >= 2 and t[0] in "\"'" and t[-1] == t[0]:
+                t = t[1:-1].strip()
+            return t
+
         if isinstance(value, str):
             raw = value.strip()
             if raw.startswith("[") and raw.endswith("]"):
                 try:
                     parsed = json.loads(raw)
                     if isinstance(parsed, list):
-                        return [str(item).strip() for item in parsed if str(item).strip()]
+                        return [_norm_token(str(item)) for item in parsed if _norm_token(str(item))]
                 except json.JSONDecodeError:
                     pass
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+            return [_norm_token(item) for item in raw.split(",") if _norm_token(item)]
+        return [_norm_token(str(x)) for x in value if _norm_token(str(x))]
 
     @field_validator("sql_whitelist_schemas", mode="before")
     @classmethod

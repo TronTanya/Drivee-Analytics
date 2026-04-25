@@ -140,6 +140,30 @@ class SqlTrustTests(unittest.TestCase):
         self.assertTrue(r.is_valid, r.errors)
         self.assertTrue(any("Период" in w for w in r.warnings))
 
+    def test_information_schema_blocked_explicit_message(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        sql = "SELECT 1 FROM public.train a JOIN information_schema.tables t ON 1=1 LIMIT 1"
+        r = v.validate(sql, role_key="admin", intent="summary")
+        self.assertFalse(r.is_valid)
+        self.assertTrue(any("information_schema" in e.lower() for e in r.errors))
+
+    def test_password_column_blocked_even_for_admin(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate(
+            "SELECT a.password FROM train a LIMIT 1",
+            role_key="admin",
+            intent="summary",
+        )
+        self.assertFalse(r.is_valid)
+        self.assertTrue(any("password" in e.lower() for e in r.errors))
+
+    def test_rejected_sql_reason_summary_ru_uses_primary_error(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate("DELETE FROM train", role_key="admin", intent="summary")
+        self.assertFalse(r.is_valid)
+        rs = str(r.guardrail_explainability.get("reason_summary_ru") or "")
+        self.assertTrue(rs.startswith("SQL отклонён:"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
-from app.core.guardrails_constants import ROLES_SENSITIVE_COLUMNS_OK, SQL_SENSITIVE_COLUMNS
+from app.core.guardrails_constants import (
+    ROLES_SENSITIVE_COLUMNS_OK,
+    SQL_SENSITIVE_COLUMNS,
+    SQL_SENSITIVE_COLUMNS_ALWAYS,
+)
 from app.services.sql_validation.utils import extract_qualified_columns, pad_tokens
 
 if TYPE_CHECKING:
@@ -42,7 +46,7 @@ _AGG_TOKEN_RE = re.compile(
 _QUALIFIED_STAR_RE = re.compile(r"\b[a-z_][a-z0-9_]*\.\*", re.IGNORECASE)
 
 
-def scan_dangerous_constructs(padded: str) -> tuple[list[str], list[str]]:
+def scan_dangerous_constructs(normalized: str, padded: str) -> tuple[list[str], list[str]]:
     """Возвращает (errors, warnings) для подозрительных конструкций."""
     errors: list[str] = []
     warnings: list[str] = []
@@ -59,13 +63,22 @@ def scan_dangerous_constructs(padded: str) -> tuple[list[str], list[str]]:
         (" copy (", "COPY … TO PROGRAM / нестандартный COPY запрещён."),
         (" into ", "SELECT INTO / запись результата запрещены; разрешены только read-only SELECT."),
         (";--", "Обнаружен паттерн SQL-инъекции с комментарием после точки с запятой."),
-        (" --", "Подозрительный inline-комментарий; такие конструкции в пользовательском SQL запрещены."),
-        ("/*", "Подозрительный блочный комментарий; такие конструкции в пользовательском SQL запрещены."),
-        ("*/", "Подозрительный блочный комментарий; такие конструкции в пользовательском SQL запрещены."),
+        ("/*", "Блочные комментарии /* */ в SQL запрещены."),
+        ("*/", "Блочные комментарии /* */ в SQL запрещены."),
     ]
     for needle, msg in needles_error:
         if needle in padded:
             errors.append(msg)
+
+    # Системные каталоги (явное сообщение в дополнение к whitelist схем).
+    if "information_schema" in padded:
+        errors.append("Обращение к information_schema запрещено политикой безопасности.")
+    if "pg_catalog" in padded:
+        errors.append("Обращение к pg_catalog запрещено политикой безопасности.")
+
+    # Inline «--» (отдельно от pad-only « --», ловит «1--» и начало строки).
+    if re.search(r"(^|\s)--", normalized):
+        errors.append("SQL-комментарии «--» запрещены (inline-комментарий).")
 
     if " cross join " in padded:
         warnings.append("Обнаружен CROSS JOIN — возможен взрыв числа строк; запрос должен быть жёстко ограничен LIMIT/фильтрами.")
@@ -447,18 +460,23 @@ def check_sensitive_columns_for_role(
 ) -> list[str]:
     """Запрет ссылок на PII-подобные колонки для ролей вне admin/manager."""
     rk = (role_key or "").strip().lower()
-    if rk in ROLES_SENSITIVE_COLUMNS_OK:
-        return []
     errors: list[str] = []
     for alias, col in extract_qualified_columns(normalized):
         if alias in SQL_KEYWORDS_FOR_COLCHECK:
-            continue
-        if col not in SQL_SENSITIVE_COLUMNS:
             continue
         table = alias_map.get(alias)
         if not table or table in cte_names:
             continue
         if table not in physical_basenames:
+            continue
+        if col in SQL_SENSITIVE_COLUMNS_ALWAYS:
+            errors.append(
+                f"Колонка «{table}.{col}» запрещена политикой безопасности (секреты / персональные данные)."
+            )
+            continue
+        if col not in SQL_SENSITIVE_COLUMNS:
+            continue
+        if rk in ROLES_SENSITIVE_COLUMNS_OK:
             continue
         errors.append(
             f"Колонка «{table}.{col}» недоступна для роли «{rk or 'unknown'}» "

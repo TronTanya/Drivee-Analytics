@@ -97,6 +97,10 @@ def test_analytics_run_http_returns_trace_and_forecast_cell(client_analytics_moc
     assert payload.get("schema_version") == 1
     assert payload.get("records")
 
+    assert isinstance(body.get("insights"), list)
+    assert isinstance(body.get("forecast"), dict)
+    assert isinstance(body.get("anomalies"), list)
+
 
 @pytest.fixture
 def client_analytics_guardrails_live(monkeypatch: pytest.MonkeyPatch) -> TestClient:

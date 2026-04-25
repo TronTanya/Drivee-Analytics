@@ -28,7 +28,12 @@ def collect_sql_mvp_safety_violations(sql: str, *, allow_union: bool = False) ->
 
     low = " ".join(raw.split()).lower()
 
-    if not allow_union and _UNION_TOKEN_RE.search(low):
-        violations.append("UNION is not allowed for generated analytics SQL (enable sql_allow_union to override).")
+    if _UNION_TOKEN_RE.search(low):
+        if not allow_union:
+            violations.append(
+                "UNION в сгенерированном аналитическом SQL запрещён (можно включить sql_allow_union в настройках)."
+            )
+        elif re.search(r"(?<![\w])union(?![\w]).{0,1200}?\bpassword\b", low, re.DOTALL | re.IGNORECASE):
+            violations.append("Сочетание UNION с полем или выражением password запрещено.")
 
     return violations

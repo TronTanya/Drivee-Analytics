@@ -4,6 +4,7 @@ from app.api.routes.admin_corrections import router as admin_corrections_router
 from app.api.routes.admin_sql_policy import router as admin_sql_policy_router
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.demo_readiness import router as demo_readiness_router
 from app.api.routes.dashboards import router as dashboards_router
 from app.api.routes.data_layer import data_router, forecast_router
 from app.api.routes.dictionary import router as dictionary_router
@@ -20,6 +21,7 @@ from app.api.routes.reports import router as reports_router
 
 api_router = APIRouter()
 api_router.include_router(health_router)
+api_router.include_router(demo_readiness_router)
 api_router.include_router(auth_router)
 api_router.include_router(notebooks_router)
 api_router.include_router(dashboards_router)
