@@ -270,9 +270,9 @@ cd frontend && npm run lint && npm run build
 
 Для презентации и онбординга зафиксированы:
 
-- **`README.md`** — что умеет MVP, сценарии, pipeline, guardrails, semantic layer, clarification/confidence, отчёты/шаблоны, запуск, **ограничения MVP**, критерии оценки, примеры, **roadmap после MVP**;
+- **`README.md`** — что умеет MVP, сценарии, pipeline, guardrails, semantic layer, clarification/confidence, отчёты/шаблоны, запуск, **ограничения MVP** и ссылка на этот roadmap;
 - **`docs/architecture.md`** — mermaid-схема и слой оркестрации;
 - **`docs/demo-script.md`** — пошаговый демо-сценарий с учётом объёмного seed;
 - **`docs/demo-analytics-dataset.md`** — описание демо-датасета.
 
-Стратегический **roadmap после релиза MVP** (продукт + платформа) вынесен в **`README.md` §26**; этот документ остаётся каноном по **инженерным разрывам** и фазам 0–4 выше.
+Краткий указатель на roadmap в корне: **`README.md`**, раздел «Ограничения MVP и roadmap»; детальный план по **инженерным разрывам** и фазам 0–4 — в этом файле.

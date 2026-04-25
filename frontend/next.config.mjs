@@ -3,7 +3,9 @@ const proxyTarget = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8000").re
 
 const nextConfig = {
   experimental: {
-    typedRoutes: true
+    typedRoutes: true,
+    /** Долгие запросы через rewrites (например LLM в `/api/v1/analytics/run`) — иначе dev/proxy режет соединение (~30 с) → ECONNRESET / 500. */
+    proxyTimeout: Number(process.env.NEXT_PROXY_TIMEOUT_MS || 300_000)
   },
   /** Прокси API на бэкенд: браузер ходит на тот же origin (избегаем CORS и неверного порта). */
   async rewrites() {

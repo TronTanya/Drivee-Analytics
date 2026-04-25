@@ -83,16 +83,114 @@ Password: demo123
 
 ---
 
-## 3. Быстрый старт
+## 3. Как запускать проект
 
-1. Скопировать окружение: `cp .env.example .env`, `cp backend/.env.example backend/.env` (см. [`DOCKER.md`](DOCKER.md)).
-2. `docker compose up --build` — поднимаются frontend, backend, PostgreSQL.
-3. При необходимости: `make migrate`, затем **`make seed`**.
-4. Открыть UI: **http://localhost:3001** (порт задаётся `FRONTEND_PORT` в `.env`; в контейнере приложение слушает 3000). API: **http://localhost:8000**.
+### Требования
 
-Быстрая проверка стенда перед показом: `make demo-live` (см. [`docs/DEMO_LIVE_RUNBOOK.md`](docs/DEMO_LIVE_RUNBOOK.md)).
+- **Docker** с поддержкой Compose v2 (`docker compose`), свободные порты на хосте (см. таблицу ниже).
+- Для пути **без Docker:** Python **3.11**, **Node.js** (LTS), отдельно установленный **PostgreSQL 16** (или совместимый).
 
-Локальный запуск без Docker — см. раздел **«Локальная разработка»** ниже.
+Подробности по переменным окружения, внешнему `train.csv`, pgAdmin и типичным сбоям: **[`DOCKER.md`](DOCKER.md)**.
+
+### Вариант A — Docker (рекомендуется)
+
+Из **корня репозитория**:
+
+```bash
+cp .env.example .env
+cp backend/.env.example backend/.env
+```
+
+При необходимости скопируйте `frontend/.env.example` → `frontend/.env` (локальные переопределения фронта). Секреты и ключи LLM задаются в **`backend/.env`**; в Compose `DATABASE_URL` для backend подставляется на контейнер `postgres` автоматически.
+
+Запуск всех сервисов:
+
+```bash
+docker compose up --build
+```
+
+При первом старте контейнер **backend** сам: ждёт готовности Postgres → **`alembic upgrade head`** → **`seed_demo_data.py`** (демо-пользователи и данные) → импорт `train.csv` (по умолчанию встроенный минимальный файл; большой датасет — см. `DOCKER.md`) → **uvicorn** на порту 8000. Frontend стартует **после** `healthcheck` backend, чтобы прокси `/api` не ловил `ECONNREFUSED`.
+
+| Сервис | URL по умолчанию | Переменная порта в `.env` |
+|--------|------------------|---------------------------|
+| **Веб-интерфейс** | http://localhost:3001 | `FRONTEND_PORT` (внутри контейнера Next слушает 3000) |
+| **API** | http://localhost:8000 | `BACKEND_PORT` |
+| **PostgreSQL** | `localhost:5434` (с хоста → 5432 внутри сети compose) | `POSTGRES_PORT` |
+
+Дальше откройте в браузере **http://localhost:3001** (или ваш `FRONTEND_PORT`), войдите учёткой из раздела [Demo-доступ](#2-demo-доступ). Точка входа после входа: **`/notebooks`** или **`/scenarios`**.
+
+**Повторный seed без пересборки** (если меняли данные или нужно обновить демо):
+
+```bash
+make seed
+# эквивалентно:
+docker compose run --rm backend python scripts/seed_demo_data.py
+```
+
+**Миграции только:**
+
+```bash
+make migrate
+```
+
+**Проверка стенда перед демо** (поднимает compose в фоне, ждёт `/health`, печатает URL):
+
+```bash
+make demo-live
+```
+
+См. также [`docs/DEMO_LIVE_RUNBOOK.md`](docs/DEMO_LIVE_RUNBOOK.md).
+
+**Остановка:**
+
+```bash
+docker compose down
+```
+
+Если после `docker compose restart` фронт поднялся раньше backend и отдаёт 500 на `/api`, используйте **`make restart-stack`** (остановка фронта, рестарт postgres+backend, подъём фронта).
+
+### Вариант B — без Docker
+
+<a id="local-no-docker"></a>
+
+Нужен **доступный PostgreSQL** и строка **`DATABASE_URL`** в `backend/.env` (как в `backend/.env.example`).
+
+**1. База и схема**
+
+- Создайте БД и пользователя.
+- Выполните bootstrap: `backend/sql/bootstrap_drivee.sql` (как принято в вашей среде — через `psql` или админку).
+- Из каталога `backend/`:
+
+```bash
+source .venv/bin/activate   # после создания venv и pip install -r requirements.txt
+alembic upgrade head
+python scripts/seed_demo_data.py
+```
+
+**2. Backend**
+
+```bash
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**3. Frontend** (отдельный терминал)
+
+```bash
+cd frontend
+npm install
+```
+
+Если API крутится на `http://localhost:8000`, задайте в `frontend/.env` или в окружении **`NEXT_PUBLIC_API_URL=http://localhost:8000`** и убедитесь, что origin фронта (например `http://localhost:3000`) указан в **`CORS_ORIGINS`** / `BACKEND_CORS_ORIGINS` backend. Иначе оставьте прокси как в Docker: смотрите `frontend/.env.example`.
+
+```bash
+npm run dev
+```
+
+Откройте URL, который выводит Next (часто **http://localhost:3000**).
 
 ---
 
@@ -126,7 +224,24 @@ Password: demo123
 
 ---
 
-## 6. Архитектура (кратко)
+## 6. Архитектура
+
+Система строится как **три крупных контура** — клиент (Next.js), API (FastAPI) и PostgreSQL — с явным разделением **аналитических данных** (`public.train` и политика staging) и **артефактов приложения** (ноутбуки, отчёты, шаблоны, история). Запрос пользователя из UI **никогда** не обращается к оркестратору напрямую: браузер вызывает маршруты **`/api/v1/*`**, а уже внутри backend создаётся цепочка сервисов; для notebook-ячейки критический путь — **`POST /api/v1/analytics/run`** → `analytics_pipeline.run_pipeline_with_analysis` → **`QueryOrchestrator`**.
+
+**Слои репозитория (краткая карта):**
+
+| Слой | Где в коде |
+|------|------------|
+| UI | `frontend/app/(platform)/`, `frontend/components/notebook/` |
+| HTTP-клиент | `frontend/lib/api/` |
+| Роуты API | `backend/app/api/routes/` (`router.py` собирает префикс `/api/v1`) |
+| Склейка аналитики | `backend/app/services/analytics_pipeline.py` |
+| NL→SQL | `backend/app/services/orchestration/` (`query_orchestrator.py` — точка сборки) |
+| Валидация SQL | `backend/app/services/sql_validation/` |
+| Guardrails по промпту/роли | `backend/app/services/guardrails/` |
+| Семантика | `backend/app/services/semantic_layer/`, `backend/app/data/semantic_dictionary.json` |
+
+### Обзорная схема (три подсистемы)
 
 ```mermaid
 flowchart TB
@@ -151,23 +266,74 @@ flowchart TB
   R --> ART
 ```
 
-Полная схема NL→SQL: [`docs/architecture.md`](docs/architecture.md).
+### Внутренний разрез API и оркестрации
 
-**Основные маршруты frontend:** `/login`, `/register` → `/notebooks`, `/scenarios`, `/notebooks/[id]`, `/dashboard/admin|manager|marketer|executive`, `/reports`, `/history`, `/templates`, `/dictionary`, `/corrections`, `/data-upload`, `/settings`, `/forecast-lab`, `/quality`.
+```mermaid
+flowchart TB
+  subgraph fe["Frontend (Next.js)"]
+    NB["Notebook / dashboards"]
+    SYS["Reports · History · Templates · Dictionary · Data upload · Quality"]
+  end
+
+  subgraph api["FastAPI"]
+    R["REST /api/v1/*"]
+    ORC["QueryOrchestrator"]
+    SEM["SemanticService · Intent · Dialogue"]
+    CLAR["ClarificationEngine"]
+    SQLG["SQLGenerationService"]
+    COR["Correction lookup"]
+    VAL["SQLValidatorService"]
+    EXE["SQLExecutionService"]
+    CHART["ChartRecommendationService"]
+    INS["Insight + forecast sidecar"]
+  end
+
+  subgraph db["PostgreSQL"]
+    ORD[("public.train + staging")]
+    NBDB[("notebooks · cells · runs")]
+    META[("templates · reports · schedules · history")]
+  end
+
+  NB --> R
+  SYS --> R
+  R --> ORC
+  ORC --> SEM
+  SEM --> CLAR
+  CLAR --> SQLG
+  SQLG --> COR
+  COR --> VAL
+  VAL --> EXE
+  EXE --> ORD
+  ORC --> CHART
+  ORC --> INS
+  R --> NBDB
+  R --> META
+```
+
+**Основные маршруты frontend:** `/login`, `/register` → `/notebooks`, `/scenarios`, `/notebooks/[id]`, `/dashboard/admin|manager|marketer|executive`, `/reports`, `/history`, `/templates`, `/dictionary`, `/corrections`, `/data-upload`, `/settings`, `/forecast-lab`, `/quality`, `/semantic-dictionary`.
+
+Полное пошаговое описание pipeline, таблица HTTP-ручек, группы таблиц БД и границы системы: **[`docs/architecture.md`](docs/architecture.md)**.
 
 ---
 
-## 7. NL → SQL pipeline (сжато)
+## 7. NL → SQL pipeline
 
-1. Препроцессинг и **диалог** (follow-up, rewrite).  
-2. **Intent** и извлечение сущностей (время, `city_id`, метрики).  
-3. **Semantic resolution** — канонические метрики и фрагменты SQL.  
-4. **Clarification** при неоднозначности.  
-5. **Генерация SQL** (`SQLGenerationService`).  
-6. **Corrections** (обучение на исправлениях админа).  
-7. **Валидация** — whitelist, роль, лимиты (`SQLValidatorService`).  
-8. **Исполнение** в PostgreSQL или mock/fallback.  
-9. **Рекомендация графика**, инсайт, **trace** с **confidence**.
+Ниже — логическая последовательность того, что выполняет **`QueryOrchestrator`** (детали ветвлений, кэш и аудит — в `docs/architecture.md`, §7).
+
+1. **Препроцессинг** текста запроса.  
+2. **Диалог** — `DialogueContextEngine`: follow-up, наследование контекста ноутбука, при необходимости переписывание текста для исполнения.  
+3. **Intent** — `IntentService`: намерение и сущности (окно времени, `city_id`, метрики и т.д.).  
+4. **Semantic resolution** — `SemanticService` / парсер + `semantic_dictionary.json` (и термины БД после seed): канонические метрики и SQL-фрагменты.  
+5. **Clarification** — `ClarificationEngine`: при неоднозначности — вопрос пользователю, без выполнения финального SQL.  
+6. **Генерация SQL** — `SQLGenerationService`.  
+7. **Corrections** — `CorrectionLearningService`: подстановка исправлений админа с отметкой в trace.  
+8. **Guardrails (NL)** — rate limit, злоупотребление промптом, политика роли по метрикам и сущностям (`guardrails/policy_engine.py`).  
+9. **Валидация SQL** — `SQLValidatorService` + `sql_trust`: whitelist таблиц (**`train`**, staging **`user_staging`**), колонки, лимиты, запреты.  
+10. **Исполнение** — `SQLExecutionService`: PostgreSQL или mock/fallback по конфигурации.  
+11. **Постобработка** результата для UI (`analytics_post_process`).  
+12. **График** — `ChartRecommendationService`.  
+13. **Инсайт и опционально forecast** — insight-сервис и baseline sidecar из `ds/`.  
+14. **Trace и confidence** — explainability payload и аудит события (`_audit_emit`).
 
 ---
 
@@ -179,28 +345,9 @@ flowchart TB
 
 ---
 
-## 9. Локальная разработка (без Docker)
+## 9. Локальная разработка
 
-**Backend:**
-
-```bash
-cd backend
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-# DATABASE_URL в backend/.env
-uvicorn app.main:app --reload --port 8000
-```
-
-Применить `backend/sql/bootstrap_drivee.sql`, `alembic upgrade head`, затем `python scripts/seed_demo_data.py`.
-
-**Frontend:**
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Пошаговый запуск без Docker: **[§3, вариант B](#local-no-docker)**.
 
 ---
 
