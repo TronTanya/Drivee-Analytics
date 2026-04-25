@@ -2,23 +2,15 @@
 
 import { DashboardHero } from "@/components/dashboard/dashboard-hero";
 import { KpiStatCard, type KpiMetric } from "@/components/dashboard/kpi-stat-card";
-import { QuickPrompts } from "@/components/dashboard/quick-prompts";
 import { RecentLinksList, type RecentListItem } from "@/components/dashboard/recent-links-list";
 import { SectionCard } from "@/components/dashboard/section-card";
 import { TrainDatasetSummarySection } from "@/components/dashboard/train-dataset-summary-section";
-import Link from "next/link";
 import { useWorkspaceId } from "@/hooks/use-workspace-id";
 import { useNotebooks } from "@/hooks/api/use-notebooks";
 import { useSavedReports } from "@/hooks/api/use-reports";
 import { useQueryHistory } from "@/hooks/api/use-history";
 import type { Route } from "next";
 import { useMemo } from "react";
-
-const MANAGER_PROMPTS = [
-  { id: "1", label: "Где растут отмены по складам?", href: "/notebooks/ops-health" as Route },
-  { id: "2", label: "Нарушения SLA за последние 7 дней", href: "/notebooks/ops-health" as Route },
-  { id: "3", label: "Бэклог vs capacity на завтра", href: "/notebooks/ops-health" as Route }
-];
 
 function fmtNumber(n: number): string {
   return new Intl.NumberFormat("ru-RU").format(n);
@@ -115,27 +107,6 @@ export default function ManagerDashboardPage() {
       </section>
 
       <TrainDatasetSummarySection workspaceId={workspaceQuery.data} />
-
-      <SectionCard
-        title="Quality Center"
-        description="Сводка NL→SQL, SQL correctness, guardrails и визуализации — доказательство качества для жюри."
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-foreground-secondary">
-            Запустите deterministic suite или откройте последний overview прямо из UI.
-          </p>
-          <Link
-            href={"/quality" as Route}
-            className="inline-flex items-center justify-center rounded-control bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600"
-          >
-            Открыть Quality Center
-          </Link>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Быстрые запросы" description="Переход в операционный сценарий с готовыми вопросами.">
-        <QuickPrompts items={MANAGER_PROMPTS} />
-      </SectionCard>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Недавние сценарии">

@@ -132,20 +132,6 @@ export default function HomePage() {
               интерпретирует запрос, подбирает бизнес-метрики, строит SQL, выполняет его и показывает понятный результат
               с explainability trace.
             </p>
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link
-                href={"/scenarios" as Route}
-                className="interactive-focus rounded-full bg-brand-500 px-6 py-3 text-sm font-semibold text-black shadow-xs transition hover:bg-brand-400"
-              >
-                Открыть сценарии
-              </Link>
-              <Link
-                href={"/notebooks/ops-health" as Route}
-                className="interactive-focus rounded-full border border-border-subtle bg-surface-card px-6 py-3 text-sm font-semibold text-foreground shadow-xs transition hover:bg-surface-muted"
-              >
-                Запустить ноутбук
-              </Link>
-            </div>
           </div>
 
           <div className="rounded-panel border border-border-subtle bg-surface-muted p-4">
@@ -366,37 +352,6 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
-          </div>
-        </section>
-
-        <section className="surface-hero mt-12 border border-brand-200/80 bg-brand-50 px-8 py-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-foreground-secondary">Финальный шаг</p>
-          <h2 className="text-heading-1 mt-3 max-w-3xl tracking-tight text-foreground sm:text-display sm:leading-tight">
-            Задайте вопрос данным на обычном языке
-          </h2>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-foreground-secondary">
-            Запускайте аналитику быстрее, находите инсайты без ручного SQL и сохраняйте результаты в notebook, history и
-            reports.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <Link
-              href={"/scenarios" as Route}
-              className="interactive-focus rounded-full bg-brand-500 px-6 py-3 text-sm font-semibold text-black shadow-xs transition hover:bg-brand-400"
-            >
-              Открыть сценарии
-            </Link>
-            <Link
-              href={"/register" as Route}
-              className="interactive-focus rounded-full border border-border-subtle bg-surface-card px-6 py-3 text-sm font-semibold text-foreground shadow-xs transition hover:bg-surface-muted"
-            >
-              Начать работу
-            </Link>
-            <Link
-              href={"/reports" as Route}
-              className="interactive-focus rounded-full border border-border-subtle bg-surface-card px-6 py-3 text-sm font-semibold text-foreground shadow-xs transition hover:bg-surface-muted"
-            >
-              Смотреть отчеты
-            </Link>
           </div>
         </section>
       </div>

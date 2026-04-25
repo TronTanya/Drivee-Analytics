@@ -7,7 +7,7 @@ test("jury-mode: 5 сценариев открываются и показыва
   test.setTimeout(120_000);
 
   await page.goto("/login");
-  await expect(page.getByRole("heading", { name: /Вход в ваш workspace/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Вход в систему/i })).toBeVisible();
   await page.locator("#login-email").fill(demoEmail);
   await page.locator("#login-password").fill(demoPassword);
   await page.getByRole("button", { name: "Войти" }).click();

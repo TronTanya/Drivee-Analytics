@@ -80,7 +80,7 @@ Compose pages from layout + domain; avoid one-off giant pages.
 
 ## 8. API integration
 
-- **Base URL**: `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`).
+- **Base URL**: `NEXT_PUBLIC_API_URL` (в Docker по умолчанию `same-origin` → `/api/*` через `next.config` rewrites; прямой `http://localhost:8000` — только если нужен обход прокси).
 - **Client**: `lib/api/client.ts` — `apiFetch(path, init)` prepends base, attaches `Authorization` when token exists.
 - **Endpoints**: split by domain under `lib/api/` (`notebooks.ts`, `analytics.ts`, …) and re-export from `lib/api/index.ts`.
 - **Versioning**: paths use `/api/v1/...` to match FastAPI backend.

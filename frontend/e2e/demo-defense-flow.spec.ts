@@ -14,7 +14,7 @@ test("защита: приложение → логин → notebook → demo qu
 
   await page.goto("/");
   await page.goto("/login");
-  await expect(page.getByRole("heading", { name: /Вход в ваш workspace/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Вход в систему/i })).toBeVisible();
 
   await page.locator("#login-email").fill(demoEmail);
   await page.locator("#login-password").fill(demoPassword);
@@ -23,7 +23,9 @@ test("защита: приложение → логин → notebook → demo qu
   await page.waitForURL(/\/notebooks(\/)?$/);
 
   await page.goto("/notebooks/ops-health");
-  await expect(page.getByText("Demo Health", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("heading", { level: 1, name: /Сценарий ops-health/i })).toBeVisible({
+    timeout: 60_000
+  });
 
   const prompt = "Покажи топ-3 города по количеству отменённых заказов на этой неделе";
   await page.getByTestId("notebook-prompt-input").fill(prompt);

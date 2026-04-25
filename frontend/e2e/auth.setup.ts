@@ -12,7 +12,7 @@ test("setup auth state for quick jury e2e", async ({ page }) => {
   fs.mkdirSync(authDir, { recursive: true });
 
   await page.goto("/login");
-  await expect(page.getByRole("heading", { name: /Вход в ваш workspace/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Вход в систему/i })).toBeVisible();
   await page.locator("#login-email").fill(demoEmail);
   await page.locator("#login-password").fill(demoPassword);
   await page.getByRole("button", { name: "Войти" }).click();

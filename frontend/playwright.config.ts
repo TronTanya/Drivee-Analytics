@@ -9,12 +9,15 @@ const skipDemoSpecsInCi = process.env.CI === "true" && process.env.RUN_E2E !== "
 /**
  * Браузерный сценарий защиты: поднимите фронт (`npm run dev`) и бэкенд при необходимости.
  *
- * В GitHub Actions: задайте `RUN_E2E=1` и `npx playwright install chromium`, иначе файл
- * `demo-defense-flow.spec.ts` игнорируется. Локально (без `CI=true`) сценарий всегда в списке.
+ * В GitHub Actions: задайте `RUN_E2E=1` и `npx playwright install chromium`, иначе тяжёлые
+ * спеки (`demo-defense-flow`, `jury-scenarios-smoke`, `demo-flow`, `dangerous-query`) игнорируются.
+ * Локально (без `CI=true`) все сценарии в списке.
  */
 export default defineConfig({
   testDir: "e2e",
-  testIgnore: skipDemoSpecsInCi ? /(demo-defense-flow|jury-scenarios-smoke)\.spec\.ts$/ : undefined,
+  testIgnore: skipDemoSpecsInCi
+    ? /(demo-defense-flow|jury-scenarios-smoke|demo-flow|dangerous-query)\.spec\.ts$/
+    : undefined,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
