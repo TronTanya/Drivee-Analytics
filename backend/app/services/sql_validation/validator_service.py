@@ -23,6 +23,7 @@ from app.services.sql_validation.sql_trust import (
     check_bare_select_star,
     check_global_column_whitelist,
     check_group_by_heuristic,
+    check_incity_orders_scan_policy,
     check_sensitive_columns_for_role,
     check_time_filter_heuristic,
     collect_schema_and_table_ref_errors,
@@ -257,6 +258,11 @@ class SQLValidatorService:
             warnings.extend(global_col_warns)
             applied.append("global_column_whitelist")
 
+        detail_scan = check_incity_orders_scan_policy(normalized, padded, physical_refs)
+        if detail_scan:
+            errors.extend(detail_scan)
+            applied.append("incity_orders_scan_policy")
+
         is_valid = len(errors) == 0
 
         final_sql = single
@@ -290,7 +296,12 @@ class SQLValidatorService:
         warnings.extend(time_notes)
         warnings.extend(group_notes)
 
-        has_time_tokens = "order_timestamp" in normalized or "tender_timestamp" in normalized
+        has_time_tokens = (
+            "order_timestamp" in normalized
+            or "tender_timestamp" in normalized
+            or "order_date_part" in normalized
+            or "tender_date_part" in normalized
+        )
         preview_assessment = build_preview_assessment(
             normalized=normalized,
             padded=padded,

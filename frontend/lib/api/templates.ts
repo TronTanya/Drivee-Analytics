@@ -150,7 +150,10 @@ export async function quickRunQueryTemplate(
       safe_sql: "SELECT 1",
       insight: "Mock template run",
       chart_type: "line",
-      warnings: []
+      warnings: [],
+      interpreted_intent: "summary",
+      trace_summary: "Mock quick run",
+      explainability_trace: ["Mock: интерпретация запроса", "Mock: SQL валидация", "Mock: визуализация"]
     })
   });
 }

@@ -1098,5 +1098,321 @@
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.88
+  },
+  {
+    "id": "mpit_pass_orders_daily",
+    "domain": "drivee_daily",
+    "business_term": "Заказы пассажира по дням (MPIT)",
+    "business_terms": [
+      "Дневные метрики пассажира",
+      "pass_detail"
+    ],
+    "canonical_metric_key": "mpit_pass_orders_count",
+    "synonyms": [
+      "orders_count по дням",
+      "дневные заказы пассажира",
+      "активные пассажиры",
+      "пассажиры по дням"
+    ],
+    "source_table": "passenger_daily_metrics",
+    "source_column": "orders_count",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "Агрегат из public.passenger_daily_metrics (CSV pass_detail).",
+    "sql_expression": "SUM(a.orders_count)",
+    "constraints": {
+      "notes": "JOIN с train по user_id и дате: DATE(t.order_timestamp AT TIME ZONE 'UTC') = p.order_date_part"
+    },
+    "example_queries": [
+      "Среднее число заказов на пассажира в день по городам за последний месяц (passenger_daily_metrics)"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.85
+  },
+  {
+    "id": "mpit_driver_rides_daily",
+    "domain": "drivee_daily",
+    "business_term": "Поездки водителя по дням (MPIT)",
+    "business_terms": [
+      "Дневные метрики водителя",
+      "driver_detail"
+    ],
+    "canonical_metric_key": "mpit_driver_rides_count",
+    "synonyms": [
+      "rides_count водителя по дням",
+      "активные водители",
+      "водители по дням"
+    ],
+    "source_table": "driver_daily_metrics",
+    "source_column": "rides_count",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "Агрегат из public.driver_daily_metrics (CSV driver_detail).",
+    "sql_expression": "SUM(a.rides_count)",
+    "constraints": {
+      "notes": "JOIN с train по driver_id и дате тендера."
+    },
+    "example_queries": [
+      "Топ городов по сумме завершённых поездок водителей за неделю (driver_daily_metrics)"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.85
+  },
+  {
+    "id": "drivee_ride_conversion",
+    "domain": "drivee_daily",
+    "business_term": "Конверсия заказов в поездки",
+    "business_terms": [
+      "ride conversion"
+    ],
+    "canonical_metric_key": "ride_conversion",
+    "synonyms": [
+      "конверсия в поездку",
+      "заказы в поездки"
+    ],
+    "source_table": "passenger_daily_metrics",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(rides_count) / NULLIF(SUM(orders_count), 0).",
+    "sql_expression": "SUM(a.rides_count)::numeric / NULLIF(SUM(a.orders_count), 0)",
+    "constraints": {},
+    "example_queries": [
+      "Покажи конверсию заказов в поездки по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_acceptance_rate",
+    "domain": "drivee_daily",
+    "business_term": "Конверсия тендеров в принятие",
+    "business_terms": [
+      "acceptance rate"
+    ],
+    "canonical_metric_key": "acceptance_rate",
+    "synonyms": [
+      "конверсия в принятие",
+      "тендеры в принятие"
+    ],
+    "source_table": "driver_daily_metrics",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(orders_cnt_accepted) / NULLIF(SUM(orders_cnt_with_tenders), 0).",
+    "sql_expression": "SUM(a.orders_cnt_accepted)::numeric / NULLIF(SUM(a.orders_cnt_with_tenders), 0)",
+    "constraints": {},
+    "example_queries": [
+      "Покажи acceptance rate по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_cancel_after_accept_rate",
+    "domain": "drivee_daily",
+    "business_term": "Доля отмен после принятия",
+    "business_terms": [
+      "cancel after accept rate"
+    ],
+    "canonical_metric_key": "cancel_after_accept_rate",
+    "synonyms": [
+      "доля отмен после принятия",
+      "cancel rate"
+    ],
+    "source_table": "passenger_daily_metrics",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(client_cancel_after_accept) / NULLIF(SUM(orders_count), 0).",
+    "sql_expression": "SUM(a.client_cancel_after_accept)::numeric / NULLIF(SUM(a.orders_count), 0)",
+    "constraints": {},
+    "example_queries": [
+      "Покажи долю отмен после принятия"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_avg_trip_distance_km",
+    "domain": "drivee_incity",
+    "business_term": "Средняя дистанция поездки (км)",
+    "business_terms": [
+      "avg trip distance km"
+    ],
+    "canonical_metric_key": "avg_trip_distance_km",
+    "synonyms": [
+      "среднее расстояние",
+      "средняя дистанция"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "distance_in_meters",
+    "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "AVG(distance_in_meters) / 1000.",
+    "sql_expression": "AVG(a.distance_in_meters) / 1000.0",
+    "constraints": {},
+    "example_queries": [
+      "Покажи среднее расстояние поездки по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
+  },
+  {
+    "id": "drivee_avg_trip_duration_min",
+    "domain": "drivee_incity",
+    "business_term": "Средняя длительность поездки (мин)",
+    "business_terms": [
+      "avg trip duration min"
+    ],
+    "canonical_metric_key": "avg_trip_duration_min",
+    "synonyms": [
+      "средняя длительность",
+      "среднее время поездки"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "duration_in_seconds",
+    "aggregation_type": "avg",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "AVG(duration_in_seconds) / 60.",
+    "sql_expression": "AVG(a.duration_in_seconds) / 60.0",
+    "constraints": {},
+    "example_queries": [
+      "Покажи среднюю длительность поездки по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
+  },
+  {
+    "id": "drivee_driver_online_hours",
+    "domain": "drivee_daily",
+    "business_term": "Онлайн-часы водителей",
+    "business_terms": [
+      "driver online hours"
+    ],
+    "canonical_metric_key": "driver_online_hours",
+    "synonyms": [
+      "время онлайн водителей",
+      "онлайн водителей"
+    ],
+    "source_table": "driver_daily_metrics",
+    "source_column": "online_time_sum_seconds",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(online_time_sum_seconds) / 3600.",
+    "sql_expression": "SUM(a.online_time_sum_seconds) / 3600.0",
+    "constraints": {},
+    "example_queries": [
+      "Покажи онлайн-часы водителей по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
+  },
+  {
+    "id": "drivee_passenger_online_hours",
+    "domain": "drivee_daily",
+    "business_term": "Онлайн-часы пассажиров",
+    "business_terms": [
+      "passenger online hours"
+    ],
+    "canonical_metric_key": "passenger_online_hours",
+    "synonyms": [
+      "время онлайн пассажиров",
+      "онлайн пассажиров"
+    ],
+    "source_table": "passenger_daily_metrics",
+    "source_column": "online_time_sum_seconds",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(online_time_sum_seconds) / 3600.",
+    "sql_expression": "SUM(a.online_time_sum_seconds) / 3600.0",
+    "constraints": {},
+    "example_queries": [
+      "Покажи онлайн-часы пассажиров по дням"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.86
+  },
+  {
+    "id": "drivee_revenue_sum",
+    "domain": "drivee_incity",
+    "business_term": "Выручка (incity)",
+    "business_terms": [
+      "revenue"
+    ],
+    "canonical_metric_key": "revenue",
+    "synonyms": [
+      "выручка incity"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "price_order_local",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(price_order_local).",
+    "sql_expression": "SUM(a.price_order_local)",
+    "constraints": {},
+    "example_queries": [
+      "Покажи выручку по городам за неделю"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_completed_rides",
+    "domain": "drivee_daily",
+    "business_term": "Завершённые поездки",
+    "business_terms": [
+      "completed rides"
+    ],
+    "canonical_metric_key": "completed_rides",
+    "synonyms": [
+      "поездки",
+      "выполненные поездки"
+    ],
+    "source_table": "passenger_daily_metrics",
+    "source_column": "rides_count",
+    "aggregation_type": "sum",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "SUM(rides_count).",
+    "sql_expression": "SUM(a.rides_count)",
+    "constraints": {},
+    "example_queries": [
+      "Покажи количество завершённых поездок по городам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.88
   }
 ]

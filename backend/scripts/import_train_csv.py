@@ -2,8 +2,9 @@
 """
 Импорт строк из CSV в public.anonymized_incity_orders (VIEW public.train читает оттуда же).
 
-Ожидается заголовок как в экспорте: city_id,order_id,tender_id,user_id,driver_id,offset_hours,...
+Ожидается заголовок как в экспорте (в т.ч. MPIT `incity.csv`): city_id,order_id,tender_id,user_id,driver_id,offset_hours,...
 Колонка order_channel в файле не обязательна — подставится 'unknown'.
+Пустой tender_id в CSV заменяется на уникальный плейсхолдер `__no_tender__{n}` для PK.
 
 Пример (внутри контейнера backend, DATABASE_URL уже на postgres):
   python scripts/import_train_csv.py --path /tmp/train.csv --limit 16000 --replace
@@ -16,6 +17,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
@@ -42,6 +44,20 @@ NUM_COLS = [
     "price_tender_local",
     "price_start_local",
 ]
+
+
+def _fill_empty_tender_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """Пустой tender_id (например MPIT) — уникальный surrogate для составного PK."""
+    out = df.copy()
+    if "tender_id" not in out.columns:
+        return out
+    tid = out["tender_id"].fillna("").astype(str).str.strip().replace("nan", "", regex=False)
+    mask = tid.str.len().eq(0)
+    if not mask.any():
+        return out
+    vals = np.array([f"__no_tender__{i}" for i in range(len(out))], dtype=object)
+    out.loc[mask, "tender_id"] = vals[mask.to_numpy()]
+    return out
 
 
 def _drop_invalid_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -110,6 +126,7 @@ def main() -> int:
         return 1
 
     df = _normalize_frame(df)
+    df = _fill_empty_tender_ids(df)
     required = {
         "city_id",
         "order_id",

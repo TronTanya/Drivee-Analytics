@@ -368,6 +368,19 @@ cd frontend && npm run lint
 - **`make seed`** или `docker compose run --rm backend python scripts/seed_demo_data.py` — роли, пользователи, контекст данных, семантика, **шаблоны**, ноутбук, отчёт, история защиты, **массовые заказы `DEMO-*`** ([demo-analytics-dataset.md](docs/demo-analytics-dataset.md)).
 - Только бизнес-ряды: `python -m app.demo_data.seed_analytics_orders`.
 
+### Новая аналитическая база Drivee (CSV → Postgres)
+
+После `alembic upgrade head` доступны таблицы **`incity_orders`**, **`passenger_daily_metrics`**, **`driver_daily_metrics`**. Описание схемы, связей и политик SQL — **[docs/datasets/drivee-analytics-base-ru.md](docs/datasets/drivee-analytics-base-ru.md)**.
+
+Импорт трёх CSV (пути к файлам подставьте свои; при повторной загрузке используйте `--replace-*`):
+
+```bash
+docker compose exec backend python scripts/import_drivee_dataset.py \
+  --incity /data/incity.csv --replace-incity \
+  --pass-detail /data/pass_detail.csv --replace-pass \
+  --driver-detail /data/driver_detail.csv --replace-driver
+```
+
 ## 22) Сценарии показа
 
 Краткий чеклист: **[docs/demo-script.md](docs/demo-script.md)**.
@@ -430,6 +443,24 @@ Clarification engine и числовой confidence в trace.
 ### 11. Шаблоны (0–5)
 
 Таблица `query_templates`, экран `/templates`, расширенный набор SQL-шаблонов в seed (недели, каналы, отмены, конверсия).
+
+#### Drivee demo-шаблоны (incity + daily)
+
+В mock-каталоге `/templates` добавлены 10 demo-кейсов для `incity_orders`, `passenger_daily_metrics`, `driver_daily_metrics`:
+
+- выручка по городам за последнюю неделю;
+- динамика заказов по дням;
+- активные пассажиры по городам;
+- активные водители по дням;
+- отмены пассажиров после принятия;
+- конверсия заказов в поездки;
+- средняя стоимость поездки по городам;
+- топ-10 городов по количеству поездок;
+- среднее время онлайн водителей;
+- прогноз заказов на следующие 7 дней.
+
+Для каждой demo-карточки в UI отображаются: NL-вопрос, interpreted intent, SQL, table preview, chart type, short insight, confidence и explainability trace.  
+Для live `POST /api/v1/templates/{template_id}/run` добавлены поля `interpreted_intent`, `trace_summary`, `explainability_trace`.
 
 ---
 

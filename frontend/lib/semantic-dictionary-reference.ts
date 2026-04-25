@@ -94,6 +94,22 @@ export const SEMANTIC_DICTIONARY_REFERENCE_ROWS: SemanticDictionaryReferenceRow[
     synonyms: ["forecast", "prediction", "прогнозирование", "baseline"],
     roles: ALL_ROLES,
     exampleQuestion: "Спрогнозируй выручку на следующие 30 дней по дневному ряду"
+  },
+  {
+    term: "Дневные заказы пассажира (Drivee)",
+    sqlOrFormula: "public.passenger_daily_metrics.orders_count",
+    kind: "metric",
+    synonyms: ["pass_detail", "MPIT пассажир", "дневной профиль пассажира", "passenger_daily_metrics"],
+    roles: ["admin", "manager"],
+    exampleQuestion: "Среднее число дневных заказов пассажира по городам (passenger_daily_metrics)"
+  },
+  {
+    term: "Дневные поездки водителя (Drivee)",
+    sqlOrFormula: "public.driver_daily_metrics.rides_count",
+    kind: "metric",
+    synonyms: ["driver_detail", "MPIT водитель", "driver_daily_metrics"],
+    roles: ["admin", "manager"],
+    exampleQuestion: "Сумма завершённых поездок водителей по городам (driver_daily_metrics)"
   }
 ];
 

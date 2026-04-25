@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     ]
     sql_whitelist_tables: list[str] | str = [
         "train",
+        "incity_orders",
+        "passenger_daily_metrics",
+        "driver_daily_metrics",
         "user_staging",
     ]
     # Схемы, в которых разрешены физические таблицы в FROM/JOIN (unqualified → sql_implicit_schema).
@@ -67,6 +70,7 @@ class Settings(BaseSettings):
     # Имена загруженных staging-таблиц (см. csv_workflow: t_ + 12 hex).
     sql_staging_upload_table_pattern: str = r"^t_[a-f0-9]{12}$"
     sql_whitelist_columns: list[str] | str = [
+        "id",
         "city_id",
         "offset_hours",
         "order_id",
@@ -91,6 +95,19 @@ class Settings(BaseSettings):
         "price_tender_local",
         "price_start_local",
         "order_channel",
+        # MPIT дневные таблицы (pass_detail / driver_detail)
+        "order_date_part",
+        "user_reg_date",
+        "tender_date_part",
+        "driver_reg_date",
+        "orders_count",
+        "orders_cnt_with_tenders",
+        "orders_cnt_accepted",
+        "rides_count",
+        "rides_time_sum_seconds",
+        "online_time_sum_seconds",
+        "client_cancel_after_accept",
+        "orders",
     ]
 
     csv_upload_dir: str = "var/csv_uploads"

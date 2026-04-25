@@ -635,9 +635,11 @@ class QueryOrchestrator:
 
         metric_sql = self._semantic.primary_metric_sql(resolutions)
         use_campaigns = self._semantic.needs_marketing_join(effective)
+        semantic_source_table = self._semantic.primary_source_table(resolutions)
         source_table = (
             inp.notebook_context.get("source_table")
             or inp.notebook_context.get("ds_staging_qualified")
+            or semantic_source_table
             or settings.ds_default_source_table
         )
 

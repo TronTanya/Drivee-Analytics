@@ -604,6 +604,15 @@ class SemanticDictionaryStore:
             return self.default_term().sql_expression
         return resolutions[0].sql_fragment
 
+    def primary_source_table(self, resolutions: list[SemanticTermResolution]) -> str:
+        """Таблица-источник для основной метрики (fallback: source_table дефолтного терма)."""
+        if not resolutions:
+            return self.default_term().source_table or "train"
+        key = (resolutions[0].term_key or "").strip()
+        if key and (term := self.get_by_metric_key(key)) is not None:
+            return term.source_table or "train"
+        return self.default_term().source_table or "train"
+
     def needs_marketing_join(self, query: str) -> bool:
         qn = _normalize_match_text(query)
         for t in self._terms:

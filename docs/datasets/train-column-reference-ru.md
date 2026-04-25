@@ -1,5 +1,7 @@
 # Описание колонок anonymized incity orders (`train.csv`)
 
+Расширенный набор **Drivee/MPIT** (`incity.csv`, `pass_detail.csv`, `driver_detail.csv`): см. [drivee-analytics-base-ru.md](./drivee-analytics-base-ru.md).
+
 Канонический слой в БД: данные в **`public.anonymized_incity_orders`**, запросы в продукте идут в **`public.train`** (VIEW с теми же колонками). Импорт: `backend/scripts/import_train_csv.py` (колонка `order_channel` в файле не обязательна — подставится `unknown`).
 
 ## Общие поля

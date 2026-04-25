@@ -78,9 +78,21 @@ class ChartRecommendationService:
         prof = self._profile_columns(columns, rows)
         n_num = len(prof.numeric)
         n_cat = len(prof.categorical)
+        share_q = any(x in qlow for x in ("дол", "структур", "процент", "долю"))
         has_geo = self._has_geo_signal(qlow, prof, intent)
 
-        # 1) География: только явный запрос / intent geo / координаты (не просто city_id в таблице).
+        # 1) Доля / композиция (приоритетнее гео-слов в формулировке).
+        if intent == "share" or prof.has_share_column or share_q:
+            return self._result(
+                "donut",
+                ["pie", "bar", "horizontal_bar", "table"],
+                "Доля и структура — donut (кольцо); pie и столбцы можно выбрать вручную.",
+                0.9,
+                profile=prof,
+                columns=columns,
+            )
+
+        # 2) География: только явный запрос / intent geo / координаты (не просто city_id в таблице).
         if has_geo:
             geo_base = self._geo_metadata(prof, qlow)
             map_features = self._build_map_features(rows, prof)
@@ -116,17 +128,6 @@ class ChartRecommendationService:
                 columns=columns,
             )
 
-        # 2) Доля / композиция.
-        if intent == "share" or prof.has_share_column or any(x in qlow for x in ("дол", "структур", "процент", "долю")):
-            return self._result(
-                "donut",
-                ["pie", "bar", "horizontal_bar", "table"],
-                "Доля и структура — donut (кольцо); pie и столбцы можно выбрать вручную.",
-                0.9,
-                profile=prof,
-                columns=columns,
-            )
-
         # 3) Рейтинг / top-N.
         if intent == "ranking" or any(x in qlow for x in ("топ", "рейтинг", "лидер")) or (
             qlow.startswith("top ") or " top " in f" {qlow} "
@@ -146,6 +147,7 @@ class ChartRecommendationService:
             for x in (
                 "динамик",
                 "тренд",
+                "изменени",
                 "по дням",
                 "по недел",
                 "по месяц",
@@ -159,7 +161,7 @@ class ChartRecommendationService:
             return self._result(
                 "line",
                 ["area", "bar", "horizontal_bar", "table"],
-                "Динамика и временной ряд — линейный график (несколько метрик — несколько серий).",
+                "Динамика и временной ряд — линейный график (для прогноза отображается как forecast layer поверх ряда).",
                 0.92 if prof.time else 0.86,
                 profile=prof,
                 columns=columns,

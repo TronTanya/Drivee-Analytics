@@ -93,15 +93,14 @@ class SqlTrustTests(unittest.TestCase):
         self.assertEqual(r.guardrail_explainability.get("decision"), "allowed")
         self.assertIn("triggered_rules", r.guardrail_explainability)
 
-    def test_sensitive_column_marketer_blocked(self) -> None:
+    def test_sensitive_column_marketer_allowed(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=True))
         r = v.validate(
             "SELECT a.user_id FROM train a LIMIT 1",
             role_key="marketer",
             intent="summary",
         )
-        self.assertFalse(r.is_valid)
-        self.assertTrue(any("user_id" in e.lower() for e in r.errors))
+        self.assertTrue(r.is_valid, r.errors)
 
     def test_multiple_statements_rejected_with_explainability(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
@@ -163,6 +162,58 @@ class SqlTrustTests(unittest.TestCase):
         self.assertFalse(r.is_valid)
         rs = str(r.guardrail_explainability.get("reason_summary_ru") or "")
         self.assertTrue(rs.startswith("SQL отклонён:"))
+
+    def test_drivee_daily_tables_respect_whitelist(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=True))
+        sql_pass = (
+            "SELECT p.city_id::text AS dim, AVG(p.orders_count)::numeric(18,4) AS value "
+            "FROM passenger_daily_metrics p GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
+        )
+        r1 = v.validate(sql_pass, role_key="admin", intent="ranking")
+        self.assertTrue(r1.is_valid, r1.errors)
+        sql_drv = (
+            "SELECT d.city_id::text AS dim, SUM(d.rides_count)::numeric(18,2) AS value "
+            "FROM driver_daily_metrics d GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
+        )
+        r2 = v.validate(sql_drv, role_key="admin", intent="ranking")
+        self.assertTrue(r2.is_valid, r2.errors)
+
+    def test_incity_orders_detail_scan_without_time_or_agg_allowed(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate(
+            "SELECT i.city_id FROM incity_orders i LIMIT 100",
+            role_key="admin",
+            intent="summary",
+        )
+        self.assertTrue(r.is_valid, r.errors)
+
+    def test_incity_orders_allowed_with_time_filter(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate(
+            "SELECT i.city_id FROM incity_orders i "
+            "WHERE i.order_timestamp >= CURRENT_DATE - INTERVAL '7 days' LIMIT 50",
+            role_key="admin",
+            intent="summary",
+        )
+        self.assertTrue(r.is_valid, r.errors)
+
+    def test_incity_orders_allowed_with_aggregation(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate(
+            "SELECT i.city_id::text AS dim, COUNT(*) AS value FROM incity_orders i GROUP BY 1 LIMIT 20",
+            role_key="admin",
+            intent="ranking",
+        )
+        self.assertTrue(r.is_valid, r.errors)
+
+    def test_copy_verb_rejected(self) -> None:
+        v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False))
+        r = v.validate(
+            "COPY incity_orders TO '/tmp/x.csv' WITH CSV",
+            role_key="admin",
+            intent="summary",
+        )
+        self.assertFalse(r.is_valid)
 
 
 if __name__ == "__main__":

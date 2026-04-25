@@ -138,14 +138,25 @@ def check_global_column_whitelist(
 def check_time_filter_heuristic(normalized: str, physical_tables: set[str]) -> list[str]:
     """Предупреждение, если по основной факт-таблице нет явного упоминания времени в запросе."""
     notes: list[str] = []
-    if not physical_tables & {"train", "user_staging"}:
+    if not physical_tables & {"train", "user_staging", "incity_orders"}:
         return notes
-    if "order_timestamp" in normalized or "tender_timestamp" in normalized:
+    if (
+        "order_timestamp" in normalized
+        or "tender_timestamp" in normalized
+        or "order_date_part" in normalized
+        or "tender_date_part" in normalized
+    ):
         return notes
     notes.append(
-        "Не обнаружены колонки order_timestamp/tender_timestamp — возможен полный проход по партиции без временного фильтра."
+        "Не обнаружены колонки order_timestamp/tender_timestamp (или дат order_date_part/tender_date_part) — "
+        "возможен полный проход по партиции без временного фильтра."
     )
     return notes
+
+
+def check_incity_orders_scan_policy(normalized: str, padded: str, physical_tables: set[str]) -> list[str]:
+    """Политика полного доступа: проверки detail-scan для incity_orders отключены."""
+    return []
 
 
 def check_group_by_heuristic(normalized: str) -> list[str]:
@@ -443,6 +454,8 @@ def collect_schema_and_table_ref_errors(
         if tbl in global_tables:
             if tbl == "train" and sch != implicit:
                 errors.append("Таблица train разрешена только в схеме по умолчанию (public).")
+            if tbl == "incity_orders" and sch != implicit:
+                errors.append("Таблица incity_orders разрешена только в схеме по умолчанию (public).")
             continue
         if sch == staging_schema and staging_re.fullmatch(tbl):
             continue

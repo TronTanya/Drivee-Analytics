@@ -1,4 +1,5 @@
 import { requestJson } from "@/lib/api/request";
+import { ApiError } from "@/lib/api/client";
 import { mockListCells, mockRunAnalytics } from "@/lib/api/mocks";
 import { isApiMockFallback, shouldForceAnalyticsMock } from "@/lib/api/config";
 import type {
@@ -192,15 +193,29 @@ export async function runNotebookAnalytics(
     return { ...normalizeAnalyticsResponse(mockResp), runtime_mode: "mock-only" };
   }
   let runtimeMode: "live" | "fallback" | "mock-only" = "live";
-  const liveResp = await requestJson({
-    path: "/api/v1/analytics/run",
-    init: { method: "POST", body: JSON.stringify(body) },
-    mock: () => mockRunAnalytics(body),
-    onMockUsed: (mode) => {
-      runtimeMode = mode;
-    },
-    /** При профиле fallback (в т.ч. demo по умолчанию) — только после сетевой/5xx/401 ошибки, не вместо успешного live. */
-    allowFallback: isApiMockFallback()
-  });
+  const requestLive = () =>
+    requestJson({
+      path: "/api/v1/analytics/run",
+      init: { method: "POST", body: JSON.stringify(body) },
+      mock: () => mockRunAnalytics(body),
+      onMockUsed: (mode) => {
+        runtimeMode = mode;
+      },
+      /** При профиле fallback (в т.ч. demo по умолчанию) — только после сетевой/5xx/401 ошибки, не вместо успешного live. */
+      allowFallback: isApiMockFallback()
+    });
+
+  let liveResp: RunNotebookAnalyticsResponseDto;
+  try {
+    liveResp = await requestLive();
+  } catch (error) {
+    const transient =
+      error instanceof TypeError ||
+      (error instanceof ApiError && [500, 502, 503, 504].includes(error.status));
+    if (!transient) throw error;
+    // Разовый ретрай для прокси-обрывов (ECONNRESET/socket hang up) без изменения UX.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    liveResp = await requestLive();
+  }
   return { ...normalizeAnalyticsResponse(liveResp), runtime_mode: runtimeMode };
 }

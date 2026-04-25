@@ -9,26 +9,8 @@ ROLE_ALLOWED_CANONICAL_METRICS: Dict[str, Optional[FrozenSet[str]]] = {
     "admin": None,
     "manager": None,
     "marketer": None,
-    # Executive: без «сырой» выручки/цен и идентификаторов в метриках; только агрегаты операций.
-    "executive": frozenset(
-        {
-            "orders_count",
-            "train_row_count",
-            "distinct_orders",
-            "tenders_count",
-            "done_rides",
-            "cancellations_total",
-            "client_cancellations",
-            "driver_cancellations",
-            "cancellation_rate",
-            "done_conversion",
-            "cancel_before_accept_count",
-            "avg_duration_seconds",
-            "avg_distance_meters",
-            "time_to_accept_seconds",
-            "time_to_arrive_seconds",
-        }
-    ),
+    # Новая политика: без ролевого ограничения на канонические метрики.
+    "executive": None,
 }
 
 # Колонки, которые нельзя светить роли без привилегий (PII-подобные).
@@ -53,4 +35,4 @@ SQL_SENSITIVE_COLUMNS_ALWAYS: FrozenSet[str] = frozenset(
 )
 
 # Роли, которым разрешены чувствительные колонки в SELECT/WHERE (только из SQL_SENSITIVE_COLUMNS, не ALWAYS).
-ROLES_SENSITIVE_COLUMNS_OK: FrozenSet[str] = frozenset({"admin", "manager"})
+ROLES_SENSITIVE_COLUMNS_OK: FrozenSet[str] = frozenset({"admin", "manager", "marketer", "executive"})

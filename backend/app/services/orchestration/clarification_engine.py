@@ -144,6 +144,64 @@ class ClarificationEngine:
         nd = ctx.nondefault_semantic_count
         interp = ctx.interpretation
 
+        if "лучш" in q and ("город" in q or "города" in q) and "канал" not in q:
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="best_cities_vague",
+                clarification_question=(
+                    "Что считать «лучшими городами»: по выручке, количеству заказов, "
+                    "поездкам, конверсии или отменам?"
+                ),
+                clarification_options=list(OPTIONS_SALES_METRICS),
+            )
+
+        if "активност" in q and not re.search(r"пассажир|водител|заказ", q):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="activity_scope_vague",
+                clarification_question="Активность пассажиров, водителей или заказов?",
+                clarification_options=[
+                    ClarificationOption(label="Пассажиры (дневные метрики)", value="passenger_daily_metrics"),
+                    ClarificationOption(label="Водители (дневные метрики)", value="driver_daily_metrics"),
+                    ClarificationOption(label="Заказы (детальные события incity_orders)", value="incity_orders"),
+                ],
+            )
+
+        if "отмен" in q and not re.search(r"клиент|водител|после принят|client|driver", q):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="cancellations_scope_vague",
+                clarification_question=(
+                    "Показать отмены пассажира (timestamp в incity_orders), отмены водителя "
+                    "или отмены после принятия (агрегат client_cancel_after_accept)?"
+                ),
+                clarification_options=[
+                    ClarificationOption(label="Отмены пассажира (clientcancel_timestamp)", value="client_cancel_ts"),
+                    ClarificationOption(label="Отмены водителя (drivercancel_timestamp)", value="driver_cancel_ts"),
+                    ClarificationOption(
+                        label="Отмены после принятия (passenger_daily_metrics)",
+                        value="cancel_after_accept_daily",
+                    ),
+                ],
+            )
+
+        if "конверси" in q and not re.search(r"принят|поезд|тендер", q):
+            return ClarificationResponse(
+                clarification_required=True,
+                clarification_reason="conversion_type_vague",
+                clarification_question=(
+                    "Какую конверсию показать: заказы → поездки, тендеры → принятие или доля отмен после принятия?"
+                ),
+                clarification_options=[
+                    ClarificationOption(label="Заказы → поездки (rides/orders)", value="ride_conversion"),
+                    ClarificationOption(label="Тендеры → принятие (accepted/with tenders)", value="acceptance_rate"),
+                    ClarificationOption(
+                        label="Отмены после принятия / заказы",
+                        value="cancel_after_accept_rate",
+                    ),
+                ],
+            )
+
         if "лучш" in q and "канал" in q:
             return ClarificationResponse(
                 clarification_required=True,

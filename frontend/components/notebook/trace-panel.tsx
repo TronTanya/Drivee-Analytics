@@ -384,7 +384,7 @@ export function TracePanel({
     [buildHorizonOpts]
   );
   const actionBtn =
-    "rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-45";
+    "inline-flex min-h-8 items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wide shadow-[0_1px_0_rgba(0,0,0,0.03)] transition disabled:cursor-not-allowed disabled:opacity-45";
 
   const open = expandAll;
   const si = (model.structuredInterpretation ?? {}) as Record<string, unknown>;
@@ -498,14 +498,14 @@ export function TracePanel({
   return (
     <div
       data-testid="notebook-trace-panel"
-      className={`surface-section flex max-h-[min(85vh,900px)] flex-col shadow-card ${className}`}
+      className={`surface-section flex max-h-[min(85vh,900px)] flex-col overflow-hidden border border-border-subtle/80 bg-surface-card shadow-card ${className}`}
     >
       {/* Не sm:flex-row по viewport: боковая панель trace узкая даже на широком экране — бейджи наезжали на заголовок. */}
-      <div className="flex flex-col gap-3 border-b border-border-subtle bg-surface-muted/35 px-4 py-3">
+      <div className="flex flex-col gap-3 border-b border-border-subtle bg-gradient-to-b from-surface-muted/50 to-surface-card px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 overflow-hidden">
             <p className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">Explainability</p>
-            <p className="break-words text-sm font-semibold text-foreground">Трассировка запроса</p>
+            <p className="break-words text-[22px] font-semibold leading-tight text-foreground">Трассировка запроса</p>
             {hasResolvedSource ? (
               <p className="mt-1 text-[11px] leading-snug text-foreground-secondary">
                 <span className="font-semibold text-foreground-muted">Источник данных:</span>{" "}
@@ -540,80 +540,99 @@ export function TracePanel({
         </div>
       </div>
 
-      <div className="border-b border-border-subtle px-4 py-2">
+      <div className="border-b border-border-subtle bg-surface-muted/15 px-4 py-2.5">
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
           Запуск и контекст
         </p>
-        <div className="flex flex-wrap gap-1.5">
-          {model.clarificationRequested ? (
-            onScrollToClarification ? (
+        <div className="space-y-2">
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Контекст и качество</p>
+            <div className="flex flex-wrap gap-2">
+              {model.clarificationRequested ? (
+                onScrollToClarification ? (
+                  <button
+                    type="button"
+                    className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:border-amber-400 hover:bg-amber-100/60`}
+                    onClick={() => onScrollToClarification()}
+                  >
+                    К уточнению
+                  </button>
+                ) : (
+                  <span
+                    className={`${actionBtn} border-amber-200 bg-amber-50/80 text-amber-950`}
+                    title="Требуется уточнение"
+                  >
+                    Нужно уточнение
+                  </span>
+                )
+              ) : (
+                <span
+                  className={`${actionBtn} border-border-subtle bg-surface-muted text-foreground-secondary`}
+                  title="Статус последнего запуска"
+                >
+                  Без уточнения
+                </span>
+              )}
               <button
                 type="button"
-                className={`${actionBtn} border-amber-300 bg-amber-50 text-amber-950 hover:border-amber-400`}
-                onClick={() => onScrollToClarification()}
+                disabled={!canRerun}
+                title="Перезапуск того же промпта без follow-up памяти ноутбука"
+                className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:bg-brand-50/60 hover:text-brand-900`}
+                onClick={() => void onTraceRerun?.(mergeRerunOpts({ force_fresh_dialogue: true }))}
               >
-                К уточнению
+                Сбросить контекст
               </button>
-            ) : (
-              <span
-                className={`${actionBtn} border-amber-200 bg-amber-50/80 text-amber-950`}
-                title="Требуется уточнение"
+              <button
+                type="button"
+                disabled={!canRerun}
+                title={
+                  model.learnedCorrectionUsed
+                    ? "Перезапуск без learned SQL из общего контекста"
+                    : "Показать пояснение, если learned-коррекция не применялась"
+                }
+                className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:bg-brand-50/60 hover:text-brand-900`}
+                onClick={() => {
+                  if (!canRerun || !onTraceRerun) return;
+                  if (model.learnedCorrectionUsed) {
+                    void onTraceRerun(mergeRerunOpts({ skip_learned_corrections: true }));
+                  } else {
+                    setCopyHint("В этом запуске не применялась learned-коррекция SQL — перезапуск без неё не меняет результат.");
+                  }
+                }}
               >
-                Нужно уточнение
-              </span>
-            )
-          ) : (
-            <span
-              className={`${actionBtn} border-border-subtle bg-surface-muted text-foreground-secondary`}
-              title="Статус последнего запуска"
-            >
-              Без уточнения
-            </span>
-          )}
-          <button
-            type="button"
-            disabled={!canRerun}
-            title="Перезапуск того же промпта без follow-up памяти ноутбука"
-            className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}
-            onClick={() => void onTraceRerun?.(mergeRerunOpts({ force_fresh_dialogue: true }))}
-          >
-            Сбросить контекст
-          </button>
-          <button
-            type="button"
-            disabled={!canRerun}
-            title={
-              model.learnedCorrectionUsed
-                ? "Перезапуск без learned SQL из общего контекста"
-                : "Показать пояснение, если learned-коррекция не применялась"
-            }
-            className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}
-            onClick={() => {
-              if (!canRerun || !onTraceRerun) return;
-              if (model.learnedCorrectionUsed) {
-                void onTraceRerun(mergeRerunOpts({ skip_learned_corrections: true }));
-              } else {
-                setCopyHint("В этом запуске не применялась learned-коррекция SQL — перезапуск без неё не меняет результат.");
-              }
-            }}
-          >
-            Без learned SQL
-          </button>
-          <button
-            type="button"
-            disabled={!canRerun}
-            title="Принудительно включить или выключить числовой прогноз по ряду"
-            className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:text-brand-900`}
-            onClick={() =>
-              void onTraceRerun?.(
-                mergeRerunOpts({
-                  forecast_sidecar: model.forecastModeActive ? "off" : "on"
-                })
-              )
-            }
-          >
-            {model.forecastModeActive ? "Прогноз: выкл" : "Прогноз: вкл"}
-          </button>
+                Без learned SQL
+              </button>
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Прогноз и визуализация</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!canRerun}
+                title="Принудительно включить или выключить числовой прогноз по ряду"
+                className={`${actionBtn} border-border-subtle bg-surface-card text-foreground-secondary hover:border-brand-200 hover:bg-brand-50/60 hover:text-brand-900`}
+                onClick={() =>
+                  void onTraceRerun?.(
+                    mergeRerunOpts({
+                      forecast_sidecar: model.forecastModeActive ? "off" : "on"
+                    })
+                  )
+                }
+              >
+                {model.forecastModeActive ? "Прогноз: выкл" : "Прогноз: вкл"}
+              </button>
+              <button
+                type="button"
+                disabled={!canRerun}
+                title="Перезапуск с подменой типа графика в pipeline"
+                className={`${actionBtn} border-border-subtle bg-surface-muted px-2 py-0.5 font-mono hover:border-brand-200 disabled:cursor-not-allowed disabled:opacity-45`}
+                onClick={() => void onTraceRerun?.(mergeRerunOpts({ chart_type_override: nextChartKind }))}
+              >
+                График: {model.chartRecommendation.chartType} → {nextChartKind}
+              </button>
+            </div>
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <label className="flex min-w-[200px] flex-1 flex-col gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
@@ -638,7 +657,7 @@ export function TracePanel({
             type="button"
             disabled={!canRerun}
             title="Перезапуск с выбранным горизонтом и включённым sidecar прогноза"
-            className={`${actionBtn} shrink-0 border-brand-200 bg-brand-50 text-brand-900 hover:border-brand-300`}
+            className={`${actionBtn} shrink-0 border-brand-200 bg-brand-50 text-brand-900 hover:border-brand-300 hover:bg-brand-100/70`}
             onClick={() => void onTraceRerun?.(mergeRerunOpts({ forecast_sidecar: "on" }))}
           >
             Перезапуск с прогнозом
@@ -649,15 +668,6 @@ export function TracePanel({
           {lastRunHorizon != null ? ` В последнем запуске: ${lastRunHorizon} шаг(ов).` : null}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-foreground-secondary">
-          <button
-            type="button"
-            disabled={!canRerun}
-            title="Перезапуск с подменой типа графика в pipeline"
-            className="rounded-md border border-border-subtle bg-surface-muted px-2 py-0.5 font-mono hover:border-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
-            onClick={() => void onTraceRerun?.(mergeRerunOpts({ chart_type_override: nextChartKind }))}
-          >
-            График: {model.chartRecommendation.chartType} → {nextChartKind}
-          </button>
           {model.forecastModeActive ? (
             <span className="rounded-md border border-border-subtle bg-surface-muted px-2 py-0.5 font-mono">
               Прогноз: {model.forecastMethod ?? "—"}
@@ -690,7 +700,7 @@ export function TracePanel({
         ) : null}
       </div>
 
-      <div className="border-b border-border-subtle px-4 py-2">
+      <div className="border-b border-border-subtle bg-surface-muted/10 px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">Секции</span>
           <button
@@ -737,7 +747,7 @@ export function TracePanel({
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-gradient-to-b from-surface-card to-surface-muted/10 px-4 py-3">
         {!hasBody ? (
           traceActionBusy ? (
             <UiStateSurface

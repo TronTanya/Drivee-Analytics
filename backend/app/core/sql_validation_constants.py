@@ -18,6 +18,7 @@ BLOCKED_SQL_VERBS: FrozenSet[str] = frozenset(
         "replace",
         "grant",
         "revoke",
+        "copy",
     }
 )
 
@@ -119,7 +120,8 @@ ROLE_TABLE_ALLOWLIST: Dict[str, Optional[FrozenSet[str]]] = {
     "admin": None,
     "manager": None,
     "marketer": None,
-    "executive": frozenset({"train"}),
+    # Новая политика: без ролевых ограничений по таблицам для аналитических SELECT.
+    "executive": None,
 }
 
 # role_key -> table -> allowed columns (None = no extra column restriction for this role)
@@ -127,34 +129,8 @@ ROLE_COLUMN_ALLOWLIST: Dict[str, Optional[Dict[str, FrozenSet[str]]]] = {
     "admin": None,
     "manager": None,
     "marketer": None,
-    "executive": {
-        "train": frozenset(
-            {
-                "city_id",
-                "offset_hours",
-                "order_id",
-                "tender_id",
-                "status_order",
-                "status_tender",
-                "order_timestamp",
-                "tender_timestamp",
-                "driveraccept_timestamp",
-                "driverarrived_timestamp",
-                "driverstarttheride_timestamp",
-                "driverdone_timestamp",
-                "clientcancel_timestamp",
-                "drivercancel_timestamp",
-                "order_modified_local",
-                "cancel_before_accept_local",
-                "distance_in_meters",
-                "duration_in_seconds",
-                "price_order_local",
-                "price_tender_local",
-                "price_start_local",
-                "order_channel",
-            }
-        ),
-    },
+    # Новая политика: без ролевого column allowlist в SQL validator.
+    "executive": None,
 }
 
 DEFAULT_ROLE_FALLBACK: str = "manager"

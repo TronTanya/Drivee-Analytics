@@ -78,7 +78,12 @@ export function ScenariosHomeContent() {
     queryFn: fetchNotebooks,
     placeholderData: MOCK_NOTEBOOKS
   });
-  const notebooks = (data ?? []).filter((n) => !n.role_hint || n.role_hint === session.role);
+  const notebooks = (data ?? []).filter((n) => {
+    // Совместимость с backend: в текущей модели notebooks поле role_hint не гарантировано.
+    // Если role_hint отсутствует, сценарий должен отображаться всем ролям, чтобы не терять список.
+    if (!n.role_hint) return true;
+    return n.role_hint === session.role;
+  });
 
   const startRename = (notebook: NotebookListItem) => {
     setListNotice(null);
@@ -111,6 +116,7 @@ export function ScenariosHomeContent() {
     try {
       const nb = await createNotebook.mutateAsync({
         title: `Новый сценарий · ${new Date().toLocaleString("ru-RU")}`,
+        role_hint: session.role,
         ...(wid ? { workspace_id: wid } : {})
       });
       router.push(`/notebooks/${nb.id}` as Route);

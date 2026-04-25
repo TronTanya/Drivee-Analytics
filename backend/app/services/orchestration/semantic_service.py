@@ -24,6 +24,9 @@ class SemanticService:
     def primary_metric_sql(self, resolutions: list[SemanticTermResolution]) -> str:
         return self._store.primary_metric_sql(resolutions)
 
+    def primary_source_table(self, resolutions: list[SemanticTermResolution]) -> str:
+        return self._store.primary_source_table(resolutions)
+
     def needs_marketing_join(self, query: str) -> bool:
         return self._store.needs_marketing_join(query)
 

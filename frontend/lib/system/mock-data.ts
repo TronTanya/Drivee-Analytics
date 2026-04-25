@@ -89,6 +89,16 @@ export type QueryTemplateRow = {
   target_role_key?: UserRole | null;
   /** Маршрут канвы сценария */
   runHref: Route;
+  /** Доп. блок для demo: как система интерпретировала вопрос. */
+  interpretedIntent?: string;
+  /** Превью табличного результата для карточки demo. */
+  tableResultPreview?: Array<Record<string, string | number | null>>;
+  /** Уверенность NL→SQL для demo-кейса. */
+  confidenceScore?: number;
+  /** Explainability trace шаги для demo-кейса. */
+  explainabilityTrace?: string[];
+  /** Короткий insight для demo-кейса. */
+  shortInsight?: string;
 };
 
 export function queryTemplateRowToDto(row: QueryTemplateRow): QueryTemplateDto {
@@ -342,6 +352,36 @@ export const MOCK_QUERY_TEMPLATES: QueryTemplateRow[] = [
     runHref: r("/notebooks/template-governance")
   },
   {
+    id: "qt-admin-drivee-pass-daily",
+    name: "Drivee: средние дневные заказы пассажира по городам",
+    description: "Дневной агрегат pass_detail → таблица passenger_daily_metrics (после импорта CSV).",
+    question: "Покажи по городам среднее число дневных заказов пассажира в passenger_daily_metrics",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "bar",
+    business_value: "Связка заказов (train) с дневными профилями пассажиров (Drivee CSV).",
+    tags: ["Drivee", "pass_detail", "админ"],
+    reusable_scenario: false,
+    notebookId: "template-governance",
+    sql: "SELECT city_id, AVG(orders_count)::numeric(18,4) AS avg_daily_orders FROM public.passenger_daily_metrics GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 20",
+    runHref: r("/notebooks/template-governance")
+  },
+  {
+    id: "qt-admin-drivee-driver-daily",
+    name: "Drivee: сумма поездок водителей по городам",
+    description: "Дневной агрегат driver_detail → таблица driver_daily_metrics.",
+    question: "Покажи по городам сумму rides_count из дневных метрик водителей",
+    role: "admin",
+    target_role_key: "admin",
+    expected_chart: "bar",
+    business_value: "География активности водителей по завершённым поездкам.",
+    tags: ["Drivee", "driver_detail", "админ"],
+    reusable_scenario: false,
+    notebookId: "template-governance",
+    sql: "SELECT city_id, SUM(rides_count)::numeric(18,2) AS rides_sum FROM public.driver_daily_metrics GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 20",
+    runHref: r("/notebooks/template-governance")
+  },
+  {
     id: "qt-revenue-city-last-week",
     name: "Выручка по городам за прошлую неделю",
     description: "Сумма price_order_local по city_id в окне прошлой календарной недели.",
@@ -580,6 +620,270 @@ export const MOCK_QUERY_TEMPLATES: QueryTemplateRow[] = [
     notebookId: "ops-health",
     sql: "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders, SUM(price_order_local)::numeric(18,2) AS revenue, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) GROUP BY 1 ORDER BY 1",
     runHref: r("/notebooks/ops-health")
+  },
+  {
+    id: "drivee-demo-01-revenue-city-week",
+    name: "Drivee Demo: выручка по городам (7 дней)",
+    description: "Демо-кейс incity_orders: выручка по городам за последнюю неделю.",
+    question: "Покажи выручку по городам за последнюю неделю",
+    role: "manager",
+    expected_chart: "bar",
+    business_value: "Быстрое сравнение вкладов городов в revenue.",
+    tags: ["drivee", "demo", "revenue", "city"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id, SUM(price_order_local) AS revenue FROM incity_orders WHERE order_timestamp >= CURRENT_DATE - INTERVAL '7 days' GROUP BY city_id ORDER BY revenue DESC",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "trend + comparison (метрика revenue, группировка city_id, период 7 дней)",
+    confidenceScore: 0.92,
+    shortInsight: "Города-лидеры формируют основную долю недельной выручки.",
+    tableResultPreview: [{ city_id: "67", revenue: 1245030.5 }, { city_id: "12", revenue: 984210.2 }, { city_id: "78", revenue: 745430.9 }],
+    explainabilityTrace: [
+      "Метрика: выручка → SUM(price_order_local)",
+      "Группировка: по городам → GROUP BY city_id",
+      "Период: последняя неделя → CURRENT_DATE - INTERVAL '7 days'",
+      "Источник: incity_orders",
+      "График: bar",
+      "SQL validation: passed",
+      "Confidence: 0.92"
+    ]
+  },
+  {
+    id: "drivee-demo-02-orders-daily",
+    name: "Drivee Demo: динамика заказов по дням",
+    description: "Демо-кейс incity_orders: количество заказов по дням.",
+    question: "Покажи динамику заказов по дням",
+    role: "manager",
+    expected_chart: "line",
+    business_value: "Понимание краткосрочных колебаний спроса.",
+    tags: ["drivee", "demo", "orders", "trend"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT DATE(order_timestamp) AS date, COUNT(DISTINCT order_id) AS orders_count FROM incity_orders GROUP BY DATE(order_timestamp) ORDER BY date",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "trend (метрика orders_count, временная ось day)",
+    confidenceScore: 0.9,
+    shortInsight: "После выходных заметен рост дневного объёма заказов.",
+    tableResultPreview: [{ date: "2026-04-18", orders_count: 18234 }, { date: "2026-04-19", orders_count: 17601 }, { date: "2026-04-20", orders_count: 19102 }],
+    explainabilityTrace: [
+      "Метрика: заказы → COUNT(DISTINCT order_id)",
+      "Временной срез: по дням → DATE(order_timestamp)",
+      "Источник: incity_orders",
+      "График: line",
+      "Guardrails: select-only, whitelist tables",
+      "SQL validation: passed",
+      "Confidence: 0.90"
+    ]
+  },
+  {
+    id: "drivee-demo-03-active-passengers-city",
+    name: "Drivee Demo: активные пассажиры по городам",
+    description: "Демо-кейс passenger_daily_metrics: активные пассажиры.",
+    question: "Покажи активных пассажиров по городам",
+    role: "manager",
+    expected_chart: "bar",
+    business_value: "Показывает где выше вовлечённость клиентской базы.",
+    tags: ["drivee", "demo", "passengers", "city"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id, COUNT(DISTINCT user_id) AS active_passengers FROM passenger_daily_metrics WHERE orders_count > 0 GROUP BY city_id ORDER BY active_passengers DESC",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "comparison (активность пассажиров по city_id)",
+    confidenceScore: 0.88,
+    shortInsight: "Топ-города по активным пассажирам совпадают с лидерами по заказам.",
+    tableResultPreview: [{ city_id: "67", active_passengers: 58214 }, { city_id: "12", active_passengers: 44301 }, { city_id: "78", active_passengers: 31804 }],
+    explainabilityTrace: [
+      "Сущность: активные пассажиры → COUNT(DISTINCT user_id) WHERE orders_count > 0",
+      "Группировка: city_id",
+      "Источник: passenger_daily_metrics",
+      "График: bar",
+      "SQL validation: passed",
+      "Confidence: 0.88"
+    ]
+  },
+  {
+    id: "drivee-demo-04-active-drivers-day",
+    name: "Drivee Demo: активные водители по дням",
+    description: "Демо-кейс driver_daily_metrics: активные водители по дням.",
+    question: "Покажи активных водителей по дням",
+    role: "manager",
+    expected_chart: "line",
+    business_value: "Контроль supply-плеча по дням.",
+    tags: ["drivee", "demo", "drivers", "trend"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT tender_date_part AS date, COUNT(DISTINCT driver_id) AS active_drivers FROM driver_daily_metrics WHERE online_time_sum_seconds > 0 GROUP BY tender_date_part ORDER BY date",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "trend (активность водителей во времени)",
+    confidenceScore: 0.89,
+    shortInsight: "Активность водителей растёт в пиковые дни спроса.",
+    tableResultPreview: [{ date: "2026-04-18", active_drivers: 12704 }, { date: "2026-04-19", active_drivers: 13210 }, { date: "2026-04-20", active_drivers: 13802 }],
+    explainabilityTrace: [
+      "Сущность: активные водители → COUNT(DISTINCT driver_id) WHERE online_time_sum_seconds > 0",
+      "Временной срез: tender_date_part",
+      "Источник: driver_daily_metrics",
+      "График: line",
+      "SQL validation: passed",
+      "Confidence: 0.89"
+    ]
+  },
+  {
+    id: "drivee-demo-05-cancel-after-accept",
+    name: "Drivee Demo: отмены после принятия",
+    description: "Демо-кейс passenger_daily_metrics: отмены после принятия.",
+    question: "Покажи отмены пассажиров после принятия",
+    role: "manager",
+    expected_chart: "line",
+    business_value: "Показатель потерь после стадии принятия заказа.",
+    tags: ["drivee", "demo", "cancel", "trend"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT order_date_part AS date, SUM(client_cancel_after_accept) AS cancels_after_accept FROM passenger_daily_metrics GROUP BY order_date_part ORDER BY date",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "trend (cancel_after_accept по дням)",
+    confidenceScore: 0.87,
+    shortInsight: "Нужно проверить города с пиками post-accept cancel.",
+    tableResultPreview: [{ date: "2026-04-18", cancels_after_accept: 420 }, { date: "2026-04-19", cancels_after_accept: 398 }, { date: "2026-04-20", cancels_after_accept: 451 }],
+    explainabilityTrace: [
+      "Метрика: отмены после принятия → SUM(client_cancel_after_accept)",
+      "Временной срез: order_date_part",
+      "Источник: passenger_daily_metrics",
+      "График: line",
+      "SQL validation: passed",
+      "Confidence: 0.87"
+    ]
+  },
+  {
+    id: "drivee-demo-06-ride-conversion",
+    name: "Drivee Demo: конверсия заказов в поездки",
+    description: "Демо-кейс passenger_daily_metrics: ride conversion по городам.",
+    question: "Покажи конверсию заказов в поездки",
+    role: "manager",
+    expected_chart: "bar",
+    business_value: "Сравнение эффективности выполнения заказов по городам.",
+    tags: ["drivee", "demo", "conversion"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id, SUM(rides_count)::numeric / NULLIF(SUM(orders_count), 0) AS ride_conversion FROM passenger_daily_metrics GROUP BY city_id ORDER BY ride_conversion DESC",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "comparison (ratio metric ride_conversion)",
+    confidenceScore: 0.9,
+    shortInsight: "Разница конверсии по городам указывает на локальные операционные факторы.",
+    tableResultPreview: [{ city_id: "67", ride_conversion: 0.82 }, { city_id: "12", ride_conversion: 0.79 }, { city_id: "78", ride_conversion: 0.76 }],
+    explainabilityTrace: [
+      "Метрика: ride_conversion = SUM(rides_count)/SUM(orders_count)",
+      "Группировка: city_id",
+      "Источник: passenger_daily_metrics",
+      "График: bar",
+      "Guardrails: role-safe aggregated output",
+      "Confidence: 0.90"
+    ]
+  },
+  {
+    id: "drivee-demo-07-avg-order-price-city",
+    name: "Drivee Demo: средняя стоимость поездки по городам",
+    description: "Демо-кейс incity_orders: AVG(price_order_local).",
+    question: "Покажи среднюю стоимость поездки по городам",
+    role: "manager",
+    expected_chart: "bar",
+    business_value: "Сравнение ценовой структуры между городами.",
+    tags: ["drivee", "demo", "avg_price"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id, AVG(price_order_local) AS avg_order_price FROM incity_orders WHERE price_order_local IS NOT NULL GROUP BY city_id ORDER BY avg_order_price DESC",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "ranking (avg order price by city)",
+    confidenceScore: 0.91,
+    shortInsight: "Города с высоким средним чеком требуют отдельной pricing-стратегии.",
+    tableResultPreview: [{ city_id: "67", avg_order_price: 3120.5 }, { city_id: "12", avg_order_price: 2860.1 }, { city_id: "78", avg_order_price: 2510.6 }],
+    explainabilityTrace: [
+      "Метрика: средняя стоимость поездки → AVG(price_order_local)",
+      "Группировка: city_id",
+      "Источник: incity_orders",
+      "График: bar",
+      "SQL validation: passed",
+      "Confidence: 0.91"
+    ]
+  },
+  {
+    id: "drivee-demo-08-top10-rides-city",
+    name: "Drivee Demo: топ-10 городов по поездкам",
+    description: "Демо-кейс passenger_daily_metrics: SUM(rides_count), top 10.",
+    question: "Покажи топ-10 городов по количеству поездок",
+    role: "manager",
+    expected_chart: "horizontal_bar",
+    business_value: "Ранжирование крупнейших ride-хабов.",
+    tags: ["drivee", "demo", "top10", "rides"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id, SUM(rides_count) AS rides_count FROM passenger_daily_metrics GROUP BY city_id ORDER BY rides_count DESC LIMIT 10",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "ranking (top cities by rides)",
+    confidenceScore: 0.93,
+    shortInsight: "Первые 10 городов аккумулируют основной объём поездок.",
+    tableResultPreview: [{ city_id: "67", rides_count: 185002 }, { city_id: "12", rides_count: 142889 }, { city_id: "78", rides_count: 120311 }],
+    explainabilityTrace: [
+      "Метрика: поездки → SUM(rides_count)",
+      "Ранжирование: ORDER BY rides_count DESC LIMIT 10",
+      "Источник: passenger_daily_metrics",
+      "График: horizontal_bar",
+      "SQL validation: passed",
+      "Confidence: 0.93"
+    ]
+  },
+  {
+    id: "drivee-demo-09-driver-online-hours",
+    name: "Drivee Demo: среднее время онлайн водителей",
+    description: "Демо-кейс driver_daily_metrics: avg online hours by city.",
+    question: "Покажи среднее время онлайн водителей",
+    role: "manager",
+    expected_chart: "bar",
+    business_value: "Контроль фактического driver supply по городам.",
+    tags: ["drivee", "demo", "online", "drivers"],
+    reusable_scenario: true,
+    notebookId: "ops-health",
+    sql: "SELECT city_id, AVG(online_time_sum_seconds) / 3600.0 AS avg_online_hours FROM driver_daily_metrics GROUP BY city_id ORDER BY avg_online_hours DESC",
+    runHref: r("/notebooks/ops-health"),
+    interpretedIntent: "comparison (avg online hours by city)",
+    confidenceScore: 0.88,
+    shortInsight: "Разброс по online-hours указывает на неравномерность supply.",
+    tableResultPreview: [{ city_id: "67", avg_online_hours: 6.4 }, { city_id: "12", avg_online_hours: 5.9 }, { city_id: "78", avg_online_hours: 5.1 }],
+    explainabilityTrace: [
+      "Метрика: avg_online_hours = AVG(online_time_sum_seconds)/3600",
+      "Группировка: city_id",
+      "Источник: driver_daily_metrics",
+      "График: bar",
+      "SQL validation: passed",
+      "Confidence: 0.88"
+    ]
+  },
+  {
+    id: "drivee-demo-10-forecast-orders-7d",
+    name: "Drivee Demo: прогноз заказов на 7 дней",
+    description: "Демо-кейс прогноза: дневной ряд + baseline forecast.",
+    question: "Спрогнозируй количество заказов на следующие 7 дней",
+    role: "executive",
+    target_role_key: "executive",
+    expected_chart: "line",
+    business_value: "Короткий прогноз для планирования ресурсов и KPI.",
+    tags: ["drivee", "demo", "forecast", "orders"],
+    reusable_scenario: false,
+    notebookId: "strategy-board",
+    sql: "SELECT DATE(order_timestamp) AS date, COUNT(DISTINCT order_id) AS orders_count FROM incity_orders WHERE order_timestamp >= CURRENT_DATE - INTERVAL '60 days' GROUP BY DATE(order_timestamp) ORDER BY date",
+    runHref: r("/notebooks/strategy-board"),
+    interpretedIntent: "forecast (orders_count, horizon=7d)",
+    confidenceScore: 0.84,
+    shortInsight: "Прогноз показывает умеренный рост, но требует проверки качества ряда.",
+    tableResultPreview: [{ date: "2026-04-26", orders_count: 19320 }, { date: "2026-04-27", orders_count: 19510 }, { date: "2026-04-28", orders_count: 19740 }],
+    explainabilityTrace: [
+      "Метрика: заказы → COUNT(DISTINCT order_id)",
+      "Историческое окно: последние 60 дней",
+      "Forecast layer: horizon 7 days",
+      "Источник: incity_orders",
+      "График: line + forecast layer",
+      "SQL validation: passed",
+      "Confidence: 0.84"
+    ]
   }
 ];
 

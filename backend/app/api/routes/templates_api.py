@@ -45,6 +45,28 @@ def _template_run_cache_key(
     return f"{template_id}:{workspace_id}:{user_id}:{h}"
 
 
+def _explainability_steps_from_trace(full_trace: dict | None) -> list[str]:
+    if not isinstance(full_trace, dict):
+        return []
+    ht = full_trace.get("human_trace")
+    if not isinstance(ht, dict):
+        return []
+    keys = (
+        "intent_explanation",
+        "metric_explanation",
+        "grouping_explanation",
+        "period_explanation",
+        "chart_explanation",
+        "sql_safety_explanation",
+    )
+    out: list[str] = []
+    for k in keys:
+        v = str(ht.get(k) or "").strip()
+        if v:
+            out.append(v)
+    return out[:7]
+
+
 def _require_workspace(session: Session, user_id: uuid.UUID, workspace_id: uuid.UUID) -> None:
     if not WorkspaceRepository(session).user_has_workspace_access(user_id, workspace_id):
         raise ForbiddenException("No access to this workspace")
@@ -104,6 +126,13 @@ def quick_run_template(
                 table_records=rows_safe,
                 confidence=0.9,
                 warnings=list(exec_res.validation_warnings),
+                interpreted_intent=f"template_sql:{tpl.template_key}",
+                trace_summary="Прямой SQL template run (без NL-оркестрации).",
+                explainability_trace=[
+                    "Источник: SQL template из query_templates.",
+                    f"Роль: {role_key or 'unknown'}.",
+                    "SQL прошёл validation и выполнен напрямую.",
+                ],
             )
         else:
             # Safety fallback: если прямой SQL шаблона не прошёл валидацию/исполнение,
@@ -129,6 +158,9 @@ def quick_run_template(
                 table_records=list(fallback_result.table_records),
                 confidence=fallback_result.confidence,
                 warnings=fallback_warnings,
+                interpreted_intent=str((fallback_result.parsed or {}).get("intent") or ""),
+                trace_summary=fallback_result.trace_summary or "",
+                explainability_trace=_explainability_steps_from_trace(fallback_result.full_trace),
             )
     else:
         result = analyze_natural_language(
@@ -148,6 +180,9 @@ def quick_run_template(
             table_records=list(result.table_records),
             confidence=result.confidence,
             warnings=list(result.warnings),
+            interpreted_intent=str((result.parsed or {}).get("intent") or ""),
+            trace_summary=result.trace_summary or "",
+            explainability_trace=_explainability_steps_from_trace(result.full_trace),
         )
     if resp.execution_status == "succeeded":
         _template_quick_run_cache().set(ck, resp.model_dump(mode="json"))

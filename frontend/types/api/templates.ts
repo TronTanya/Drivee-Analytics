@@ -42,4 +42,7 @@ export type QuickRunTemplateResultDto = {
   chart_type: string;
   warnings?: string[];
   table_records?: Array<Record<string, unknown>>;
+  interpreted_intent?: string;
+  trace_summary?: string;
+  explainability_trace?: string[];
 };

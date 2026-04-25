@@ -43,6 +43,20 @@ def test_share_conversion_donut(charts: ChartRecommendationService) -> None:
     assert "table" in viz.alternative_chart_types
 
 
+def test_keyword_dolya_prefers_donut_even_without_share_intent(charts: ChartRecommendationService) -> None:
+    rows = [{"city_id": "1", "cancel_share": 0.12}, {"city_id": "2", "cancel_share": 0.18}]
+    cols = ["city_id", "cancel_share"]
+    viz = charts.recommend("summary", cols, rows, effective_query="покажи долю отмен по городам")
+    assert viz.recommended_chart_type == "donut"
+
+
+def test_keyword_izmenenie_prefers_line(charts: ChartRecommendationService) -> None:
+    rows = [{"date": "2026-04-01", "value": 10}, {"date": "2026-04-02", "value": 15}]
+    cols = ["date", "value"]
+    viz = charts.recommend("summary", cols, rows, effective_query="покажи изменение заказов по дням")
+    assert viz.recommended_chart_type == "line"
+
+
 def test_fixture_orders_profile_numeric_columns(charts: ChartRecommendationService) -> None:
     slim = [{k: v for k, v in row.items() if k in ("order_timestamp", "price_order_local", "status_order")} for row in DEMO_ORDER_ROWS]
     cols = list(slim[0].keys())

@@ -26,6 +26,14 @@ _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
     ("train_row_count", ("количество запис", "число строк", "row count", "строк датасет", "records count")),
     ("sum_order_price", ("выручк", "revenue", "сумм", "оборот", "gmv")),
     ("avg_order_price", ("средн чек", "средний чек", "средн стоимость", "average price", "avg price")),
+    ("ride_conversion", ("конверсия в поезд", "orders to rides", "ride conversion")),
+    ("acceptance_rate", ("конверсия в принят", "acceptance rate", "accepted/with tenders")),
+    ("cancel_after_accept_rate", ("отмен после принят", "cancel after accept", "cancel rate")),
+    ("avg_trip_distance_km", ("среднее расстояние", "avg distance", "distance km")),
+    ("avg_trip_duration_min", ("средняя длительность", "avg duration", "duration min", "среднее время поездки")),
+    ("driver_online_hours", ("онлайн водител", "время онлайн водителей", "driver online hours")),
+    ("passenger_online_hours", ("онлайн пассажир", "время онлайн пассажиров", "passenger online hours")),
+    ("completed_rides", ("completed rides", "завершенные поездки", "выполненные поездки")),
     ("done_conversion", ("конверс", "conversion")),
     ("tenders_count", ("тендер", "tender")),
 ]
@@ -361,7 +369,13 @@ class SemanticParser:
     ) -> str:
         if "order_channel" in dimensions and intent in ("ranking", "comparison"):
             return "bar"
-        if intent == "trend" or "по дням" in ql or "динамик" in ql:
+        if any(x in ql for x in ("доля", "структур", "процент")):
+            return "pie"
+        if any(x in ql for x in ("рейтинг", "топ")):
+            return "horizontal_bar"
+        if "прогноз" in ql:
+            return "line"
+        if intent == "trend" or any(x in ql for x in ("по дням", "динамик", "тренд", "изменени")):
             return "line"
         if intent == "share":
             return "pie"

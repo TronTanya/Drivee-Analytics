@@ -174,6 +174,9 @@ class TemplateQuickRunResponse(BaseModel):
     table_records: list[dict[str, Any]] = Field(default_factory=list)
     confidence: float = 0.0
     warnings: list[str] = Field(default_factory=list)
+    interpreted_intent: str = ""
+    trace_summary: str = ""
+    explainability_trace: list[str] = Field(default_factory=list)
 
 
 class HistoryItemResponse(BaseModel):
