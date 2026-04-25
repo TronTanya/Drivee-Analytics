@@ -59,7 +59,32 @@ pgAdmin:
 - URL: http://localhost:5050
 - credentials from `.env` (`PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD`)
 
-## 4) Загрузить свой `train.csv` в Postgres (например ~16k строк)
+## 4) Полный `train.csv` при каждом старте backend (Docker)
+
+В корневом `.env` задайте абсолютный путь к файлу на хосте:
+
+```bash
+HOST_TRAIN_CSV_PATH=/Users/you/Downloads/train.csv
+SKIP_DEMO_TRAIN_SEED=true
+EXTERNAL_TRAIN_CSV_LIMIT=-1
+```
+
+Compose смонтирует этот файл в контейнер как `/data/train.csv`; команда старта backend вызывает `import_train_csv.py --replace --limit -1` (вся выборка из файла). Описание колонок: **`docs/datasets/train-column-reference-ru.md`**.
+
+**Если в ответах всё ещё «как из 10 строк»:** импорт при старте выполняется **только при запуске** entrypoint-цепочки контейнера `backend`. После смены `HOST_TRAIN_CSV_PATH` обязательно пересоздайте сервис:  
+`docker compose up -d --force-recreate --no-deps backend`  
+Иначе в БД останется старый набор (например `train_minimal`). Без пересоздания можно один раз залить CSV вручную:
+
+```bash
+docker compose run --rm -v "$HOME/Downloads/train.csv:/import/train.csv:ro" backend \
+  python scripts/import_train_csv.py --path /import/train.csv --replace --limit -1
+```
+
+Строки с пустыми обязательными полями (`order_id`, `tender_id`, …) **отбрасываются** — в логе будет `Warning: dropped N rows`.
+
+Для больших файлов (сотни тысяч строк) в `backend/.env` уже имеет смысл поднять `SQL_DEFAULT_LIMIT`, `SQL_EXECUTION_HARD_ROW_CAP`, `SQL_TIMEOUT_SECONDS` — см. комментарии в `backend/.env.example`.
+
+## 5) Загрузить свой `train.csv` в Postgres вручную (например ~16k строк)
 
 Файл должен иметь те же колонки, что и экспорт (см. `anonymized_incity_orders` / `bootstrap_drivee.sql`).  
 `public.train` — это VIEW: данные пишутся в **`anonymized_incity_orders`**.
@@ -87,7 +112,7 @@ docker compose run --rm -v "$HOME/Downloads/train.csv:/import/train.csv:ro" \
   `docker compose up -d --force-recreate --no-deps backend`
 - Для тяжёлого полного импорта увеличьте в **`backend/.env`** таймаут и лимиты SQL (см. комментарии в **`backend/.env.example`**).
 
-## 5) Migrations and seed commands
+## 6) Migrations and seed commands
 
 ```bash
 make migrate

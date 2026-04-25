@@ -33,3 +33,6 @@ blob-report/
 # Quality Center local eval runs (генерируются POST /evaluation/quality/run)
 backend/app/evals/runs/
 
+# Локальный отчёт `make eval` / evals/run_nl_sql_eval.py
+backend/evals/results/
+

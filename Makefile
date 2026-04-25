@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell restart-stack demo-live smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live test-backend test-frontend test-security test-golden test-demo test-all
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell restart-stack demo-live smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live eval test-backend test-frontend test-security test-golden test-demo test-all
 
 up:
 	$(DC) up --build
@@ -101,6 +101,10 @@ test-nl-sql-quality:
 # Drivee Quality Center: CLI прогон всех suite с порогом качества (exit 1 если ниже).
 quality-eval:
 	$(DC) run --rm backend python scripts/run_quality_evals.py --suite all --mode deterministic --fail-under 0.85
+
+# Golden NL→SQL: тот же orchestrator, что API `/evaluation/nl-sql/run`; отчёт в backend/evals/results/latest_eval_results.json
+eval:
+	$(DC) run --rm backend python evals/run_nl_sql_eval.py --mode mock
 
 quality-eval-live:
 	$(DC) run --rm backend python scripts/run_quality_evals.py --suite all --mode live --fail-under 0.85

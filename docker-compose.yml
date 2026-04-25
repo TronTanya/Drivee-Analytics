@@ -76,11 +76,15 @@ services:
       backend:
         condition: service_healthy
     environment:
-      # Для долгих analytics/run избегаем таймаутов Next proxy: браузер ходит в backend напрямую.
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      # По умолчанию same-origin: запросы идут на /api/* → Next rewrites → backend (CORS в браузере не нужен).
+      # Для прямого вызова :8000 с хоста задайте NEXT_PUBLIC_API_URL=http://localhost:8000 и корректный BACKEND_CORS_ORIGINS.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-same-origin}
       API_PROXY_TARGET: ${API_PROXY_TARGET:-http://backend:8000}
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://backend:8000}
       NEXT_PUBLIC_API_MOCK: ${NEXT_PUBLIC_API_MOCK:-false}
+      # Для Playwright / офлайн: NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK=true (мгновенный mockRunAnalytics).
+      NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+      NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK: ${NEXT_PUBLIC_DEMO_FORCE_ANALYTICS_MOCK:-false}
       CHOKIDAR_USEPOLLING: "true"
     command: npm run dev -- -H 0.0.0.0 -p 3000
     # 3000 на хосте часто занят локальным `npm run dev` — по умолчанию 3001.
