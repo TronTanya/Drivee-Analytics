@@ -126,7 +126,10 @@ class ClarificationEngine:
             return rules_response
 
         # Keep deterministic behaviour for explicit metric wording.
-        if llm.clarification_required and self._has_explicit_metric(ctx.effective_query):
+        if llm.clarification_required and (
+            self._has_explicit_metric(ctx.effective_query)
+            or self._has_explicit_two_stage_conversion(ctx.effective_query)
+        ):
             return rules_response
 
         if llm.clarification_required:
@@ -167,7 +170,10 @@ class ClarificationEngine:
                 ],
             )
 
-        if "отмен" in q and not re.search(r"клиент|водител|после принят|client|driver", q):
+        if "отмен" in q and not re.search(
+            r"клиент|пассажир|водител|после принят|после старт|после начал|после начала поезд|client|driver",
+            q,
+        ):
             return ClarificationResponse(
                 clarification_required=True,
                 clarification_reason="cancellations_scope_vague",
@@ -411,6 +417,15 @@ class ClarificationEngine:
         return bool(
             re.search(r"количеств\w*\s+отмен", q)
             or re.search(r"отмен[её]н\w*\s+заказ", q)
+            or re.search(r"отмен\w*.*после\s+(старт|начал|начала)\w*", q)
             or "cancelled orders" in q
             or "total cancellations" in q
         )
+
+    @staticmethod
+    def _has_explicit_two_stage_conversion(query: str) -> bool:
+        q = query.lower()
+        has_conversion = "конверси" in q or "conversion" in q
+        has_accept_stage = bool(re.search(r"принят|accepted|acceptance|тендер", q))
+        has_complete_stage = bool(re.search(r"заверш|поездк|ride|done", q))
+        return has_conversion and has_accept_stage and has_complete_stage

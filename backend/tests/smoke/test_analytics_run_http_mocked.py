@@ -29,10 +29,12 @@ def client_analytics_mocked(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     user = SimpleNamespace(id=uuid.uuid4(), email="smoke-http@test.local", is_active=True, role=role)
     app.dependency_overrides[get_current_active_user] = lambda: user
 
+    monkeypatch.setattr(ap.settings, "ds_default_source_table", "public.incity_orders")
+
     def fake_analyze(prompt: str, **_: object) -> NaturalLanguageAnalysisResult:
         return NaturalLanguageAnalysisResult(
             prompt=prompt,
-            safe_sql="SELECT city_id, cancelled FROM public.train LIMIT 3",
+            safe_sql="SELECT city_id, cancelled FROM public.incity_orders LIMIT 3",
             table_records=[{"city_id": 1, "cancelled": 2}],
             chart_hint="Bar",
             chart_type="bar",
@@ -43,7 +45,7 @@ def client_analytics_mocked(monkeypatch: pytest.MonkeyPatch) -> TestClient:
             trace_summary="smoke",
             confidence=0.9,
             warnings=[],
-            used_tables=["public.train"],
+            used_tables=["public.incity_orders"],
             used_columns=["city_id", "cancelled"],
             parsed={"intent": "ranking", "metric": "cancelled"},
             full_trace={
@@ -58,6 +60,7 @@ def client_analytics_mocked(monkeypatch: pytest.MonkeyPatch) -> TestClient:
                 },
             },
             execution_status="succeeded",
+            resolved_source_table="public.incity_orders",
         )
 
     monkeypatch.setattr(ap, "analyze_natural_language", fake_analyze)
@@ -82,7 +85,7 @@ def test_analytics_run_http_returns_trace_and_forecast_cell(client_analytics_moc
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["notebook_id"] == "smoke-http-nb"
-    assert body.get("resolved_source_table") == "public.train"
+    assert body.get("resolved_source_table") == "public.incity_orders"
     assert body["question"] == "топ городов по отменам"
     assert isinstance(body.get("cells"), list)
     types = [c["type"] for c in body["cells"]]

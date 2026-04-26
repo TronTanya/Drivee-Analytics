@@ -27,20 +27,68 @@ class CancellationMetricResolutionTests(unittest.TestCase):
 
     def test_clarification_ignores_llm_override_for_explicit_metric(self) -> None:
         semantic = SemanticService()
-        resolutions = semantic.resolve("Покажи топ-1 города по количеству отменённых заказов")
+        query = "Количество отмен пассажира в мае 2025"
+        resolutions = semantic.resolve(query)
         nd = sum(1 for r in resolutions if r.surface_form != "default")
         engine = ClarificationEngine(llm_service=_FakeLLMService())
         response = engine.evaluate(
             ClarificationContext(
-                effective_query="Покажи топ-1 города по количеству отменённых заказов",
-                intent="ranking",
-                entities={"top_n": 1, "time_grain": "month", "metric_hint": "cancellations_total"},
+                effective_query=query,
+                intent="summary",
+                entities={"time_grain": "month", "metric_hint": "cancellations_total"},
                 resolutions=resolutions,
                 nondefault_semantic_count=nd,
-                intent_signals=["keyword:ranking:топ"],
+                intent_signals=[],
             )
         )
         self.assertFalse(response.clarification_required)
+
+    def test_clarification_ignores_llm_for_explicit_two_stage_conversion(self) -> None:
+        semantic = SemanticService()
+        query = (
+            "Какая конверсия составляет в два основных этапа у пассажиров "
+            "(в принятие заказа, в завершении поездки) по всей сети за Июнь 2025 год"
+        )
+        resolutions = semantic.resolve(query)
+        nd = sum(1 for r in resolutions if r.surface_form != "default")
+        engine = ClarificationEngine(llm_service=_FakeLLMService())
+        response = engine.evaluate(
+            ClarificationContext(
+                effective_query=query,
+                intent="summary",
+                entities={"time_grain": "month"},
+                resolutions=resolutions,
+                nondefault_semantic_count=nd,
+                intent_signals=[],
+            )
+        )
+        self.assertFalse(response.clarification_required)
+
+    def test_clarification_ignores_llm_for_two_stage_conversion_variants(self) -> None:
+        semantic = SemanticService()
+        variants = [
+            "Конверсия пассажиров в 2 этапа: принятие заказа и завершение поездки за июнь 2025 по всей сети",
+            "Покажи conversion пассажиров по всей сети за June 2025: acceptance и completed rides",
+            "Какая конверсия у пассажиров в принятие и в завершение поездки за июнь 2025",
+            "Конверсия пассажиров: из заказов с тендерами в принятие, затем в завершенные поездки за июнь 2025",
+            "Какая конверсия в два этапа у пассажиров (в принятие, в завершении поездки) за июнь 2025",
+        ]
+        engine = ClarificationEngine(llm_service=_FakeLLMService())
+        for query in variants:
+            with self.subTest(query=query):
+                resolutions = semantic.resolve(query)
+                nd = sum(1 for r in resolutions if r.surface_form != "default")
+                response = engine.evaluate(
+                    ClarificationContext(
+                        effective_query=query,
+                        intent="summary",
+                        entities={"time_grain": "month"},
+                        resolutions=resolutions,
+                        nondefault_semantic_count=nd,
+                        intent_signals=[],
+                    )
+                )
+                self.assertFalse(response.clarification_required)
 
 
 if __name__ == "__main__":

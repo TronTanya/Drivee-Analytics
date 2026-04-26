@@ -5,6 +5,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
+from fastapi.encoders import jsonable_encoder
+
 from app.core.config import settings
 from app.core.exceptions import (
     ForbiddenException,
@@ -44,9 +46,9 @@ if TYPE_CHECKING:
 def _forecast_payload_for_cell(analysis: Any) -> dict[str, Any]:
     ft = dict(analysis.full_trace or {})
     exp = ft.get("forecast_explainability")
-    out: dict[str, Any] = {"records": list(analysis.forecast_records or [])}
+    out: dict[str, Any] = {"records": jsonable_encoder(list(analysis.forecast_records or []))}
     if isinstance(exp, dict):
-        out["explainability"] = dict(exp)
+        out["explainability"] = jsonable_encoder(dict(exp))
     return out
 
 
@@ -214,7 +216,7 @@ class NotebookService:
         cell.confidence_score = Decimal(str(round(analysis.confidence, 4)))
         cell.interpreted_intent = dict(analysis.parsed)
         explainability = build_explainability_trace_v1(analysis)
-        cell.trace_payload_json = {
+        cell.trace_payload_json = jsonable_encoder({
             "explainability": explainability.model_dump(mode="json"),
             "warnings": analysis.warnings,
             "used_tables": analysis.used_tables,
@@ -236,7 +238,7 @@ class NotebookService:
             },
             "dialogue": analysis.dialogue,
             "visualization": analysis.visualization,
-        }
+        })
         cell.insight_text = analysis.insight
         cell.chart_type = analysis.chart_type or "line"
         cell.context_snapshot_json = {
@@ -252,7 +254,8 @@ class NotebookService:
         run.duration_ms = int((run.finished_at - started).total_seconds() * 1000)
         run.rows_returned = len(analysis.table_records)
         cap = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
-        run.result_preview_json = list(analysis.table_records)[: min(len(analysis.table_records), cap)]
+        records_json = jsonable_encoder(list(analysis.table_records))
+        run.result_preview_json = records_json[: min(len(records_json), cap)]
         run.confidence_score = cell.confidence_score
         run.trace_payload_json = dict(cell.trace_payload_json)
         run.validation_report_json = {"status": cell.validation_status, "warnings": analysis.warnings}
@@ -307,7 +310,7 @@ class NotebookService:
                 (
                     "table",
                     {
-                        "trace_payload_json": {"records": analysis.table_records},
+                        "trace_payload_json": {"records": records_json},
                         "insight_text": f"{len(analysis.table_records)} rows",
                     },
                 ),

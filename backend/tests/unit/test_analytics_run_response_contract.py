@@ -6,10 +6,12 @@ from app.services import analytics_pipeline as pipeline
 
 
 def test_run_pipeline_returns_unified_contract(monkeypatch) -> None:
+    monkeypatch.setattr(pipeline.settings, "ds_default_source_table", "public.incity_orders")
+
     def fake_analyze_natural_language(prompt: str, **_: object) -> pipeline.NaturalLanguageAnalysisResult:
         return pipeline.NaturalLanguageAnalysisResult(
             prompt=prompt,
-            safe_sql="SELECT city_id, cancellations_total FROM public.train LIMIT 5",
+            safe_sql="SELECT city_id, cancellations_total FROM public.incity_orders LIMIT 5",
             table_records=[
                 {"city_id": 1, "cancellations_total": 12},
                 {"city_id": 2, "cancellations_total": 10},
@@ -19,7 +21,7 @@ def test_run_pipeline_returns_unified_contract(monkeypatch) -> None:
             insight="Город 1 лидирует по отменам.",
             confidence=0.87,
             warnings=[],
-            used_tables=["public.train"],
+            used_tables=["public.incity_orders"],
             used_columns=["city_id", "cancellations_total"],
             parsed={"intent": "ranking", "metric": "cancellations_total"},
             full_trace={
@@ -36,6 +38,7 @@ def test_run_pipeline_returns_unified_contract(monkeypatch) -> None:
             },
             trace_summary="ranking · cancellations_total",
             execution_status="succeeded",
+            resolved_source_table="public.incity_orders",
         )
 
     monkeypatch.setattr(pipeline, "analyze_natural_language", fake_analyze_natural_language)
@@ -47,7 +50,7 @@ def test_run_pipeline_returns_unified_contract(monkeypatch) -> None:
     )
 
     assert response.notebook_id == "contract-test-nb"
-    assert response.resolved_source_table == "public.train"
+    assert response.resolved_source_table == "public.incity_orders"
     assert response.question == "Покажи топ-2 города по отменам"
     assert response.interpreted_query
     assert "SELECT" in response.safe_sql
