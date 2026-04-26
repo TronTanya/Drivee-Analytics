@@ -16,7 +16,7 @@
       "число заказов",
       "order count"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "count",
     "term_type": "metric",
@@ -58,7 +58,7 @@
       "row count",
       "records count"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "count",
     "term_type": "metric",
@@ -96,7 +96,7 @@
       "tender",
       "тендеры"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "tender_id",
     "aggregation_type": "count_distinct",
     "term_type": "metric",
@@ -136,7 +136,7 @@
       "разных заказов",
       "число заказов уникальн"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "order_id",
     "aggregation_type": "count_distinct",
     "term_type": "metric",
@@ -178,7 +178,7 @@
       "completed rides",
       "driver done"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "driverdone_timestamp",
     "aggregation_type": "case_count",
     "term_type": "metric",
@@ -217,7 +217,7 @@
       "done conversion",
       "completion rate"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "ratio",
     "term_type": "metric",
@@ -257,7 +257,7 @@
       "cancellation rate",
       "доля отмененных"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "ratio",
     "term_type": "metric",
@@ -296,7 +296,7 @@
       "клиент отмен",
       "отмена клиентом"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "clientcancel_timestamp",
     "aggregation_type": "case_count",
     "term_type": "metric",
@@ -334,7 +334,7 @@
       "driver cancel",
       "водитель отмен"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "drivercancel_timestamp",
     "aggregation_type": "case_count",
     "term_type": "metric",
@@ -377,7 +377,7 @@
       "total cancellations",
       "число отмен"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "case_count",
     "term_type": "metric",
@@ -420,7 +420,7 @@
       "выручка",
       "revenue orders"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "price_order_local",
     "aggregation_type": "sum",
     "term_type": "metric",
@@ -459,7 +459,7 @@
       "average price",
       "aov"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "price_order_local",
     "aggregation_type": "avg",
     "term_type": "metric",
@@ -497,7 +497,7 @@
       "average duration",
       "длительность заказа"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "duration_in_seconds",
     "aggregation_type": "avg",
     "term_type": "metric",
@@ -533,7 +533,7 @@
       "average distance",
       "расстояние"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "distance_in_meters",
     "aggregation_type": "avg",
     "term_type": "metric",
@@ -569,7 +569,7 @@
       "time to accept",
       "accept time"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "avg_expression",
     "term_type": "metric",
@@ -605,7 +605,7 @@
       "время до прибыт",
       "time to arrive"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": null,
     "aggregation_type": "avg_expression",
     "term_type": "metric",
@@ -641,7 +641,7 @@
       "before accept",
       "cancel before accept"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "cancel_before_accept_local",
     "aggregation_type": "case_count",
     "term_type": "metric",
@@ -678,7 +678,7 @@
       "tender sum",
       "total tender price"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "price_tender_local",
     "aggregation_type": "sum",
     "term_type": "metric",
@@ -716,7 +716,7 @@
       "order channel",
       "каналы заказов"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "order_channel",
     "aggregation_type": "count",
     "term_type": "metric",
@@ -753,7 +753,7 @@
       "средняя цена тендера",
       "avg tender price"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "price_tender_local",
     "aggregation_type": "avg",
     "term_type": "metric",
@@ -790,7 +790,7 @@
       "avg start price",
       "средняя стартовая стоимость"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "price_start_local",
     "aggregation_type": "avg",
     "term_type": "metric",
@@ -830,7 +830,7 @@
       "cities",
       "city_id"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "city_id",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -864,7 +864,7 @@
       "channel",
       "order channel"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "order_channel",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -896,7 +896,7 @@
       "по статусу заказ",
       "lifecycle заказ"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "status_order",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -927,7 +927,7 @@
       "status tender",
       "по статусу тендер"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "status_tender",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -958,7 +958,7 @@
       "часовой пояс города",
       "смещение часов"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "offset_hours",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -988,7 +988,7 @@
       "user id",
       "ид пользовател"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "user_id",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -1019,7 +1019,7 @@
       "ид водител",
       "водитель train"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "driver_id",
     "aggregation_type": "group_by",
     "term_type": "dimension",
@@ -1050,7 +1050,7 @@
       "previous week",
       "last week"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "order_timestamp",
     "aggregation_type": "time_filter",
     "term_type": "filter",
@@ -1081,7 +1081,7 @@
       "за вчера",
       "yesterday"
     ],
-    "source_table": "train",
+    "source_table": "incity_orders",
     "source_column": "order_timestamp",
     "aggregation_type": "time_filter",
     "term_type": "filter",
@@ -1414,5 +1414,342 @@
     "requires_join_campaigns": false,
     "is_default": false,
     "confidence": 0.88
+  },
+  {
+    "id": "drivee_unique_client_cancels_after_start",
+    "domain": "drivee_incity",
+    "business_term": "Уникальные отмены пассажиром после старта поездки",
+    "business_terms": [
+      "Уникальные отмененные поездки пассажиром после начала поездки",
+      "Отмены после старта со стороны пассажира"
+    ],
+    "canonical_metric_key": "unique_client_cancels_after_start",
+    "synonyms": [
+      "уникальные отмененные поездки со стороны пассажира после начала поездки",
+      "уникальные отмены пассажира после начала поездки",
+      "уникальные отмены пассажиром после старта",
+      "пассажир отменил после начала поездки",
+      "пассажир отменил после старта поездки",
+      "пасажир отменил после начала поездки",
+      "пассажир отменил после начяла поездки",
+      "уникалные отмененые поездки пассажиром после начала поездки",
+      "уникалные отмененые поездки пасажира после начяла поездки",
+      "отмененые поездки пасажира после старта поездки",
+      "отмена со стороны пассажира после начала поездки",
+      "количество уникальных отмен пассажира после начала поездки в разрезе месяца и города",
+      "сколько уникальных отмен пассажира после старта поездки по месяцам и городам",
+      "уникальные отмененные поездки пассажира после старта по месяцам и городам в 2026 году",
+      "отмены пассажира после старта поездки",
+      "после начала поездки отмены пассажира",
+      "client cancels after trip start",
+      "unique cancelled rides after start by passenger"
+    ],
+    "source_table": "incity_orders",
+    "source_column": null,
+    "aggregation_type": "count_distinct_case",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "COUNT(DISTINCT order_id) для заказов, где clientcancel_timestamp > driverstarttheride_timestamp.",
+    "sql_expression": "COUNT(DISTINCT CASE WHEN a.clientcancel_timestamp IS NOT NULL AND a.driverstarttheride_timestamp IS NOT NULL AND a.clientcancel_timestamp > a.driverstarttheride_timestamp THEN a.order_id END)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "comparison"
+      ],
+      "time_column": "clientcancel_timestamp",
+      "notes": "Отмена считается только если поездка уже началась."
+    },
+    "example_queries": [
+      "Какое количество уникальных отмененных поездок со стороны пассажира после начала поездки было в разрезе месяца и города в 2026 году?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.92
+  },
+  {
+    "id": "drivee_dim_month_client_cancel",
+    "domain": "dimensions_filters",
+    "business_term": "Месяц отмены",
+    "business_terms": [
+      "В разрезе месяца",
+      "По месяцам"
+    ],
+    "canonical_metric_key": "month_dim",
+    "synonyms": [
+      "в разрезе месяца",
+      "по месяцам",
+      "месяц",
+      "month",
+      "month_start"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "clientcancel_timestamp",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "month_start",
+    "filter_value": null,
+    "description_ru": "Календарный месяц по clientcancel_timestamp.",
+    "sql_expression": "date_trunc('month', a.clientcancel_timestamp)::date",
+    "constraints": {
+      "time_column": "clientcancel_timestamp"
+    },
+    "example_queries": [
+      "Покажи отмены пассажира после старта по месяцам"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_flt_year_2026",
+    "domain": "dimensions_filters",
+    "business_term": "2026 год",
+    "business_terms": [
+      "За 2026 год",
+      "В 2026 году"
+    ],
+    "canonical_metric_key": "time_year_2026",
+    "synonyms": [
+      "в 2026 году",
+      "за 2026 год",
+      "2026 год",
+      "year 2026"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "clientcancel_timestamp",
+    "aggregation_type": "time_filter",
+    "term_type": "filter",
+    "target_field": "time_period",
+    "filter_value": "year_2026",
+    "description_ru": "Фильтр периода: календарный 2026 год.",
+    "sql_expression": "time_period=year_2026",
+    "constraints": {
+      "time_column": "clientcancel_timestamp"
+    },
+    "example_queries": [
+      "Покажи метрику по месяцам в 2026 году"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_dim_city_incity",
+    "domain": "dimensions_filters",
+    "business_term": "Город (incity)",
+    "business_terms": [
+      "В разрезе города",
+      "По городам"
+    ],
+    "canonical_metric_key": "city_id_incity",
+    "synonyms": [
+      "по городам",
+      "в разрезе города",
+      "город",
+      "города",
+      "city",
+      "city_id"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "city_id",
+    "aggregation_type": "group_by",
+    "term_type": "dimension",
+    "target_field": "city_id",
+    "filter_value": null,
+    "description_ru": "Измерение города по полю city_id в таблице public.incity_orders.",
+    "sql_expression": "a.city_id::text",
+    "constraints": {},
+    "example_queries": [
+      "Покажи уникальные отмены по городам за 2026 год"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.91
+  },
+  {
+    "id": "drivee_flt_after_trip_start",
+    "domain": "dimensions_filters",
+    "business_term": "После начала поездки",
+    "business_terms": [
+      "После старта поездки",
+      "После начала поездки"
+    ],
+    "canonical_metric_key": "after_trip_start",
+    "synonyms": [
+      "после начала поездки",
+      "после старта поездки",
+      "после начала",
+      "после старта",
+      "after trip start",
+      "after ride start"
+    ],
+    "source_table": "incity_orders",
+    "source_column": null,
+    "aggregation_type": "filter",
+    "term_type": "filter",
+    "target_field": "event_phase",
+    "filter_value": "after_trip_start",
+    "description_ru": "Фильтр событий, произошедших после `driverstarttheride_timestamp`.",
+    "sql_expression": "a.driverstarttheride_timestamp IS NOT NULL AND a.clientcancel_timestamp > a.driverstarttheride_timestamp",
+    "constraints": {},
+    "example_queries": [
+      "Сколько отмен пассажира после начала поездки по месяцам?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.92
+  },
+  {
+    "id": "drivee_distinct_orders_incity",
+    "domain": "drivee_incity",
+    "business_term": "Уникальные поездки (incity)",
+    "business_terms": [
+      "Уникальные поездки",
+      "Количество уникальных поездок"
+    ],
+    "canonical_metric_key": "distinct_orders_incity",
+    "synonyms": [
+      "уникальные поездки",
+      "уникальные заказы",
+      "количество уникальных поездок",
+      "distinct rides",
+      "distinct orders"
+    ],
+    "source_table": "incity_orders",
+    "source_column": "order_id",
+    "aggregation_type": "count_distinct",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "COUNT(DISTINCT order_id) по таблице public.incity_orders.",
+    "sql_expression": "COUNT(DISTINCT a.order_id)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "trend",
+        "ranking",
+        "comparison",
+        "forecast"
+      ]
+    },
+    "example_queries": [
+      "Сколько уникальных поездок было по месяцам и городам?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.9
+  },
+  {
+    "id": "drivee_acceptance_conversion",
+    "domain": "drivee_incity",
+    "business_term": "Конверсия в принятие заказа",
+    "business_terms": [
+      "Конверсия в принятие",
+      "Acceptance conversion"
+    ],
+    "canonical_metric_key": "acceptance_conversion",
+    "synonyms": [
+      "конверсия в принятие заказа",
+      "конверсия в принятие",
+      "конверссия в принятие заказа",
+      "конверисия в принятие заказа",
+      "конверсия в принетие заказа",
+      "принятие заказа",
+      "принятые заказы",
+      "принетые заказы",
+      "по всей сети",
+      "вся сеть",
+      "по всей сити",
+      "по всей сети",
+      "июнь 2025",
+      "июнь 2025 годаа",
+      "июн 2025",
+      "двухэтапная конверсия пассажиров в принятие заказа",
+      "первый этап воронки пассажиров принятие заказа",
+      "конверсия пассажиров в два этапа принятие и завершение",
+      "accepted orders conversion",
+      "acceptance conversion"
+    ],
+    "source_table": "incity_orders",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "accepted_orders / created_orders * 100 за выбранный период.",
+    "sql_expression": "ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.driveraccept_timestamp IS NOT NULL THEN a.order_id END) / NULLIF(COUNT(DISTINCT a.order_id), 0), 2)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "comparison"
+      ],
+      "time_column": "order_timestamp",
+      "allowed_dimensions": []
+    },
+    "example_queries": [
+      "Какая конверсия в принятие заказа по всей сети за июнь 2025?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.92
+  },
+  {
+    "id": "drivee_completion_conversion",
+    "domain": "drivee_incity",
+    "business_term": "Конверсия в завершение поездки",
+    "business_terms": [
+      "Конверсия в завершение",
+      "Completion conversion"
+    ],
+    "canonical_metric_key": "completion_conversion",
+    "synonyms": [
+      "конверсия в завершение поездки",
+      "конверсия в завершение",
+      "конверссия в завершение поездки",
+      "конверисия в завершение поездки",
+      "конверсия в заверщение поездки",
+      "завершение поездки",
+      "завершенные поездки",
+      "завершённые поездки",
+      "завершеные поездки",
+      "завершенные поезки",
+      "по всей сети",
+      "вся сеть",
+      "по всей сити",
+      "по всей сети",
+      "июнь 2025",
+      "июнь 2025 годаа",
+      "июн 2025",
+      "второй этап воронки пассажиров завершение поездки",
+      "двухэтапная конверсия пассажиров в завершение поездки",
+      "конверсия пассажиров в два основных этапа за июнь 2025",
+      "completed rides conversion",
+      "completion conversion"
+    ],
+    "source_table": "incity_orders",
+    "source_column": null,
+    "aggregation_type": "ratio",
+    "term_type": "metric",
+    "target_field": null,
+    "filter_value": null,
+    "description_ru": "completed_orders / accepted_orders * 100 за выбранный период.",
+    "sql_expression": "ROUND(100.0 * COUNT(DISTINCT CASE WHEN a.driverdone_timestamp IS NOT NULL THEN a.order_id END) / NULLIF(COUNT(DISTINCT CASE WHEN a.driveraccept_timestamp IS NOT NULL THEN a.order_id END), 0), 2)",
+    "constraints": {
+      "intents_allowed": [
+        "summary",
+        "comparison"
+      ],
+      "time_column": "order_timestamp",
+      "allowed_dimensions": []
+    },
+    "example_queries": [
+      "Какая конверсия в завершение поездки по всей сети за июнь 2025?"
+    ],
+    "requires_join_campaigns": false,
+    "is_default": false,
+    "confidence": 0.92
   }
 ]

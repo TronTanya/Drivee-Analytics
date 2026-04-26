@@ -267,31 +267,47 @@ class SQLValidatorService:
 
         final_sql = single
         if is_valid:
-            max_lim = min(
-                self._s.sql_default_limit, int(getattr(self._s, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
-            )
-            final_sql, clamped = clamp_limit_clause(final_sql, normalized, max_lim)
-            if clamped:
-                warnings.append(f"LIMIT capped at {max_lim} per policy.")
-                applied.append("limit_clamped")
-            norm_after = normalize_for_checks(final_sql)
-            if " limit " not in pad_tokens(norm_after):
-                final_sql = apply_default_limit(final_sql, max_lim)
-                applied.append("default_limit_appended")
+            unbounded_fetch = bool(getattr(self._s, "sql_result_fetch_unbounded", False))
+            if unbounded_fetch:
+                applied.append("fetch_unbounded")
+                norm_after = normalize_for_checks(final_sql)
+                if " limit " in pad_tokens(norm_after):
+                    applied.append("limit_present_or_applied")
+                else:
+                    applied.append("no_default_limit_appended")
+                norm_final = normalize_for_checks(final_sql)
+                lim_val, _ = parse_limit_value(norm_final)
+                intent_l = (intent or "").strip().lower()
+                if intent_l in mandatory_limit_intent_set(self._s) and lim_val is None:
+                    applied.append("mandatory_limit_skipped_unbounded")
+                elif intent_l in mandatory_limit_intent_set(self._s):
+                    applied.append("mandatory_limit_ok")
             else:
-                applied.append("limit_present_or_applied")
-            norm_final = normalize_for_checks(final_sql)
-            lim_val, _ = parse_limit_value(norm_final)
-            intent_l = (intent or "").strip().lower()
-            if intent_l in mandatory_limit_intent_set(self._s) and lim_val is None:
-                errors.append(f"Для intent «{intent_l}» обязателен LIMIT — не удалось применить политику.")
-                is_valid = False
-                final_sql = ""
-                applied.append("mandatory_limit_missing")
-            elif intent_l in mandatory_limit_intent_set(self._s):
-                applied.append("mandatory_limit_ok")
-                if " limit " not in pad_tokens(normalized):
-                    warnings.append("LIMIT был автоматически добавлен политикой guardrails.")
+                max_lim = min(
+                    self._s.sql_default_limit, int(getattr(self._s, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
+                )
+                final_sql, clamped = clamp_limit_clause(final_sql, normalized, max_lim)
+                if clamped:
+                    warnings.append(f"LIMIT capped at {max_lim} per policy.")
+                    applied.append("limit_clamped")
+                norm_after = normalize_for_checks(final_sql)
+                if " limit " not in pad_tokens(norm_after):
+                    final_sql = apply_default_limit(final_sql, max_lim)
+                    applied.append("default_limit_appended")
+                else:
+                    applied.append("limit_present_or_applied")
+                norm_final = normalize_for_checks(final_sql)
+                lim_val, _ = parse_limit_value(norm_final)
+                intent_l = (intent or "").strip().lower()
+                if intent_l in mandatory_limit_intent_set(self._s) and lim_val is None:
+                    errors.append(f"Для intent «{intent_l}» обязателен LIMIT — не удалось применить политику.")
+                    is_valid = False
+                    final_sql = ""
+                    applied.append("mandatory_limit_missing")
+                elif intent_l in mandatory_limit_intent_set(self._s):
+                    applied.append("mandatory_limit_ok")
+                    if " limit " not in pad_tokens(normalized):
+                        warnings.append("LIMIT был автоматически добавлен политикой guardrails.")
 
         time_notes = check_time_filter_heuristic(normalized, physical_refs)
         group_notes = check_group_by_heuristic(normalized)
@@ -309,6 +325,7 @@ class SQLValidatorService:
             padded=padded,
             sql_default_limit=self._s.sql_default_limit,
             has_time_tokens=has_time_tokens,
+            sql_result_fetch_unbounded=bool(getattr(self._s, "sql_result_fetch_unbounded", False)),
         )
 
         performance: dict[str, Any] = {}
@@ -321,12 +338,17 @@ class SQLValidatorService:
                 entities=entities,
                 settings=self._s,
             )
-            cap = int(perf.get("fetch_cap") or self._s.sql_default_limit)
-            norm_exec = normalize_for_checks(final_sql)
-            fs2, cperf = clamp_limit_clause(final_sql, norm_exec, cap)
-            if cperf or fs2 != final_sql:
-                final_sql = fs2
-                applied.append("performance_fetch_cap")
+            raw_cap = perf.get("fetch_cap")
+            if raw_cap is None:
+                cap: int | None = None
+                fs2, cperf = final_sql, False
+            else:
+                cap = int(raw_cap)
+                norm_exec = normalize_for_checks(final_sql)
+                fs2, cperf = clamp_limit_clause(final_sql, norm_exec, cap)
+                if cperf or fs2 != final_sql:
+                    final_sql = fs2
+                    applied.append("performance_fetch_cap")
             performance = {
                 "explain_warnings_ru": list(perf.get("explain_warnings_ru") or []),
                 "fetch_cap": cap,

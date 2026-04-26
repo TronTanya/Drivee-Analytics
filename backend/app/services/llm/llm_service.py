@@ -125,9 +125,11 @@ class LLMService:
         columns: list[str],
         rows: list[dict[str, Any]],
     ) -> Optional[LLMInsightResult]:
+        # Для инсайта LLM не нужен весь датафрейм: длинные payload резко увеличивают latency.
+        sampled_rows = rows[:60] if rows else []
         return self._run_structured(
             task="insight_generation",
-            payload={"intent": intent, "columns": columns, "rows": rows},
+            payload={"intent": intent, "columns": columns, "rows": sampled_rows},
             model_cls=LLMInsightResult,
         )
 
@@ -165,7 +167,7 @@ class LLMService:
             ],
             temperature=self._temperature,
             max_tokens=self._max_tokens,
-            timeout_seconds=self._timeout_seconds,
+            timeout_seconds=self._timeout_for_task(task),
         )
         try:
             response = self._provider.complete(request)
@@ -190,3 +192,16 @@ class LLMService:
                 sanitize_prompt_text(str(payload), max_chars=240),
             )
             return None
+
+    def _timeout_for_task(self, task: PromptTask) -> int:
+        """Сдерживаем tail latency: долгие LLM-таймауты блокируют UX notebook."""
+        base = max(3, int(self._timeout_seconds))
+        caps: dict[PromptTask, int] = {
+            "query_interpretation": 12,
+            "clarification_generation": 14,
+            "followup_rewrite": 12,
+            "explainability_text": 10,
+            "insight_generation": 10,
+            "general_query_answer": 12,
+        }
+        return min(base, caps.get(task, base))

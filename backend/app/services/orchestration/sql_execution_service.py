@@ -101,10 +101,20 @@ class SQLExecutionService:
                     result = conn.execute(text(final))
                     columns = list(result.keys()) if result.keys() else []
                     perf = getattr(validation, "performance", None) or {}
-                    fetch_cap = int(perf.get("fetch_cap") or settings.sql_default_limit)
-                    hard = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
-                    fetch_n = max(1, min(fetch_cap, settings.sql_default_limit, hard))
-                    raw_rows = result.fetchmany(fetch_n)
+                    fetch_cap = perf.get("fetch_cap")
+                    if fetch_cap is None:
+                        if bool(getattr(settings, "sql_result_fetch_unbounded", False)):
+                            raw_rows = result.fetchall()
+                        else:
+                            cap = int(settings.sql_default_limit)
+                            hard = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
+                            fetch_n = max(1, min(cap, settings.sql_default_limit, hard))
+                            raw_rows = result.fetchmany(fetch_n)
+                    else:
+                        cap = int(fetch_cap)
+                        hard = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
+                        fetch_n = max(1, min(cap, settings.sql_default_limit, hard))
+                        raw_rows = result.fetchmany(fetch_n)
                     rows = [dict(zip(columns, row)) for row in raw_rows]
                     return ExecutionResult(
                         ok=True,

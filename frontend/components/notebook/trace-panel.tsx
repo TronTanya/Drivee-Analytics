@@ -191,19 +191,19 @@ function SummaryTile(props: {
 }) {
   const { icon, label, accent = "neutral", children, className = "", headerRight } = props;
   return (
-    <div className={`rounded-md border px-2.5 py-2 ${SUMMARY_ACCENT[accent]} ${className}`}>
-      <div className="flex gap-2">
+    <div className={`min-w-0 max-w-full rounded-md border px-2.5 py-2 ${SUMMARY_ACCENT[accent]} ${className}`}>
+      <div className="flex min-w-0 gap-2">
         <span className="mt-0.5 shrink-0 text-foreground-muted [&>svg]:block [&>svg]:h-3.5 [&>svg]:w-3.5" aria-hidden>
           {icon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <p className="min-w-0 flex-[1_1_10rem] text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
               {label}
             </p>
             {headerRight ? <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-1">{headerRight}</div> : null}
           </div>
-          <div className="mt-1">{children}</div>
+          <div className="mt-1 min-w-0 max-w-full [overflow-wrap:anywhere]">{children}</div>
         </div>
       </div>
     </div>

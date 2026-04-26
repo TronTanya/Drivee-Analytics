@@ -116,7 +116,7 @@ def profile_default_source_table(source_table: str | None = None) -> dict[str, o
         row_count = conn.execute(text(f"SELECT COUNT(*) FROM {q}")).scalar_one()
         min_date = None
         max_date = None
-        if table_name == "train":
+        if table_name in {"train", "incity_orders"}:
             min_date = conn.execute(text(f"SELECT MIN(order_timestamp::timestamp) FROM {q}")).scalar_one()
             max_date = conn.execute(text(f"SELECT MAX(order_timestamp::timestamp) FROM {q}")).scalar_one()
 

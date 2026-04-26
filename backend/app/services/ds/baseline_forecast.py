@@ -2,7 +2,7 @@
 Baseline-прогноз для sidecar после SQL (MVP, честный уровень).
 
 Не production-ML: при устойчивом линейном тренде — экстраполяция; при слабом R² или коротком ряду —
-«плоский» baseline по последнему факту. Ряд строится по результату SQL (в штатном режиме — public.train).
+«плоский» baseline по последнему факту. Ряд строится по результату SQL (в штатном режиме — public.incity_orders).
 
 Полосы low/high — эвристический коридор по масштабу остатков, не классический CI.
 """
@@ -83,7 +83,7 @@ def run_baseline_forecast_sidecar(
     - meta: объяснение, история, combined_series для UI (без обещаний «полноценного ML»).
     """
     grain = (time_grain or "day").lower()
-    src_lbl = (source_table_label or "").strip() or "результат SQL (источник по умолчанию — public.train)"
+    src_lbl = (source_table_label or "").strip() or "результат SQL (источник по умолчанию — public.incity_orders)"
 
     empty_meta: dict[str, Any] = {
         "method": "none",

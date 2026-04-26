@@ -90,6 +90,30 @@ class CancellationMetricResolutionTests(unittest.TestCase):
                 )
                 self.assertFalse(response.clarification_required)
 
+    def test_clarification_ignores_llm_for_high_specificity_business_prompts(self) -> None:
+        semantic = SemanticService()
+        prompts = [
+            "Покажи по месяцам и по городам за 2026 год, сколько было уникальных отмен со стороны пассажира после старта поездки.",
+            "Сравни города между собой за февраль 2025: где выше доля отмен пассажиром после принятия заказа.",
+            "Сделай срез эффективности водителей за Q1 2025 по городам: завершенные поездки, онлайн-время, rides в час онлайна.",
+        ]
+        engine = ClarificationEngine(llm_service=_FakeLLMService())
+        for query in prompts:
+            with self.subTest(query=query):
+                resolutions = semantic.resolve(query)
+                nd = sum(1 for r in resolutions if r.surface_form != "default")
+                response = engine.evaluate(
+                    ClarificationContext(
+                        effective_query=query,
+                        intent="comparison",
+                        entities={"time_grain": "month", "dimensions": ["city_id"]},
+                        resolutions=resolutions,
+                        nondefault_semantic_count=nd,
+                        intent_signals=[],
+                    )
+                )
+                self.assertFalse(response.clarification_required)
+
 
 if __name__ == "__main__":
     unittest.main()

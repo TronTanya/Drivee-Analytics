@@ -8,6 +8,7 @@ export function clarificationReasonSummaryRu(code: string): string {
     revenue_definition_ambiguous: "Под запрос подходят разные определения выручки.",
     best_metric_unspecified: "Не выбрана метрика для понятия «лучшие» или для рейтинга.",
     city_scope_ambiguous: "Неясно: сравнивать по всем городам или сфокусироваться на одном.",
+    scope_conflict_network_vs_city: "Одновременно указаны охват «вся сеть» и группировка по городам.",
     low_interpretation_confidence: "Низкая уверенность интерпретации — нужны уточнения.",
     comparison_baseline_unspecified: "Не задана база или период для сравнения «с прошлым».",
     ranking_metric_unspecified: "Не указана метрика, по которой ранжировать.",

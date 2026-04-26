@@ -9,6 +9,7 @@ from typing import Any, List, Optional, Set
 
 from app.schemas.orchestration import IntentKind
 from app.schemas.visualization import GeoMapFeature, GeoVisualizationMetadata, VisualizationRecommendation
+from app.services.orchestration.geo_scope_language import implies_aggregate_across_all_cities
 
 _TIME_NAME_RE = re.compile(
     r"(^|_)(bucket|week|month|day|date|time|ts|at)$|_date$|_at$|^date_|^datetime",
@@ -109,6 +110,26 @@ class ChartRecommendationService:
                     columns=columns,
                 )
             if n_num >= 1 and (prof.geo_names or prof.categorical):
+                def _finite_coord(v: Any) -> bool:
+                    if v is None:
+                        return False
+                    try:
+                        x = float(v)
+                    except (TypeError, ValueError):
+                        return False
+                    return math.isfinite(x)
+
+                valid_geo = [f for f in map_features if _finite_coord(f.lat) and _finite_coord(f.lon)]
+                if len(valid_geo) < 2:
+                    return self._result(
+                        "horizontal_bar",
+                        ["bar", "line", "map", "table"],
+                        "Для карты нужны координаты точек: пока удобнее сравнить метрику по регионам горизонтальными столбцами.",
+                        0.86,
+                        geo_meta,
+                        profile=prof,
+                        columns=columns,
+                    )
                 return self._result(
                     "map",
                     ["geo_bubble", "horizontal_bar", "bar", "table"],
@@ -322,6 +343,11 @@ class ChartRecommendationService:
     def _has_geo_signal(query_lc: str, prof: ColumnProfile, intent: IntentKind) -> bool:
         if intent == "geo":
             return True
+        # «По всем городам» даёт ложное вхождение подстроки «города» в «городам» — это не запрос карты.
+        if implies_aggregate_across_all_cities(query_lc) and not any(
+            t in query_lc for t in ("на карте", "карта ", " карта", "географ", "geo", "map", "latitude", "longitude")
+        ):
+            return False
         query_geo = any(
             token in query_lc
             for token in (

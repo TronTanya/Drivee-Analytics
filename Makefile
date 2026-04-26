@@ -1,6 +1,6 @@
 DC = docker compose
 
-.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell restart-stack demo-live smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live eval test-backend test-frontend test-security test-golden test-demo test-all
+.PHONY: up down logs ps rebuild migrate seed backend-shell frontend-shell postgres-shell wait-backend safe-restart-backend restart-stack demo-live smoke ds-quality nl-golden-regression nl-clarification-golden-regression test-smoke test-nl test-guardrails test-sql-correctness test-sql-correctness-live test-cov-core test-e2e test-e2e-quick e2e quality-eval quality-eval-live eval test-backend test-frontend test-security test-golden test-demo test-jury-questions test-all
 
 up:
 	$(DC) up --build
@@ -31,6 +31,20 @@ frontend-shell:
 
 postgres-shell:
 	$(DC) exec postgres psql -U $${POSTGRES_USER:-drivee} -d $${POSTGRES_DB:-drivee_analytics}
+
+# Ждёт readiness backend после рестарта/пересоздания контейнера.
+wait-backend:
+	@echo "Ожидание backend /health (до 120 попыток по 2s)..."
+	@i=0; until curl -sf "http://127.0.0.1:$${BACKEND_PORT:-8000}/health" >/dev/null; do \
+	  i=$$((i+1)); if [ $$i -ge 120 ]; then echo "TIMEOUT: backend /health"; exit 1; fi; \
+	  sleep 2; \
+	done
+	@echo "Backend OK."
+
+# Безопасный рестарт backend: дожидается health перед возвратом в shell.
+safe-restart-backend:
+	$(DC) restart backend
+	$(MAKE) wait-backend
 
 # Без этого при `docker compose restart` фронт поднимается раньше uvicorn (миграции/импорт train) → прокси 500.
 restart-stack:
@@ -139,6 +153,17 @@ test-golden:
 
 test-demo:
 	$(MAKE) demo-live && $(MAKE) test-smoke
+
+test-jury-questions:
+	$(DC) run --rm backend python -m pytest \
+		tests/orchestration/test_structured_jury_sql_paths.py \
+		tests/orchestration/test_semantic_parser.py \
+		tests/orchestration/test_intent_sql_time_filters.py \
+		tests/semantic_layer/test_semantic_dictionary_store.py \
+		tests/unit/test_query_trace_input_normalization.py \
+		tests/golden/test_jury_noisy_queries.py \
+		tests/sql_validation/test_sql_trust.py \
+		tests/test_jury_questions_regression.py -q
 
 test-all:
 	$(MAKE) test-backend && $(MAKE) test-frontend

@@ -12,7 +12,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -45,7 +45,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -79,7 +79,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -114,7 +114,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -149,7 +149,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -184,7 +184,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -218,7 +218,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -252,7 +252,7 @@
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "gold_normalized_sql": null,
         "reference_sql_live": null,
@@ -281,11 +281,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -308,11 +308,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -335,11 +335,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -362,11 +362,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -389,11 +389,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -416,11 +416,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -443,11 +443,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -470,11 +470,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -497,11 +497,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -524,11 +524,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -551,11 +551,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -578,11 +578,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -605,11 +605,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -632,11 +632,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -659,13 +659,13 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [
           "drop table"
         ],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [],
@@ -683,11 +683,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [
@@ -710,11 +710,11 @@
       "checks": {
         "required_fragments_normalized": [
           "select",
-          "train"
+          "incity_orders"
         ],
         "forbidden_fragments_normalized": [],
         "required_tables": [
-          "train"
+          "incity_orders"
         ],
         "expected_columns": [],
         "sql_must_contain": [

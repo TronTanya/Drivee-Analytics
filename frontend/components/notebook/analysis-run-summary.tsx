@@ -3,6 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import type { ChartKind, NotebookBlock, TracePanelModel } from "@/lib/notebook/block-types";
+import { sqlColumnLabelRu } from "@/lib/notebook/sql-column-labels";
 import { ConfidenceBadge } from "@/components/notebook/confidence-badge";
 import { SqlCell } from "@/components/notebook/cells/sql-cell";
 import { ChartContainer } from "@/components/notebook/chart-container";
@@ -373,7 +374,7 @@ export function AnalysisRunSummary({
                             key={col}
                             className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-foreground-secondary"
                           >
-                            {col}
+                            {(table.columnLabels?.[col] ?? "").trim() || sqlColumnLabelRu(col)}
                           </th>
                         ))}
                       </tr>

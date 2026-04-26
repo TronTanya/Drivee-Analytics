@@ -40,7 +40,7 @@ class SqlCorrectnessChecksSpec(BaseModel):
     min_train_rows_for_live_compare: int = Field(
         default=0,
         ge=0,
-        description="Минимальное число строк в public.train для live scalar compare; иначе check помечается skipped.",
+        description="Минимальное число строк в public.incity_orders для live scalar compare; иначе check помечается skipped.",
     )
     expected_columns: list[str] = Field(
         default_factory=list,

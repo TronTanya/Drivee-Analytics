@@ -38,7 +38,7 @@ class SqlSafetyValidatorIntegrationTests(unittest.TestCase):
 
     def test_validator_allows_union_when_configured(self) -> None:
         v = SQLValidatorService(Settings(mock_mode=True, sql_enforce_global_column_whitelist=False, sql_allow_union=True))
-        sql = "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM train a GROUP BY 1 LIMIT 5"
+        sql = "SELECT a.city_id::text AS dim, COUNT(*) AS value FROM incity_orders a GROUP BY 1 LIMIT 5"
         r = v.validate(sql, role_key="admin", intent="ranking")
         self.assertTrue(r.is_valid, r.errors)
 

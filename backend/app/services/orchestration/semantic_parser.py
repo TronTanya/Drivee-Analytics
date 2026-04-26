@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional, get_args
 
 from app.schemas.nl_interpretation import (
@@ -13,9 +14,22 @@ from app.schemas.nl_interpretation import (
     TimeRangeSpec,
 )
 from app.schemas.orchestration import IntentKind
+from app.services.orchestration.geo_scope_language import implies_aggregate_across_all_cities
 from app.services.semantic_layer.store import get_semantic_dictionary_store
 # RU / EN → канонические ключи метрик (совпадают с canonical_metric_key в semantic_dictionary.json)
 _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
+    (
+        "unique_client_cancels_after_start",
+        (
+            "после старта поезд",
+            "после начала поезд",
+            "после начало поезд",
+            "после старта поездки",
+            "после начала поездки",
+            "после начало поездки",
+            "after ride start",
+        ),
+    ),
     ("cancellations_total", ("отмен", "отменён", "отменен", "cancel", "cancellation")),
     ("client_cancellations", ("отмен клиент", "клиентск", "client cancel")),
     ("driver_cancellations", ("отмен водител", "driver cancel")),
@@ -27,6 +41,8 @@ _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
     ("sum_order_price", ("выручк", "revenue", "сумм", "оборот", "gmv")),
     ("avg_order_price", ("средн чек", "средний чек", "средн стоимость", "average price", "avg price")),
     ("ride_conversion", ("конверсия в поезд", "orders to rides", "ride conversion")),
+    ("acceptance_conversion", ("конверсия в принятие заказа", "acceptance conversion")),
+    ("completion_conversion", ("конверсия в завершение поездки", "completion conversion")),
     ("acceptance_rate", ("конверсия в принят", "acceptance rate", "accepted/with tenders")),
     ("cancel_after_accept_rate", ("отмен после принят", "cancel after accept", "cancel rate")),
     ("avg_trip_distance_km", ("среднее расстояние", "avg distance", "distance km")),
@@ -40,6 +56,7 @@ _METRIC_PHRASES: list[tuple[str, tuple[str, ...]]] = [
 
 
 _DIMENSION_PHRASES: list[tuple[str, tuple[str, ...]]] = [
+    ("month_start", ("в разрезе месяца", "по месяцам", "помесячно", "month")),
     ("city_id", ("по город", "городам", "city", "город")),
     ("order_channel", ("по канал", "каналам", "канал", "channel")),
     ("status_order", ("статус заказ", "status order", "по статус")),
@@ -133,18 +150,55 @@ class SemanticParser:
             ):
                 ambiguities.append("revenue_definition_unclear")
 
-        if ("по город" in ql or "городам" in ql or "городов" in ql) and intent in (
-            "comparison",
-            "ranking",
-        ) and not filters.get("city_id"):
-            if "city_scope" not in ambiguities:
+        _explicit_all_cities = bool(
+            re.search(
+                r"по\s+всем\s+город|всех\s+город|все\s+город|все\s+города|по\s+всей\s+сети|вся\s+сеть|network\s+wide|global",
+                ql,
+            )
+        )
+        if (
+            ("по город" in ql or "городам" in ql or "городов" in ql)
+            and intent in ("comparison", "ranking")
+            and not filters.get("city_id")
+            and not _explicit_all_cities
+        ):
+            if entities.get("scope") != "network" and "city_scope" not in ambiguities:
                 ambiguities.append("city_scope_all_vs_one")
         if intent == "ranking" and not metrics:
             ambiguities.append("ranking_metric_missing")
         if "лучш" in ql and "канал" in ql and not metrics:
             ambiguities.append("best_metric_unspecified")
 
+        if entities.get("multi_kpi_last_full_month_by_city"):
+            ambiguities = [a for a in ambiguities if a not in ("revenue_metric_multiple", "revenue_definition_unclear")]
+        if entities.get("lost_orders_before_driver_accept_top"):
+            ambiguities = [
+                a
+                for a in ambiguities
+                if a not in ("ranking_metric_missing", "best_metric_unspecified", "city_scope_all_vs_one")
+            ]
+        if entities.get("driver_efficiency_slice_q1_by_city"):
+            ambiguities = [a for a in ambiguities if a != "city_scope_all_vs_one"]
+
         self._merge_entities_llm_fields(entities, metrics, dimensions, time_range, ambiguities, signals)
+
+        if implies_aggregate_across_all_cities(ql):
+            if "city_id" in dimensions:
+                dimensions = [d for d in dimensions if d != "city_id"]
+                signals.append("rules:strip_city_id_dim_all_cities_aggregate")
+            ed = entities.get("dimensions")
+            if isinstance(ed, list):
+                entities["dimensions"] = [d for d in ed if str(d) != "city_id"]
+
+        # LLM может добавить city_scope_all_vs_one в llm_ambiguities даже при явном «по всем городам» / scope=network.
+        _skip_city_scope_after_merge = (
+            _explicit_all_cities
+            or entities.get("scope") == "network"
+            or bool(re.search(r"(?:по|для|во)\s+все[мх]?\s+город", ql))
+            or bool(re.search(r"(всем|всех|все)\s+город", ql))
+        )
+        if _skip_city_scope_after_merge:
+            ambiguities = [a for a in ambiguities if a != "city_scope_all_vs_one"]
 
         if not metrics and entities.get("metric_hint"):
             metrics = [str(entities["metric_hint"])]
@@ -202,16 +256,41 @@ class SemanticParser:
     @staticmethod
     def _detect_dimensions(ql: str, entities: dict[str, Any]) -> list[str]:
         out: list[str] = []
+        skip_city_from_phrases = implies_aggregate_across_all_cities(ql)
         for key, phrases in _DIMENSION_PHRASES:
+            if key == "city_id" and skip_city_from_phrases:
+                continue
             if any(p in ql for p in phrases):
                 if key not in out:
                     out.append(key)
         query = str(entities.get("__effective_query__") or "").strip()
         if query:
             for dim in get_semantic_dictionary_store().resolve_dimensions(query):
+                if dim == "city_id" and skip_city_from_phrases:
+                    continue
                 if dim not in out:
                     out.append(dim)
         return out[:5]
+
+    @staticmethod
+    def _try_explicit_month_year(ql: str) -> Optional[TimeRangeSpec]:
+        for stem, month_num in _MONTH_RU_TO_NUM.items():
+            if stem not in ql:
+                continue
+            m = re.search(r"\b(20[0-9]{2})\b", ql)
+            if not m:
+                continue
+            y = int(m.group(1))
+            if not (2000 <= y <= 2100):
+                continue
+            return TimeRangeSpec(
+                preset="calendar_month",
+                label_ru=f"{month_num:02d}.{y}",
+                calendar_year=y,
+                calendar_month=month_num,
+                time_window_anchor="order_timestamp",
+            )
+        return None
 
     @staticmethod
     def _try_explicit_calendar_year(ql: str) -> Optional[TimeRangeSpec]:
@@ -225,11 +304,22 @@ class SemanticParser:
             y = int(m.group(1))
         if y is None or not (2000 <= y <= 2100):
             return None
-        anchor: Literal["order_timestamp", "driverdone_timestamp"] = (
-            "driverdone_timestamp"
-            if any(p in ql for p in ("заверш", "выполн", "done ride", "completed ride"))
-            else "order_timestamp"
-        )
+        anchor: Literal["order_timestamp", "driverdone_timestamp", "clientcancel_timestamp"] = "order_timestamp"
+        if any(p in ql for p in ("заверш", "выполн", "done ride", "completed ride")):
+            anchor = "driverdone_timestamp"
+        elif any(
+            p in ql
+            for p in (
+                "отмен",
+                "отменён",
+                "отменен",
+                "cancel",
+                "cancellation",
+                "клиентск",
+                "пассажир",
+            )
+        ):
+            anchor = "clientcancel_timestamp"
         return TimeRangeSpec(
             preset="calendar_year",
             label_ru=f"календарный год {y}",
@@ -239,6 +329,9 @@ class SemanticParser:
 
     @staticmethod
     def _detect_time_range(ql: str, entities: dict[str, Any]) -> TimeRangeSpec:
+        cal_month = SemanticParser._try_explicit_month_year(ql)
+        if cal_month is not None:
+            return cal_month
         cal = SemanticParser._try_explicit_calendar_year(ql)
         if cal is not None:
             return cal
@@ -276,6 +369,19 @@ class SemanticParser:
             return TimeRangeSpec(preset="current_month", label_ru="текущий месяц")
         if "прошл" in ql and "месяц" in ql:
             return TimeRangeSpec(preset="last_month", label_ru="прошлый месяц")
+        for stem, month_num in _MONTH_RU_TO_NUM.items():
+            if stem in ql and ("прошл" in ql or "предыдущ" in ql):
+                y = int(datetime.now(timezone.utc).year) - 1
+                entities["month"] = month_num
+                entities["calendar_year"] = y
+                entities["calendar_month"] = month_num
+                return TimeRangeSpec(
+                    preset="calendar_month",
+                    label_ru=f"{month_num:02d}.{y}",
+                    calendar_year=y,
+                    calendar_month=month_num,
+                    time_window_anchor="order_timestamp",
+                )
         for stem, month_num in _MONTH_RU_TO_NUM.items():
             if stem in ql:
                 entities["month"] = month_num

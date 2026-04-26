@@ -95,7 +95,7 @@ class SqlGenerationAccuracyTests(unittest.TestCase):
         """При полном демо-train сравниваем результат выполнения с эталоном в БД."""
         try:
             with engine.connect() as conn:
-                n = conn.execute(text("SELECT COUNT(*)::bigint FROM public.train")).scalar_one()
+                n = conn.execute(text("SELECT COUNT(*)::bigint FROM public.incity_orders")).scalar_one()
         except Exception:
             self.skipTest("postgres недоступен")
         if int(n or 0) < 100_000:
@@ -105,7 +105,7 @@ class SqlGenerationAccuracyTests(unittest.TestCase):
         sql, _merged = _nl_pipeline_sql(q)
         canonical = """
             SELECT COUNT(DISTINCT order_id)::bigint AS value
-            FROM public.train a
+            FROM public.incity_orders a
             WHERE a.driverdone_timestamp IS NOT NULL
               AND (a.driverdone_timestamp AT TIME ZONE 'Europe/Moscow')::date >= DATE '2026-01-01'
               AND (a.driverdone_timestamp AT TIME ZONE 'Europe/Moscow')::date <= DATE '2026-12-31'

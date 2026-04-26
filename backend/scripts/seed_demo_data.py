@@ -286,7 +286,7 @@ def _template_target_role_key(template_key: str) -> str | None:
 
 
 def ensure_query_templates(session, workspace: Workspace, users: dict[str, User], roles: dict[str, Role]) -> None:
-    # (key, title, description, nl_prompt, chart, sql) — SQL только к public.train и whitelisted-колонкам.
+    # (key, title, description, nl_prompt, chart, sql) — SQL только к public.incity_orders/daily и whitelisted-колонкам.
     templates: list[tuple[str, str, str, str, str, str]] = [
         (
             "weekly_cancellations_by_city",
@@ -294,7 +294,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Количество отмен по city_id за 7 дней",
             "Покажи количество отмен по city_id за прошлую неделю",
             "bar",
-            "SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '7 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '7 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "daily_done_rides",
@@ -302,7 +302,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Завершённые поездки по дням за 14 дней",
             "Сравни количество завершенных поездок по дням за 14 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "avg_price_by_city",
@@ -310,7 +310,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "AVG(price_order_local) по city_id по всему доступному окну",
             "Покажи среднюю стоимость заказа по городам",
             "bar",
-            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.train GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.incity_orders GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "daily_orders_trend",
@@ -318,7 +318,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Число заказов по дням за 7 дней",
             "Покажи динамику заказов за последние 7 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '7 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '7 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "cancel_rate_by_city",
@@ -326,7 +326,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Доля строк с отменой к заказам по city_id за 14 дней",
             "Покажи cancellation rate по городам за 14 дней",
             "bar",
-            "SELECT city_id, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS cancellation_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT city_id, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS cancellation_rate FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "retention_proxy_daily",
@@ -334,7 +334,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Доля завершённых по дням (эвристика)",
             "Покажи ежедневную долю завершенных заказов",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS done_share FROM public.train GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS done_share FROM public.incity_orders GROUP BY 1 ORDER BY 1",
         ),
         (
             "trips_by_city",
@@ -342,7 +342,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Завершённые поездки по city_id за 14 дней",
             "Покажи количество завершённых поездок по city_id за последние 14 дней",
             "bar",
-            "SELECT city_id, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT city_id, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "cancellations_by_period",
@@ -350,7 +350,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Отмены по дням за 30 дней",
             "Покажи количество отменённых заказов по дням за последние 30 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "weekly_conversion",
@@ -358,7 +358,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Доля завершённых по календарным неделям за 8 недель",
             "Покажи долю завершённых заказов по неделям за последние 8 недель",
             "line",
-            "SELECT date_trunc('week', order_timestamp)::date AS week, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS conversion_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('week', order_timestamp)::date AS week, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id),0) AS conversion_rate FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "avg_check_by_city",
@@ -366,7 +366,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Средний price_order_local по city_id за 30 дней",
             "Покажи средний чек заказа (price_order_local) по city_id за последние 30 дней",
             "bar",
-            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "orders_dynamics",
@@ -374,7 +374,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Число заказов по дням за 14 дней",
             "Покажи динамику числа заказов по дням за последние 14 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "wow_done_rides_by_city",
@@ -382,7 +382,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сравнение done по city_id за текущую и прошлую неделю",
             "Сравни количество завершённых поездок по city_id за текущую и предыдущую календарную неделю",
             "bar",
-            "SELECT city_id, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL AND order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS done_this_week, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL AND order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS done_prev_week FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day' GROUP BY 1 ORDER BY 1",
+            "SELECT city_id, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL AND order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS done_this_week, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL AND order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS done_prev_week FROM public.incity_orders WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day' GROUP BY 1 ORDER BY 1",
         ),
         (
             "conversion_by_channel",
@@ -390,7 +390,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Доля завершённых по order_channel за 28 дней",
             "Покажи конверсию в завершённую поездку по order_channel за 28 дней",
             "bar",
-            "SELECT order_channel, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS conversion_rate, COUNT(DISTINCT order_id)::bigint AS orders FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 3 DESC",
+            "SELECT order_channel, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS conversion_rate, COUNT(DISTINCT order_id)::bigint AS orders FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 3 DESC",
         ),
         (
             "revenue_by_city_last_month",
@@ -398,7 +398,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сумма price_order_local по city_id за последние 30 дней",
             "Покажи выручку по городам за последний месяц",
             "bar",
-            "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "orders_count_by_channel",
@@ -406,15 +406,15 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сравнение объёма заказов по order_channel за 28 дней",
             "Сравни количество заказов по каналам",
             "bar",
-            "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "top5_cities_by_revenue",
             "Топ-5 городов по выручке",
-            "Сумма price_order_local за 30 дней, LIMIT 5",
+            "Сумма price_order_local за 30 дней",
             "Покажи топ-5 городов по выручке",
             "bar",
-            "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 5",
+            "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "orders_week_over_week",
@@ -422,7 +422,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сравнение числа заказов текущая vs прошлая календарная неделя",
             "Сравни недели между собой по числу заказов",
             "bar",
-            "SELECT COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS orders_prev_week, COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS orders_this_week FROM public.train WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day'",
+            "SELECT COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '7 day' AND order_timestamp < date_trunc('week', CURRENT_DATE))::bigint AS orders_prev_week, COUNT(*) FILTER (WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) AND order_timestamp < date_trunc('week', CURRENT_DATE) + interval '7 day')::bigint AS orders_this_week FROM public.incity_orders WHERE order_timestamp >= date_trunc('week', CURRENT_DATE) - interval '14 day'",
         ),
         (
             "avg_check_by_order_channel",
@@ -430,7 +430,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Средний price_order_local по order_channel (категория = канал продаж) за 30 дней",
             "Покажи средний чек по категориям",
             "bar",
-            "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT order_channel, AVG(price_order_local)::numeric(18,2) AS avg_check FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "orders_trend_30d",
@@ -438,7 +438,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Число заказов по дням за 30 дней",
             "Покажи тренд заказов за 30 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "admin_orders_by_status_14d",
@@ -446,7 +446,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Распределение заказов по status_order для контроля воронки",
             "Покажи количество заказов по статусам за последние 14 дней",
             "bar",
-            "SELECT status_order, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT status_order, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "admin_cancel_client_vs_driver_30d",
@@ -454,7 +454,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сравнение отмен клиента и водителя за месяц",
             "Сравни отмены клиента и отмены водителя за последние 30 дней",
             "bar",
-            "SELECT COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL)::bigint AS client_cancels, COUNT(*) FILTER (WHERE drivercancel_timestamp IS NOT NULL)::bigint AS driver_cancels FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day')",
+            "SELECT COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL)::bigint AS client_cancels, COUNT(*) FILTER (WHERE drivercancel_timestamp IS NOT NULL)::bigint AS driver_cancels FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day')",
         ),
         (
             "marketer_channel_revenue_28d",
@@ -462,7 +462,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сумма price_order_local по order_channel",
             "Покажи выручку по каналам привлечения за 28 дней",
             "bar",
-            "SELECT order_channel, SUM(price_order_local)::numeric(18,2) AS revenue_local, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT order_channel, SUM(price_order_local)::numeric(18,2) AS revenue_local, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "marketer_weekly_orders_by_channel",
@@ -470,7 +470,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Недельная динамика объёма заказов в разрезе order_channel",
             "Покажи недельную динамику заказов по каналам за последние 8 недель",
             "line",
-            "SELECT date_trunc('week', order_timestamp)::date AS week_start, order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1, 2 ORDER BY 1, 2",
+            "SELECT date_trunc('week', order_timestamp)::date AS week_start, order_channel, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1, 2 ORDER BY 1, 2",
         ),
         (
             "executive_revenue_last_4_weeks",
@@ -478,7 +478,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Сумма price_order_local по календарным неделям",
             "Покажи выручку по неделям за последние четыре недели",
             "line",
-            "SELECT date_trunc('week', order_timestamp)::date AS week_start, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('week', order_timestamp)::date AS week_start, SUM(price_order_local)::numeric(18,2) AS revenue_local FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "executive_done_rate_trend_30d",
@@ -486,7 +486,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Доля строк с driverdone к числу заказов по дням",
             "Покажи динамику доли завершённых поездок по дням за 30 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS completion_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, (COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS completion_rate FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "admin_platform_volume_daily_14d",
@@ -494,7 +494,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Суточный объём заказов без разреза по ролям пользователя",
             "Покажи суточный объём заказов на платформе за последние 14 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '14 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "admin_drivee_pass_avg_orders_by_city",
@@ -502,7 +502,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Таблица public.passenger_daily_metrics (pass_detail.csv — см. docs/datasets/drivee-analytics-base-ru.md)",
             "Покажи по городам среднее число дневных заказов пассажира",
             "bar",
-            "SELECT city_id, AVG(orders_count)::numeric(18,4) AS avg_daily_orders FROM public.passenger_daily_metrics GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 20",
+            "SELECT city_id, AVG(orders_count)::numeric(18,4) AS avg_daily_orders FROM public.passenger_daily_metrics GROUP BY 1 ORDER BY 2 DESC NULLS LAST",
         ),
         (
             "admin_drivee_driver_rides_sum_by_city",
@@ -510,7 +510,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Таблица public.driver_daily_metrics (driver_detail.csv)",
             "Покажи по городам сумму rides_count из дневных метрик водителей",
             "bar",
-            "SELECT city_id, SUM(rides_count)::numeric(18,2) AS rides_sum FROM public.driver_daily_metrics GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 20",
+            "SELECT city_id, SUM(rides_count)::numeric(18,2) AS rides_sum FROM public.driver_daily_metrics GROUP BY 1 ORDER BY 2 DESC NULLS LAST",
         ),
         (
             "drivee_nl_01_revenue_cities_7d_incity",
@@ -518,7 +518,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "SUM(price_order_local) по city_id за 7 дней из детальной таблицы",
             "Покажи выручку по городам за последнюю неделю",
             "bar",
-            "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue FROM public.incity_orders WHERE order_timestamp >= CURRENT_DATE - INTERVAL '7 days' GROUP BY city_id ORDER BY revenue DESC LIMIT 50",
+            "SELECT city_id, SUM(price_order_local)::numeric(18,2) AS revenue FROM public.incity_orders WHERE order_timestamp >= CURRENT_DATE - INTERVAL '7 days' GROUP BY city_id ORDER BY revenue DESC",
         ),
         (
             "drivee_nl_02_orders_by_day_incity",
@@ -526,7 +526,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "COUNT(DISTINCT order_id) по календарному дню",
             "Покажи количество заказов по дням",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS date, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders GROUP BY 1 ORDER BY 1 LIMIT 400",
+            "SELECT date_trunc('day', order_timestamp)::date AS date, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders GROUP BY 1 ORDER BY 1",
         ),
         (
             "drivee_nl_03_client_cancels_by_city_incity",
@@ -534,7 +534,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Фильтр clientcancel_timestamp IS NOT NULL",
             "Покажи отмены пассажиров по городам",
             "bar",
-            "SELECT city_id, COUNT(*)::bigint AS client_cancels FROM public.incity_orders WHERE clientcancel_timestamp IS NOT NULL GROUP BY city_id ORDER BY client_cancels DESC LIMIT 50",
+            "SELECT city_id, COUNT(*)::bigint AS client_cancels FROM public.incity_orders WHERE clientcancel_timestamp IS NOT NULL GROUP BY city_id ORDER BY client_cancels DESC",
         ),
         (
             "drivee_nl_04_active_passengers_by_day",
@@ -542,7 +542,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "passenger_daily_metrics: DISTINCT user_id при orders_count > 0",
             "Покажи активных пассажиров по дням",
             "line",
-            "SELECT order_date_part AS date, COUNT(DISTINCT user_id)::bigint AS active_passengers FROM public.passenger_daily_metrics WHERE orders_count > 0 GROUP BY order_date_part ORDER BY date LIMIT 400",
+            "SELECT order_date_part AS date, COUNT(DISTINCT user_id)::bigint AS active_passengers FROM public.passenger_daily_metrics WHERE orders_count > 0 GROUP BY order_date_part ORDER BY date",
         ),
         (
             "drivee_nl_05_active_drivers_by_day",
@@ -550,7 +550,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "driver_daily_metrics: DISTINCT driver_id при online_time_sum_seconds > 0",
             "Покажи активных водителей по дням",
             "line",
-            "SELECT tender_date_part AS date, COUNT(DISTINCT driver_id)::bigint AS active_drivers FROM public.driver_daily_metrics WHERE online_time_sum_seconds > 0 GROUP BY tender_date_part ORDER BY date LIMIT 400",
+            "SELECT tender_date_part AS date, COUNT(DISTINCT driver_id)::bigint AS active_drivers FROM public.driver_daily_metrics WHERE online_time_sum_seconds > 0 GROUP BY tender_date_part ORDER BY date",
         ),
         (
             "drivee_nl_06_ride_conversion_by_city_passenger",
@@ -558,7 +558,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "rides_count / orders_count из passenger_daily_metrics",
             "Покажи конверсию заказов в поездки по городам",
             "bar",
-            "SELECT city_id, (SUM(rides_count)::numeric / NULLIF(SUM(orders_count), 0))::numeric(18,4) AS ride_conversion FROM public.passenger_daily_metrics GROUP BY city_id ORDER BY ride_conversion DESC NULLS LAST LIMIT 30",
+            "SELECT city_id, (SUM(rides_count)::numeric / NULLIF(SUM(orders_count), 0))::numeric(18,4) AS ride_conversion FROM public.passenger_daily_metrics GROUP BY city_id ORDER BY ride_conversion DESC NULLS LAST",
         ),
         (
             "drivee_nl_07_avg_order_price_by_city_incity",
@@ -566,7 +566,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "AVG(price_order_local) из incity_orders",
             "Покажи среднюю стоимость поездки по городам",
             "bar",
-            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.incity_orders WHERE price_order_local IS NOT NULL GROUP BY city_id ORDER BY avg_order_price DESC NULLS LAST LIMIT 30",
+            "SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.incity_orders WHERE price_order_local IS NOT NULL GROUP BY city_id ORDER BY avg_order_price DESC NULLS LAST",
         ),
         (
             "drivee_nl_08_top_cities_rides_passenger",
@@ -574,7 +574,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "SUM(rides_count) по passenger_daily_metrics",
             "Покажи топ городов по количеству поездок",
             "bar",
-            "SELECT city_id, SUM(rides_count)::numeric(18,2) AS rides_count FROM public.passenger_daily_metrics GROUP BY city_id ORDER BY rides_count DESC NULLS LAST LIMIT 10",
+            "SELECT city_id, SUM(rides_count)::numeric(18,2) AS rides_count FROM public.passenger_daily_metrics GROUP BY city_id ORDER BY rides_count DESC NULLS LAST",
         ),
         (
             "drivee_nl_09_cancel_after_accept_trend",
@@ -582,7 +582,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "SUM(client_cancel_after_accept) по дням",
             "Покажи динамику отмен после принятия",
             "line",
-            "SELECT order_date_part AS date, SUM(client_cancel_after_accept)::numeric(18,2) AS cancels_after_accept FROM public.passenger_daily_metrics GROUP BY order_date_part ORDER BY date LIMIT 400",
+            "SELECT order_date_part AS date, SUM(client_cancel_after_accept)::numeric(18,2) AS cancels_after_accept FROM public.passenger_daily_metrics GROUP BY order_date_part ORDER BY date",
         ),
         (
             "drivee_nl_10_driver_online_hours_by_city",
@@ -590,7 +590,31 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "AVG(online_time_sum_seconds)/3600 из driver_daily_metrics",
             "Покажи среднее время онлайн водителей по городам",
             "bar",
-            "SELECT city_id, (AVG(online_time_sum_seconds) / 3600.0)::numeric(18,2) AS avg_online_hours FROM public.driver_daily_metrics GROUP BY city_id ORDER BY avg_online_hours DESC NULLS LAST LIMIT 30",
+            "SELECT city_id, (AVG(online_time_sum_seconds) / 3600.0)::numeric(18,2) AS avg_online_hours FROM public.driver_daily_metrics GROUP BY city_id ORDER BY avg_online_hours DESC NULLS LAST",
+        ),
+        (
+            "drivee_nl_11_unique_client_cancels_after_start_2026_month_city",
+            "Уникальные отмены пассажира после старта по месяцам и городам (2026)",
+            "COUNT(DISTINCT order_id) где clientcancel_timestamp > driverstarttheride_timestamp; группировка месяц+город за 2026 год",
+            "Какое количество уникальных отмененных поездок со стороны пассажира после начала поездки было в разрезе месяца и города в 2026 году",
+            "table",
+            "SELECT date_trunc('month', clientcancel_timestamp::timestamp) AS bucket, city_id::text AS dim, COUNT(DISTINCT CASE WHEN clientcancel_timestamp IS NOT NULL AND driverstarttheride_timestamp IS NOT NULL AND clientcancel_timestamp > driverstarttheride_timestamp THEN order_id END)::bigint AS value FROM public.incity_orders WHERE clientcancel_timestamp::timestamptz >= make_timestamptz(2026, 1, 1, 0, 0, 0, 'UTC') AND clientcancel_timestamp::timestamptz < make_timestamptz(2027, 1, 1, 0, 0, 0, 'UTC') GROUP BY 1, 2 ORDER BY 1, 2",
+        ),
+        (
+            "passenger_cancelled_after_start_by_month_city",
+            "Отмены пассажира после старта: месяц × город (2026)",
+            "Уникальные поездки, отменённые пассажиром после старта поездки, в разрезе месяца и города за 2026 год.",
+            "Какое количество уникальных отмененных поездок со стороны пассажира после начала поездки было в разрезе месяца и города в 2026 году?",
+            "table",
+            "SELECT date_trunc('month', clientcancel_timestamp::timestamp) AS bucket, city_id::text AS dim, COUNT(DISTINCT CASE WHEN clientcancel_timestamp IS NOT NULL AND driverstarttheride_timestamp IS NOT NULL AND clientcancel_timestamp > driverstarttheride_timestamp THEN order_id END)::bigint AS value FROM public.incity_orders WHERE clientcancel_timestamp::timestamptz >= make_timestamptz(2026, 1, 1, 0, 0, 0, 'UTC') AND clientcancel_timestamp::timestamptz < make_timestamptz(2027, 1, 1, 0, 0, 0, 'UTC') GROUP BY 1, 2 ORDER BY 1, 2",
+        ),
+        (
+            "network_passenger_funnel_conversion_by_month",
+            "Конверсия пассажиров в 2 этапа по сети (июнь 2025)",
+            "Воронка по сети: created_orders, accepted_orders, completed_orders; acceptance = accepted/created, completion = completed/accepted.",
+            "Какая конверсия составляет в два основных этапа у пассажиров: в принятие заказа и в завершении поездки по всей сети за июнь 2025 года?",
+            "bar",
+            "SELECT COUNT(DISTINCT order_id)::bigint AS created_orders, COUNT(DISTINCT CASE WHEN driveraccept_timestamp IS NOT NULL THEN order_id END)::bigint AS accepted_orders, COUNT(DISTINCT CASE WHEN driverdone_timestamp IS NOT NULL THEN order_id END)::bigint AS completed_orders, ROUND(100.0 * COUNT(DISTINCT CASE WHEN driveraccept_timestamp IS NOT NULL THEN order_id END) / NULLIF(COUNT(DISTINCT order_id), 0), 2) AS acceptance_conversion, ROUND(100.0 * COUNT(DISTINCT CASE WHEN driverdone_timestamp IS NOT NULL THEN order_id END) / NULLIF(COUNT(DISTINCT CASE WHEN driveraccept_timestamp IS NOT NULL THEN order_id END), 0), 2) AS completion_conversion FROM public.incity_orders WHERE order_timestamp::timestamptz >= make_timestamptz(2025, 6, 1, 0, 0, 0, 'UTC') AND order_timestamp::timestamptz < make_timestamptz(2025, 7, 1, 0, 0, 0, 'UTC')",
         ),
         (
             "admin_top_cities_orders_30d",
@@ -598,7 +622,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Ранжирование city_id по заказам для балансировки нагрузки",
             "Покажи топ городов по количеству заказов за 30 дней",
             "bar",
-            "SELECT city_id, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC LIMIT 12",
+            "SELECT city_id, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "admin_sla_proxy_avg_duration_30d",
@@ -606,7 +630,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Среднее duration_in_seconds по календарным дням",
             "Покажи среднюю длительность поездки по дням за 30 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(duration_in_seconds)::numeric(18,2) AS avg_duration_sec FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') AND duration_in_seconds IS NOT NULL GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(duration_in_seconds)::numeric(18,2) AS avg_duration_sec FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') AND duration_in_seconds IS NOT NULL GROUP BY 1 ORDER BY 1",
         ),
         (
             "marketer_done_rides_by_channel_28d",
@@ -614,7 +638,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Число завершённых поездок в разрезе order_channel",
             "Покажи количество завершённых поездок по каналам за 28 дней",
             "bar",
-            "SELECT order_channel, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT order_channel, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "marketer_client_cancel_rate_channel_28d",
@@ -622,7 +646,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Отношение отмен клиента к числу заказов по order_channel",
             "Покажи долю отмен клиента по каналам за 28 дней",
             "bar",
-            "SELECT order_channel, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS client_cancel_rate FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
+            "SELECT order_channel, (COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL))::numeric / NULLIF(COUNT(DISTINCT order_id), 0) AS client_cancel_rate FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '28 day') GROUP BY 1 ORDER BY 2 DESC",
         ),
         (
             "executive_orders_weekly_trend_8w",
@@ -630,7 +654,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Число уникальных заказов по календарной неделе",
             "Покажи динамику числа заказов по неделям за последние 8 недель",
             "line",
-            "SELECT date_trunc('week', order_timestamp)::date AS week_start, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('week', order_timestamp)::date AS week_start, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '56 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "executive_avg_order_value_daily_30d",
@@ -638,7 +662,7 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Среднее price_order_local по календарным дням",
             "Покажи динамику среднего чека по дням за 30 дней",
             "line",
-            "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
+            "SELECT date_trunc('day', order_timestamp)::date AS day, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day') GROUP BY 1 ORDER BY 1",
         ),
         (
             "executive_total_revenue_orders_30d",
@@ -646,10 +670,11 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
             "Один ряд: сумма выручки и число заказов за месяц",
             "Покажи суммарную выручку и число заказов за последние 30 дней",
             "table",
-            "SELECT SUM(price_order_local)::numeric(18,2) AS revenue_30d, COUNT(DISTINCT order_id)::bigint AS orders_30d FROM public.train WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day')",
+            "SELECT SUM(price_order_local)::numeric(18,2) AS revenue_30d, COUNT(DISTINCT order_id)::bigint AS orders_30d FROM public.incity_orders WHERE order_timestamp >= (CURRENT_DATE - INTERVAL '30 day')",
         ),
     ]
     for template_key, template_name, description, nl_template, chart, sql_template in templates:
+        normalized_sql_template = sql_template
         tpl = session.scalar(
             select(QueryTemplate).where(
                 QueryTemplate.workspace_id == workspace.id,
@@ -667,11 +692,19 @@ def ensure_query_templates(session, workspace: Workspace, users: dict[str, User]
                     template_name=template_name,
                     description=description,
                     nl_prompt_template=nl_template,
-                    sql_template=sql_template,
+                    sql_template=normalized_sql_template,
                     default_chart_type=chart,
                     created_by=users["admin"].id,
                 )
             )
+        else:
+            # Обновляем существующие шаблоны при повторном seed, чтобы SQL всегда соответствовал актуальной базе.
+            tpl.target_role_id = target_rid
+            tpl.template_name = template_name
+            tpl.description = description
+            tpl.nl_prompt_template = nl_template
+            tpl.sql_template = normalized_sql_template
+            tpl.default_chart_type = chart
 
 
 def ensure_business_demo_data(session, workspace: Workspace) -> None:
@@ -712,7 +745,7 @@ def ensure_demo_notebook_and_history(session, workspace: Workspace, admin_user: 
             interpreted_intent={"intent": "comparison"},
             extracted_entities_json={"time_period": "last_week", "dimension": "city_id"},
             semantic_terms_json=[{"term_key": "client_cancellations"}],
-            generated_sql="SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL) AS cancellations FROM public.train WHERE order_timestamp >= CURRENT_DATE - INTERVAL '7 day' GROUP BY city_id;",
+            generated_sql="SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL) AS cancellations FROM public.incity_orders WHERE order_timestamp >= CURRENT_DATE - INTERVAL '7 day' GROUP BY city_id;",
             validation_status="passed",
             execution_status="succeeded",
             chart_type="bar",
@@ -745,7 +778,7 @@ def ensure_demo_notebook_and_history(session, workspace: Workspace, admin_user: 
                 resolved_query="Покажи количество отмен по city_id за прошлую неделю",
                 interpreted_intent="comparison",
                 semantic_terms_json=[{"term_key": "client_cancellations", "surface_form": "отмены клиентом"}],
-                generated_sql="SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL) AS cancellations FROM public.train GROUP BY city_id;",
+                generated_sql="SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL) AS cancellations FROM public.incity_orders GROUP BY city_id;",
                 validation_result_json={"status": "passed"},
                 execution_status="succeeded",
                 trace_payload_json={"confidence": 0.84},
@@ -760,7 +793,7 @@ def ensure_demo_notebook_and_history(session, workspace: Workspace, admin_user: 
                 notebook_id=notebook.id,
                 title="Weekly cancellations",
                 description="Seeded report for demo schedule flow.",
-                report_payload_json={"chart_type": "bar", "sql": "SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL) AS cancellations FROM public.train GROUP BY city_id;"},
+                report_payload_json={"chart_type": "bar", "sql": "SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL) AS cancellations FROM public.incity_orders GROUP BY city_id;"},
                 created_by=admin_user.id,
                 is_shared=True,
             )

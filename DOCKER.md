@@ -119,6 +119,19 @@ make migrate
 make seed
 ```
 
+## 7) Safe backend restart (без ложных 500 на фронте)
+
+Когда backend перезапускается, ему нужно время на startup (wait for Postgres, migrations, seed, uvicorn).  
+Если в этот момент UI отправляет запросы через proxy, фронт может показать `500` (фактически `ECONNREFUSED` до backend).
+
+Используйте безопасную цель:
+
+```bash
+make safe-restart-backend
+```
+
+Она делает `docker compose restart backend` и ждёт успешный `GET /health` перед завершением.
+
 Or directly:
 
 ```bash

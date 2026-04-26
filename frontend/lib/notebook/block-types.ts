@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import type { NotebookAnalyticsRunOptions } from "@/types/api/cells";
 
 /** Runtime state for a block in the canvas */
@@ -62,6 +62,8 @@ export interface TableBlock extends BlockBase {
   columns: string[];
   rows: Record<string, string | number>[];
   caption?: string;
+  /** Подписи колонок для UI (ключ — как в `columns` / `rows`). */
+  columnLabels?: Record<string, string>;
 }
 
 export interface ChartBlock extends BlockBase {
@@ -366,6 +368,10 @@ export interface AddCellComposerProps {
   loading?: boolean;
   placeholder?: string;
   error?: string | null;
+  /** Обёртка композера — для scrollIntoView (например после «Уточнить трактовку»). */
+  containerRef?: Ref<HTMLDivElement>;
+  /** Поле ввода — для фокуса и позиции каретки после подстановки текста. */
+  textareaRef?: Ref<HTMLTextAreaElement>;
 }
 
 export interface RunCellButtonProps {

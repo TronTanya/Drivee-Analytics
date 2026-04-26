@@ -1,5 +1,12 @@
 import type { TableCellProps } from "@/lib/notebook/block-types";
+import { sqlColumnLabelRu } from "@/lib/notebook/sql-column-labels";
 import { UiStateSurface } from "@/components/ui/state-surface";
+
+function displayColumnName(col: string, labels?: Record<string, string>): string {
+  const fromApi = labels?.[col];
+  if (fromApi?.trim()) return fromApi.trim();
+  return sqlColumnLabelRu(col);
+}
 
 export function TableCell({ block }: TableCellProps) {
   const emptyCols = !block.columns.length;
@@ -43,13 +50,13 @@ export function TableCell({ block }: TableCellProps) {
         <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Результат запроса</span>
         {block.caption ? <span className="text-xs text-foreground-secondary">{block.caption}</span> : null}
       </div>
-      <div className="space-y-2 sm:hidden">
-        {block.rows.slice(0, 5).map((row, ri) => (
+      <div className="max-h-[min(70vh,56rem)] space-y-2 overflow-y-auto sm:hidden">
+        {block.rows.map((row, ri) => (
           <article key={ri} className="rounded-control border border-border-subtle bg-surface-card p-2.5 shadow-xs">
             <dl className="space-y-1.5">
               {block.columns.map((col) => (
                 <div key={col} className="grid grid-cols-[110px_1fr] gap-2 text-xs">
-                  <dt className="truncate font-semibold text-foreground-secondary">{col}</dt>
+                  <dt className="truncate font-semibold text-foreground-secondary">{displayColumnName(col, block.columnLabels)}</dt>
                   <dd className="truncate text-foreground">{String(row[col] ?? "—")}</dd>
                 </div>
               ))}
@@ -63,7 +70,7 @@ export function TableCell({ block }: TableCellProps) {
             <tr className="border-b border-border-subtle bg-surface-muted/70">
               {block.columns.map((col) => (
                 <th key={col} className="whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-foreground-secondary">
-                  {col}
+                  {displayColumnName(col, block.columnLabels)}
                 </th>
               ))}
             </tr>

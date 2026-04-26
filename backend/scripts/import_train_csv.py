@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Импорт строк из CSV в public.anonymized_incity_orders (VIEW public.train читает оттуда же).
+Импорт строк из CSV в public.anonymized_incity_orders.
 
 Ожидается заголовок как в экспорте (в т.ч. MPIT `incity.csv`): city_id,order_id,tender_id,user_id,driver_id,offset_hours,...
 Колонка order_channel в файле не обязательна — подставится 'unknown'.
 Пустой tender_id в CSV заменяется на уникальный плейсхолдер `__no_tender__{n}` для PK.
 
 Пример (внутри контейнера backend, DATABASE_URL уже на postgres):
-  python scripts/import_train_csv.py --path /tmp/train.csv --limit 16000 --replace
+  python scripts/import_train_csv.py --path /tmp/incity.csv --limit 16000 --replace
 
 С хоста через compose см. scripts/import_train_csv_docker.sh
 """
@@ -191,7 +191,7 @@ def main() -> int:
             chunksize=2000,
         )
         n = conn.execute(text("SELECT COUNT(*) FROM public.anonymized_incity_orders")).scalar_one()
-    print(f"OK: rows in anonymized_incity_orders (and train VIEW) = {n}")
+    print(f"OK: rows in anonymized_incity_orders = {n}")
     return 0
 
 

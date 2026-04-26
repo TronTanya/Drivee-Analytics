@@ -20,6 +20,7 @@ TimePreset = Literal[
     "last_year",
     "rolling_window",
     "calendar_year",
+    "calendar_month",
 ]
 
 ComparisonMode = Literal["none", "wow", "mom", "yoy", "unspecified", "custom"]
@@ -36,9 +37,15 @@ class TimeRangeSpec(BaseModel):
         default=None,
         description="При preset=calendar_year — год окна; для order_timestamp — UTC, для driverdone — дата в Europe/Moscow.",
     )
-    time_window_anchor: Optional[Literal["order_timestamp", "driverdone_timestamp"]] = Field(
+    time_window_anchor: Optional[
+        Literal["order_timestamp", "driverdone_timestamp", "clientcancel_timestamp"]
+    ] = Field(
         default=None,
-        description="Колонка для границ calendar_year: заказ vs завершение.",
+        description="Колонка для границ calendar_year: заказ, завершение или время отмены клиента.",
+    )
+    calendar_month: Optional[int] = Field(
+        default=None,
+        description="При preset=calendar_month — номер месяца (1..12) для calendar_year.",
     )
 
 
@@ -90,6 +97,11 @@ class NLQueryInterpretation(BaseModel):
             patch["calendar_year"] = int(tr.calendar_year)
             if tr.time_window_anchor:
                 patch["time_window_anchor"] = tr.time_window_anchor
+        elif tr.preset == "calendar_month" and tr.calendar_year is not None and tr.calendar_month is not None:
+            patch["calendar_year"] = int(tr.calendar_year)
+            patch["calendar_month"] = int(tr.calendar_month)
+            if tr.time_window_anchor:
+                patch["time_window_anchor"] = tr.time_window_anchor
         elif tr.preset != "unknown":
             patch["time_period"] = tr.preset
         if tr.window_weeks is not None and "window_weeks" not in patch and tr.preset != "rolling_window":
@@ -104,6 +116,12 @@ class NLQueryInterpretation(BaseModel):
             patch.setdefault("compare_baseline", self.comparison.mode)
         for k, v in self.filters.items():
             if v is not None and v != "":
+                if (
+                    k == "time_period"
+                    and tr.preset == "calendar_year"
+                    and tr.calendar_year is not None
+                ):
+                    continue
                 patch[k] = v
         return patch
 

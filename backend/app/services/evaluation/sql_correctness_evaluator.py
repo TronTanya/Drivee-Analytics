@@ -99,15 +99,15 @@ def _live_scalar_compare(
     *,
     actual_sql: str,
     reference_sql: str,
-    min_train_rows: int,
+    min_source_rows: int,
 ) -> tuple[bool, str, Any, Any]:
     if not actual_sql.strip() or not reference_sql.strip():
         return False, "missing_sql", None, None
     try:
         with engine.connect() as conn:
-            if min_train_rows > 0:
-                n = conn.execute(text("SELECT COUNT(*)::bigint FROM public.train")).scalar_one()
-                if int(n or 0) < min_train_rows:
+            if min_source_rows > 0:
+                n = conn.execute(text("SELECT COUNT(*)::bigint FROM public.incity_orders")).scalar_one()
+                if int(n or 0) < min_source_rows:
                     return True, "skipped_insufficient_rows", None, None
             av = conn.execute(text(actual_sql)).scalar_one()
             rv = conn.execute(text(reference_sql)).scalar_one()
@@ -185,7 +185,7 @@ def _evaluate_one(case: SqlCorrectnessCase, mode: EvaluationMode) -> SqlCorrectn
         scalar_live_ok, scalar_live_status, actual_scalar, ref_scalar = _live_scalar_compare(
             actual_sql=sql_text,
             reference_sql=str(spec.reference_sql_live or ""),
-            min_train_rows=max(0, int(spec.min_train_rows_for_live_compare)),
+            min_source_rows=max(0, int(spec.min_train_rows_for_live_compare)),
         )
         if not scalar_live_ok:
             failures.append(f"live scalar compare failed: {scalar_live_status}")

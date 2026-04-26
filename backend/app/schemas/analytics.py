@@ -59,5 +59,5 @@ class RunAnalyticsResponse(BaseModel):
     )
     resolved_source_table: str = Field(
         default="",
-        description="Поверхность данных после enrich контекста (например public.train); для UI и согласованности с отчётами.",
+        description="Поверхность данных после enrich контекста (например public.incity_orders); для UI и согласованности с отчётами.",
     )

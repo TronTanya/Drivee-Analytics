@@ -1,6 +1,6 @@
 -- Drivee demo seed aligned to confirmed anonymized in-city orders schema.
 -- Prerequisite: run bootstrap_drivee.sql first.
--- Uses public.train as canonical analytics source.
+-- Uses public.incity_orders as canonical analytics source.
 
 BEGIN;
 
@@ -30,21 +30,21 @@ INSERT INTO notebook_cells (
   ('b1111111-1111-1111-1111-111111111101', 'a1111111-1111-1111-1111-111111111111', 'prompt', 1,
    'Покажи количество отмен по city_id за прошлую неделю', '{"intent":"comparison","metric":"client_cancellations"}',
    '{"window_days":7}', '["client_cancellations"]',
-   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train WHERE order_timestamp >= current_date - interval ''7 day'' GROUP BY 1 ORDER BY 2 DESC',
+   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.incity_orders WHERE order_timestamp >= current_date - interval ''7 day'' GROUP BY 1 ORDER BY 2 DESC',
    'passed', 'succeeded', 'Есть city_id с повышенной долей отмен.', 0.86, false, '[]',
    '{"geo_fallback":"bar_for_city_id"}', '{"used_tables":["train"],"used_columns":["city_id","cancellations"]}', '{}',
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2'),
   ('b2222222-2222-2222-2222-222222222201', 'a2222222-2222-2222-2222-222222222222', 'prompt', 1,
    'Сравни количество завершенных поездок по дням', '{"intent":"trend","metric":"done_rides"}',
    '{"window_days":14}', '["done_rides"]',
-   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.train WHERE order_timestamp >= current_date - interval ''14 day'' GROUP BY 1 ORDER BY 1',
+   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(*) FILTER (WHERE driverdone_timestamp IS NOT NULL)::bigint AS done_rides FROM public.incity_orders WHERE order_timestamp >= current_date - interval ''14 day'' GROUP BY 1 ORDER BY 1',
    'passed', 'succeeded', 'Серия завершенных поездок стабильна с локальными колебаниями.', 0.88, false, '[]',
    '{}', '{"used_tables":["train"],"used_columns":["day","driverdone_timestamp"]}', '{}',
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa3'),
   ('b3333333-3333-3333-3333-333333333301', 'a3333333-3333-3333-3333-333333333333', 'prompt', 1,
    'Построй прогноз количества заказов на 8 недель', '{"intent":"forecast","metric":"orders_count"}',
    '{"horizon_weeks":8}', '["orders_count"]',
-   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.train GROUP BY 1 ORDER BY 1',
+   'SELECT date_trunc(''day'', order_timestamp)::date AS day, COUNT(DISTINCT order_id)::bigint AS orders_count FROM public.incity_orders GROUP BY 1 ORDER BY 1',
    'passed', 'succeeded', 'Базовый прогноз показывает умеренный рост заказов.', 0.79, false, '[]',
    '{}', '{"used_tables":["train"],"used_columns":["day","order_id"]}', '{"method":"trend_extrapolation","horizon_steps":8}',
    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4')
@@ -78,13 +78,23 @@ VALUES
   ('d1000000-0000-0000-0000-000000000010', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222',
    'avg_price_by_city_id', 'Средняя стоимость заказа по city_id', 'Сравнение средней стоимости заказа по city_id',
    'Покажи среднюю стоимость заказа по городам',
-   'SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.train GROUP BY 1 ORDER BY 2 DESC',
+   'SELECT city_id, AVG(price_order_local)::numeric(18,2) AS avg_order_price FROM public.incity_orders GROUP BY 1 ORDER BY 2 DESC',
    'bar', '{"group_by":"city_id"}', '["avg_order_price","city_id"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'),
   ('d1000000-0000-0000-0000-000000000011', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222',
    'top_city_cancellations', 'Топ city_id по отменам', 'Топ-3 city_id по количеству отмен',
    'Топ-3 города по количеству отмененных заказов',
-   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.train GROUP BY 1 ORDER BY 2 DESC LIMIT 3',
-   'horizontal_bar', '{"limit":3}', '["client_cancellations","city_id"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1')
+   'SELECT city_id, COUNT(*) FILTER (WHERE clientcancel_timestamp IS NOT NULL OR drivercancel_timestamp IS NOT NULL)::bigint AS cancellations FROM public.incity_orders GROUP BY 1 ORDER BY 2 DESC LIMIT 3',
+   'horizontal_bar', '{"limit":3}', '["client_cancellations","city_id"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'),
+  ('d1000000-0000-0000-0000-000000000012', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222',
+   'passenger_cancelled_after_start_by_month_city', 'Отмены пассажира после старта: месяц × город (2026)', 'Уникальные поездки, отменённые пассажиром после старта поездки, в разрезе месяца и города за 2026 год.',
+   'Какое количество уникальных отмененных поездок со стороны пассажира после начала поездки было в разрезе месяца и города в 2026 году?',
+   'SELECT date_trunc(''month'', clientcancel_timestamp::timestamp) AS bucket, city_id::text AS dim, COUNT(DISTINCT CASE WHEN clientcancel_timestamp IS NOT NULL AND driverstarttheride_timestamp IS NOT NULL AND clientcancel_timestamp > driverstarttheride_timestamp THEN order_id END)::bigint AS value FROM public.incity_orders WHERE clientcancel_timestamp::timestamptz >= make_timestamptz(2026, 1, 1, 0, 0, 0, ''UTC'') AND clientcancel_timestamp::timestamptz < make_timestamptz(2027, 1, 1, 0, 0, 0, ''UTC'') GROUP BY 1, 2 ORDER BY 1, 2',
+   'table', '{"calendar_year":2026}', '["unique_client_cancels_after_start","month_start","city_id"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1'),
+  ('d1000000-0000-0000-0000-000000000013', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '33333333-3333-3333-3333-333333333333',
+   'network_passenger_funnel_conversion_by_month', 'Конверсия пассажиров в 2 этапа по сети (июнь 2025)', 'Воронка по сети: created_orders, accepted_orders, completed_orders; acceptance = accepted/created, completion = completed/accepted.',
+   'Какая конверсия составляет в два основных этапа у пассажиров: в принятие заказа и в завершении поездки по всей сети за июнь 2025 года?',
+   'SELECT COUNT(DISTINCT order_id)::bigint AS created_orders, COUNT(DISTINCT CASE WHEN driveraccept_timestamp IS NOT NULL THEN order_id END)::bigint AS accepted_orders, COUNT(DISTINCT CASE WHEN driverdone_timestamp IS NOT NULL THEN order_id END)::bigint AS completed_orders, ROUND(100.0 * COUNT(DISTINCT CASE WHEN driveraccept_timestamp IS NOT NULL THEN order_id END) / NULLIF(COUNT(DISTINCT order_id), 0), 2) AS acceptance_conversion, ROUND(100.0 * COUNT(DISTINCT CASE WHEN driverdone_timestamp IS NOT NULL THEN order_id END) / NULLIF(COUNT(DISTINCT CASE WHEN driveraccept_timestamp IS NOT NULL THEN order_id END), 0), 2) AS completion_conversion FROM public.incity_orders WHERE order_timestamp::timestamptz >= make_timestamptz(2025, 6, 1, 0, 0, 0, ''UTC'') AND order_timestamp::timestamptz < make_timestamptz(2025, 7, 1, 0, 0, 0, ''UTC'')',
+   'bar', '{"calendar_year":2025,"calendar_month":6,"scope":"network"}', '["acceptance_conversion","completion_conversion"]', true, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1')
 ON CONFLICT (workspace_id, template_key) DO NOTHING;
 
 -- === Saved reports ===

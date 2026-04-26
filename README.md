@@ -363,6 +363,23 @@ make test-e2e         # полный browser gate
 make quality-eval
 ```
 
+## Проверка вопросов жюри
+
+```bash
+docker compose up -d
+make test-jury-questions
+```
+
+Примеры целевых вопросов:
+
+- `Какое количество уникальных отмененных поездок со стороны пассажира после начала поездки было в разрезе месяца и города в 2026 году?`
+- `Какая конверсия составляет в два основных этапа у пассажиров: в принятие заказа и в завершении поездки по всей сети за июнь 2025 года?`
+
+Ожидаемая логика:
+
+- Вопрос 1: `COUNT(DISTINCT order_id)` с фильтрами `clientcancel_timestamp > driverstarttheride_timestamp`, календарный 2026 год, группировка по месяцу и городу.
+- Вопрос 2: период `2025-06-01` включительно до `2025-07-01` не включительно; `acceptance_conversion = accepted_orders / created_orders * 100`; `completion_conversion = completed_orders / accepted_orders * 100`; scope = вся сеть (без city group-by).
+
 ---
 
 ## 11. Seed и импорт данных

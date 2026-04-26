@@ -1,6 +1,6 @@
 # Аналитическая база Drivee (incity + дневные метрики)
 
-Три CSV из набора MPIT/Drivee загружаются в отдельные таблицы PostgreSQL **рядом** с существующим слоем `public.train` (VIEW над `anonymized_incity_orders`). Существующие сценарии на `train` не удаляются.
+Три CSV из набора MPIT/Drivee загружаются в отдельные таблицы PostgreSQL и используются как основная аналитическая база для текущего контура.
 
 ## Таблицы
 
@@ -40,7 +40,7 @@ docker compose exec backend alembic upgrade head
 ## SQL и роли
 
 - Таблицы добавлены в `SQL_WHITELIST_TABLES` / колонки в `SQL_WHITELIST_COLUMNS` (`app/core/config.py`).
-- **Executive** не имеет доступа к `incity_orders` (только агрегаты daily + `train`).
+- **Executive** не имеет доступа к `incity_orders` (только агрегаты `passenger_daily_metrics` и `driver_daily_metrics`).
 - Запросы к `incity_orders` без агрегации и без явного временного фильтра **отклоняются** валидатором (`check_incity_orders_scan_policy`).
 
 ## NL→SQL шаблоны

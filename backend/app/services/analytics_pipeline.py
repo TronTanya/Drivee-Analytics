@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 import math
 import re
@@ -34,6 +35,7 @@ from app.schemas.trace_payload import (
 from app.schemas.clarification import clarification_reason_summary_ru
 from app.schemas.pipeline import PipelineCellItem
 from app.services.analytics_post_process import post_process_sql_result
+from app.services.sql_column_labels_ru import build_sql_column_labels_map, sql_column_label_ru
 from app.services.orchestration.query_orchestrator import (
     QueryOrchestrator,
     build_default_orchestrator,
@@ -157,7 +159,7 @@ _PHASE_SPECS: list[tuple[str, str, frozenset[str]]] = [
 
 
 def enrich_notebook_context_for_orchestration(notebook_context: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Единая точка: явный source_table из контекста иначе канонический датасет (train), опционально — последний staging."""
+    """Единая точка: явный source_table из контекста иначе канонический датасет (incity_orders), опционально — последний staging."""
     ctx = dict(notebook_context or {})
     explicit = ctx.get("source_table") or ctx.get("ds_staging_qualified")
     if isinstance(explicit, str) and explicit.strip():
@@ -700,6 +702,7 @@ def _result_to_pipeline_cells(result: NaturalLanguageAnalysisResult) -> list[Pip
         "columns": table_columns,
         "rows": table_rows,
         "caption": "Результат SQL-запроса",
+        "column_labels": build_sql_column_labels_map(table_columns),
     }
     return [
         PipelineCellItem(id=str(uuid4()), type="prompt", content=result.prompt),
@@ -734,6 +737,8 @@ def _result_to_pipeline_cells(result: NaturalLanguageAnalysisResult) -> list[Pip
 def _is_number(value: Any) -> bool:
     if isinstance(value, bool) or value is None:
         return False
+    if isinstance(value, Decimal):
+        return not value.is_nan()
     if isinstance(value, (int, float)):
         return True
     if isinstance(value, str):
@@ -751,6 +756,11 @@ def _is_number(value: Any) -> bool:
 def _as_float(value: Any) -> Optional[float]:
     if not _is_number(value):
         return None
+    if isinstance(value, Decimal):
+        try:
+            return float(value)
+        except (TypeError, ValueError, ArithmeticError):
+            return None
     if isinstance(value, (int, float)):
         return float(value)
     try:
@@ -786,16 +796,79 @@ def _pick_dimension_column(columns: list[str], numeric_cols: list[str]) -> Optio
 
 def _sql_metric_column_display_name(column: str) -> str:
     """Короткие подписи для «широкой» строки с несколькими COUNT — ось категорий на графике."""
-    lo = column.lower()
-    if "accept" in lo or "принят" in lo:
-        return "Принятые заказы"
-    if "cancel" in lo or "отмен" in lo:
-        return "Отменённые заказы"
-    if "done" in lo or "заверш" in lo:
-        return "Завершённые поездки"
-    if "price" in lo or "revenue" in lo or "выруч" in lo:
-        return "Сумма / выручка"
-    return column.replace("_", " ")
+    return sql_column_label_ru(column)
+
+
+def _sql_dimension_column_display_name(column: str) -> str:
+    return sql_column_label_ru(column)
+
+
+def _try_funnel_conversion_stage_bars(
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    *,
+    recommended: str,
+    alternatives: list[str],
+    explanation: str,
+    geo_metadata: Optional[dict[str, Any]],
+    sample_size: int,
+    quality_metric_label: str,
+    quality_metric_value: Optional[float],
+) -> Optional[dict[str, Any]]:
+    """Одна строка с двумя конверсиями воронки → два вертикальных столбца (%)."""
+    if len(rows) != 1:
+        return None
+    acc_key = next((c for c in columns if str(c).lower() == "acceptance_conversion"), None)
+    comp_key = next((c for c in columns if str(c).lower() == "completion_conversion"), None)
+    if not acc_key or not comp_key:
+        return None
+    row0 = rows[0]
+    va = _as_float(row0.get(acc_key))
+    vc = _as_float(row0.get(comp_key))
+    if va is None and vc is None:
+        return None
+    label_key = "_metric_label"
+    value_key = "_metric_value"
+    data = [
+        {
+            label_key: sql_column_label_ru(str(acc_key)),
+            value_key: va if va is not None else row0.get(acc_key),
+        },
+        {
+            label_key: sql_column_label_ru(str(comp_key)),
+            value_key: vc if vc is not None else row0.get(comp_key),
+        },
+    ]
+    parts: list[str] = []
+    for key_sql, label_ru in (
+        ("created_orders", "создано"),
+        ("accepted_orders", "принято"),
+        ("completed_orders", "завершено"),
+    ):
+        ck = next((c for c in columns if str(c).lower() == key_sql), None)
+        if ck and row0.get(ck) is not None:
+            parts.append(f"{label_ru}: {row0.get(ck)}")
+    tail = " · ".join(parts) if parts else ""
+    sub = f"Два этапа воронки; выборка n={sample_size}"
+    if tail:
+        sub = f"{sub}. {tail}"
+    return {
+        "chartType": "bar",
+        "recommendedChartType": "bar",
+        "alternativeChartTypes": [a for a in alternatives if a != "bar"][:4] or ["horizontal_bar", "donut", "table"],
+        "visualizationExplanation": explanation
+        or "Две основные конверсии пассажирской воронки: принятие заказа и завершение поездки (в %).",
+        "geoMetadata": geo_metadata,
+        "title": "Конверсия по этапам",
+        "subtitle": sub,
+        "unitLabel": "%",
+        "sampleSize": sample_size,
+        "qualityMetricLabel": quality_metric_label,
+        "qualityMetricValue": quality_metric_value,
+        "xKey": label_key,
+        "series": [{"key": value_key, "name": "Конверсия, %"}],
+        "data": data,
+    }
 
 
 def _try_melt_single_row_all_numeric_bar_payload(
@@ -818,13 +891,14 @@ def _try_melt_single_row_all_numeric_bar_payload(
         return None
     if len(rows) != 1 or len(numeric_cols) < 2:
         return None
-    if any(c not in numeric_cols for c in columns):
+    ordered = [c for c in columns if c in numeric_cols]
+    if len(ordered) < 2:
         return None
     label_key = "_metric_label"
     value_key = "_metric_value"
     row0 = rows[0]
     data: list[dict[str, Any]] = []
-    for c in numeric_cols:
+    for c in ordered:
         v = _as_float(row0.get(c))
         data.append(
             {
@@ -937,7 +1011,63 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
 
     columns = list(rows[0].keys())
     numeric_cols = _pick_numeric_columns(rows, columns)
+    funnel_bars = _try_funnel_conversion_stage_bars(
+        rows,
+        columns,
+        recommended=recommended,
+        alternatives=alternatives,
+        explanation=explanation,
+        geo_metadata=geo_metadata,
+        sample_size=sample_size,
+        quality_metric_label=quality_metric_label,
+        quality_metric_value=quality_metric_value,
+    )
+    if funnel_bars is not None:
+        return funnel_bars
     dim_col = _pick_dimension_column(columns, numeric_cols)
+    multi_dim_pivot: Optional[dict[str, Any]] = None
+    categorical_cols = [c for c in columns if c not in numeric_cols]
+    if len(categorical_cols) >= 2 and len(numeric_cols) == 1:
+        c1, c2 = categorical_cols[0], categorical_cols[1]
+        c1_lo, c2_lo = c1.lower(), c2.lower()
+        time_like = {"bucket", "date", "day", "month", "week", "month_start"}
+        if c2_lo in time_like and c1_lo not in time_like:
+            c1, c2 = c2, c1
+        metric_key = numeric_cols[0]
+        x_values: list[str] = []
+        series_values: list[str] = []
+        matrix: dict[str, dict[str, Any]] = {}
+        for row in rows[:240]:
+            x_raw = row.get(c1)
+            s_raw = row.get(c2)
+            if x_raw is None or s_raw is None:
+                continue
+            x = str(x_raw)
+            s = str(s_raw)
+            if x not in matrix:
+                matrix[x] = {c1: x}
+                x_values.append(x)
+            if s not in series_values:
+                series_values.append(s)
+            mv = _as_float(row.get(metric_key))
+            matrix[x][s] = mv if mv is not None else row.get(metric_key)
+        if matrix and series_values:
+            series_defs = [{"key": s, "name": f"{_sql_dimension_column_display_name(c2)} {s}"} for s in series_values[:12]]
+            series_keys = {s["key"] for s in series_defs}
+            data_multi_dim = [matrix[x] for x in x_values]
+            for p in data_multi_dim:
+                for k in list(p.keys()):
+                    if k not in {c1, *series_keys}:
+                        p.pop(k, None)
+            multi_dim_pivot = {
+                "xKey": c1,
+                "series": series_defs,
+                "data": data_multi_dim,
+                "subtitle": (
+                    f"{_sql_dimension_column_display_name(c1)} × {_sql_dimension_column_display_name(c2)}; "
+                    f"метрика: {_sql_metric_column_display_name(metric_key)}; выборка n={sample_size}"
+                ),
+            }
     # Один числовой столбец без измерения (SUM/COUNT AS value): иначе xKey и серия совпадают → пустой график в UI.
     if len(columns) == 1 and len(numeric_cols) == 1:
         metric_key = numeric_cols[0]
@@ -966,7 +1096,7 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "qualityMetricLabel": quality_metric_label,
             "qualityMetricValue": quality_metric_value,
             "xKey": cat_key,
-            "series": [{"key": metric_key, "name": metric_key.replace("_", " ").strip() or "Значение"}],
+            "series": [{"key": metric_key, "name": sql_column_label_ru(metric_key) or "Значение"}],
             "data": data_scalar,
         }
     chart_type = recommended
@@ -1008,6 +1138,25 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             )
             if melted is not None:
                 return melted
+        if multi_dim_pivot is not None:
+            return {
+                "chartType": "line" if chart_type == "area" else chart_type,
+                "recommendedChartType": recommended,
+                "alternativeChartTypes": alternatives,
+                "visualizationExplanation": explanation
+                or "График построен по дате с отдельными сериями по городам.",
+                "geoMetadata": geo_metadata,
+                "title": "Визуализация результата",
+                "subtitle": str(multi_dim_pivot["subtitle"]),
+                "unitLabel": unit_label,
+                "sampleSize": sample_size,
+                "qualityMetricLabel": quality_metric_label,
+                "qualityMetricValue": quality_metric_value,
+                "xKey": str(multi_dim_pivot["xKey"]),
+                "series": list(multi_dim_pivot["series"]),
+                "data": list(multi_dim_pivot["data"]),
+            }
+
         x_key = dim_col or columns[0]
         series_cols = numeric_cols[:2] if chart_type == "combo" else numeric_cols[:3]
         series_cols = [c for c in series_cols if c != x_key]
@@ -1038,7 +1187,7 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "qualityMetricLabel": quality_metric_label,
             "qualityMetricValue": quality_metric_value,
             "xKey": x_key,
-            "series": [{"key": sc, "name": sc} for sc in series_cols],
+            "series": [{"key": sc, "name": _sql_metric_column_display_name(sc)} for sc in series_cols],
             "data": data,
         }
 
@@ -1062,7 +1211,7 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "qualityMetricLabel": quality_metric_label,
             "qualityMetricValue": quality_metric_value,
             "xKey": label_key,
-            "series": [{"key": value_key, "name": value_key}],
+            "series": [{"key": value_key, "name": _sql_metric_column_display_name(value_key)}],
             "data": data,
         }
 
@@ -1124,7 +1273,8 @@ def _build_chart_cell_payload(result: NaturalLanguageAnalysisResult) -> dict[str
             "chartType": "table",
             "recommendedChartType": recommended,
             "alternativeChartTypes": alternatives,
-            "visualizationExplanation": explanation,
+            "visualizationExplanation": explanation
+            or "Показаны исходные строки SQL без дополнительного pivot/zero-fill.",
             "geoMetadata": geo_metadata,
             "title": "Табличный fallback",
             "subtitle": f"Период и фильтры из запроса; выборка n={sample_size}",
@@ -1219,6 +1369,7 @@ def run_pipeline_with_analysis(
     chart_payload = _build_chart_cell_payload(result)
     table_rows = list(result.table_records or [])
     table_columns = list(table_rows[0].keys()) if table_rows else []
+    column_labels = build_sql_column_labels_map(table_columns)
     post = post_process_sql_result(table_rows, table_columns)
     resp = RunAnalyticsResponse(
         notebook_id=notebook_id,
@@ -1231,6 +1382,7 @@ def run_pipeline_with_analysis(
             "columns": table_columns,
             "rows": table_rows,
             "caption": "Результат SQL-запроса",
+            "column_labels": column_labels,
         },
         chart=chart_payload,
         insight=result.insight,

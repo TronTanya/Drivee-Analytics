@@ -93,8 +93,9 @@ def delete_dictionary_entry(
     return {"status": "deleted"}
 
 
-@router.post("/entries/bootstrap-train", response_model=DictionaryBootstrapResponse)
-def bootstrap_dictionary_from_train(
+@router.post("/entries/bootstrap-incity", response_model=DictionaryBootstrapResponse)
+@router.post("/entries/bootstrap-train", response_model=DictionaryBootstrapResponse, include_in_schema=False)
+def bootstrap_dictionary_from_incity(
     user: User = Depends(require_capability("edit_dictionary")),
 ) -> DictionaryBootstrapResponse:
     del user

@@ -24,7 +24,7 @@ def build_provider() -> Optional[BaseLLMProvider]:
             base_url=settings.deepseek_base_url,
             model=settings.deepseek_model,
             default_timeout_seconds=settings.llm_timeout_seconds,
-            retries=2,
+            retries=1,
         )
     return None
 

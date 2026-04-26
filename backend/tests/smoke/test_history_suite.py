@@ -63,7 +63,7 @@ def client_history_mocked(monkeypatch: pytest.MonkeyPatch) -> TestClient:
                 "original_query": "Покажи отмены по городам",
                 "interpreted_intent": {"intent": "ranking"},
                 "interpreted_summary": "ranking · cancellations",
-                "generated_sql_preview": "SELECT city_id, COUNT(*) FROM public.train GROUP BY city_id",
+                "generated_sql_preview": "SELECT city_id, COUNT(*) FROM public.incity_orders GROUP BY city_id",
                 "chart_type": "bar",
                 "table_row_count": 3,
                 "validation_status": "passed",

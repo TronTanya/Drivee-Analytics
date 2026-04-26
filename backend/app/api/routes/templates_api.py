@@ -121,7 +121,7 @@ def quick_run_template(
                 template_id=template_id,
                 execution_status="succeeded",
                 safe_sql=exec_res.final_sql or sql_body,
-                insight=f"Выполнен шаблон «{tpl.template_name}»: {n} строк из public.train.",
+                insight=f"Выполнен шаблон «{tpl.template_name}»: {n} строк из public.incity_orders.",
                 chart_type=chart_t,
                 table_records=rows_safe,
                 confidence=0.9,

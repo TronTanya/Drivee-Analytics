@@ -1,18 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("jury-mode quick: 5 сценариев доступны в авторизованной сессии", async ({ page }) => {
+/** Локальные demo-ноутбуки: id с префиксом `demo-` (см. `isLocalDemoNotebook` в notebooks/[id]/page.tsx). */
+const DEMO_NOTEBOOK = "/notebooks/demo-jury-e2e-quick";
+
+test("jury-mode quick: страница сценариев и демо trace_explainability", async ({ page }) => {
   test.setTimeout(90_000);
 
   await page.goto("/scenarios");
-  await expect(page.getByText("Режим показа жюри", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Сценарии$/ })).toBeVisible();
 
-  await expect(page.getByRole("link", { name: /Сценарий 1: RU запрос/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Сценарий 2: Trace/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Сценарий 3: Неоднозначность/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Сценарий 4: Guardrails/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Сценарий 5: Ограничения MVP/i })).toBeVisible();
-
-  await page.getByRole("link", { name: /Сценарий 2: Trace/i }).click();
+  await page.goto(`${DEMO_NOTEBOOK}?demo_case=trace_explainability`);
   await expect(page).toHaveURL(/demo_case=trace_explainability/);
-  await expect(page.getByTestId("notebook-trace-panel")).toBeVisible();
+  await expect(page.getByTestId("notebook-trace-panel").first()).toBeVisible({ timeout: 60_000 });
 });

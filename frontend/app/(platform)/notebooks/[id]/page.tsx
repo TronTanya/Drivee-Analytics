@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -64,6 +64,7 @@ import {
   saveNotebookPromptDraft
 } from "@/lib/notebook/notebook-prompt-draft";
 import { cellDtosToBlocks } from "@/lib/notebook/legacy-map";
+import { sqlColumnLabelRu } from "@/lib/notebook/sql-column-labels";
 import { EMPTY_TRACE, traceFromAnalyticsRun } from "@/lib/notebook/trace-model";
 import {
   deterministicSqlTopCancelledCities,
@@ -630,6 +631,8 @@ export default function NotebookDetailsPage() {
 
   const [boot, setBoot] = useState<"loading" | "ready" | "error">("loading");
   const [blocks, setBlocks] = useState<NotebookBlock[]>([]);
+  const blocksRef = useRef<NotebookBlock[]>(blocks);
+  blocksRef.current = blocks;
   const [traceModel, setTraceModel] = useState<TracePanelModel>(EMPTY_TRACE);
   const [traceOpen, setTraceOpen] = useState(true);
   const [checkHistoryOpen, setCheckHistoryOpen] = useState(false);
@@ -648,6 +651,9 @@ export default function NotebookDetailsPage() {
   const [pendingTemplateAutorun, setPendingTemplateAutorun] = useState<string | null>(null);
   const [interpretationAccepted, setInterpretationAccepted] = useState(false);
   const [interpretationActionBusy, setInterpretationActionBusy] = useState(false);
+  const composerAnchorRef = useRef<HTMLDivElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusComposerAfterInterpretationEditRef = useRef(false);
   const templatePromptHydratedRef = useRef(false);
   const templateAutorunRef = useRef(false);
   const persistedPromptHydratedRef = useRef(false);
@@ -922,7 +928,20 @@ export default function NotebookDetailsPage() {
 
   useEffect(() => {
     setInterpretationAccepted(false);
-  }, [traceModel.interpretedIntent, notebookId]);
+  }, [notebookId]);
+
+  useLayoutEffect(() => {
+    if (!focusComposerAfterInterpretationEditRef.current) return;
+    focusComposerAfterInterpretationEditRef.current = false;
+    const root = composerAnchorRef.current;
+    const ta = composerTextareaRef.current;
+    root?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (ta) {
+      ta.focus({ preventScroll: true });
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+    }
+  }, [composer]);
 
   useEffect(() => {
     templatePromptHydratedRef.current = false;
@@ -1178,9 +1197,11 @@ export default function NotebookDetailsPage() {
     let columns: string[] = [];
     let rows: Record<string, unknown>[] = [];
     let sourceLabel = "таблица";
+    let columnLabels: Record<string, string> | undefined;
     if (table && table.type === "table" && table.columns.length && table.rows.length) {
       columns = table.columns;
       rows = table.rows;
+      columnLabels = table.columnLabels;
       sourceLabel = "таблица";
     } else if (chart && chart.type === "chart" && chart.data.length) {
       columns = Object.keys(chart.data[0] ?? {});
@@ -1191,8 +1212,11 @@ export default function NotebookDetailsPage() {
       setPageError("Нет данных результата для экспорта в CSV.");
       return;
     }
+    const header = columns
+      .map((c) => esc((columnLabels?.[c] ?? "").trim() || sqlColumnLabelRu(c)))
+      .join(",");
     const lines = [
-      columns.map(esc).join(","),
+      header,
       ...rows.map((row) => columns.map((c) => esc(row[c])).join(","))
     ];
     const blob = new Blob(["\ufeff", lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -1378,11 +1402,12 @@ export default function NotebookDetailsPage() {
   const handleClarificationSelect = useCallback(async (clarificationId: string, optionId: string, optionLabel: string) => {
     if (clarificationSubmitLockRef.current) return;
     clarificationSubmitLockRef.current = true;
-    const basePromptBlock = [...blocks].reverse().find((b) => b.type === "prompt" && b.text.trim().length > 0);
+    const snap = blocksRef.current;
+    const basePromptBlock = [...snap].reverse().find((b) => b.type === "prompt" && b.text.trim().length > 0);
     const basePrompt =
       basePromptBlock && basePromptBlock.type === "prompt" ? basePromptBlock.text : "Уточнение сценария";
     const fromClick = (optionLabel ?? "").trim();
-    const block = blocks.find((b) => b.id === clarificationId && b.type === "clarification");
+    const block = snap.find((b) => b.id === clarificationId && b.type === "clarification");
     const fromState =
       block && block.type === "clarification"
         ? (block.options?.find((o) => o.id === optionId)?.label ?? optionId).trim()
@@ -1409,6 +1434,7 @@ export default function NotebookDetailsPage() {
     const clarificationPrompt = `${basePrompt}\nУточнение: ${selectedLabel}`;
     setPageError(null);
     setComposerBusy(true);
+    setInterpretationAccepted(false);
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -1513,7 +1539,6 @@ export default function NotebookDetailsPage() {
       clarificationSubmitLockRef.current = false;
     }
   }, [
-    blocks,
     isLocalDemoNotebook,
     notebookId,
     popPendingAnalyticsOpts,
@@ -1549,12 +1574,13 @@ export default function NotebookDetailsPage() {
       const text = rawText.trim();
       if (!text) return;
       rememberPromptInHistory(text);
-      setPageError(null);
-      setComposerBusy(true);
-      setClarificationRunVersion(0);
-      forecastRunSeqRef.current += 1;
+    setPageError(null);
+    setComposerBusy(true);
+    setInterpretationAccepted(false);
+    setClarificationRunVersion(0);
+    forecastRunSeqRef.current += 1;
 
-      const promptBlock: NotebookBlock = {
+    const promptBlock: NotebookBlock = {
         id: `prompt-${Date.now()}`,
         type: "prompt",
         text
@@ -1753,6 +1779,7 @@ export default function NotebookDetailsPage() {
     rememberPromptInHistory(text);
     setPageError(null);
     setComposerBusy(true);
+    setInterpretationAccepted(false);
     setClarificationRunVersion(0);
     forecastRunSeqRef.current += 1;
     setBlocks((prev) =>
@@ -1903,7 +1930,8 @@ export default function NotebookDetailsPage() {
         ? `${prev.trim()}\n\nУточнение трактовки: система поняла запрос как «${seed}». Хочу изменить формулировку: `
         : `Уточнение трактовки: сейчас «${seed}». Исправь понимание на: `
     );
-    setPageNotice("Текст для уточнения добавлен в композер внизу страницы.");
+    focusComposerAfterInterpretationEditRef.current = true;
+    setPageNotice("Текст для уточнения добавлен в композер ниже — можно отредактировать и отправить.");
   }, [interpretationView.intent, traceModel.interpretedIntent]);
 
   if (boot === "loading") {
@@ -2331,7 +2359,7 @@ export default function NotebookDetailsPage() {
                 onPromptChange={handlePromptChange}
                 onPromptSubmit={handlePromptSubmit}
                 onClarificationSelect={handleClarificationSelect}
-                clarificationBusy={composerBusy}
+                clarificationBusy={block.type === "clarification" && block.status === "running"}
               />
             ))}
           </div>
@@ -2343,6 +2371,8 @@ export default function NotebookDetailsPage() {
           onSubmit={handleComposerSubmit}
           loading={composerBusy}
           disabled={composerBusy}
+          containerRef={composerAnchorRef}
+          textareaRef={composerTextareaRef}
         />
         </div>
       </NotebookCanvas>

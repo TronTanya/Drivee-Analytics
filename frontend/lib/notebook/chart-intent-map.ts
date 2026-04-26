@@ -72,7 +72,7 @@ export function inferChartKindFromIntentText(text: string): ChartKind | null {
     return "bar";
   }
   if (
-    /\b(динамик|trend|временн|time\s*series|по\s+дням|недел|месяц|week|daily|interval|forecast|прогноз)\b/.test(t) ||
+    /\b(динамик|trend|временн|time\s*series|по\s+дням|недел|месяц|week|daily|interval|forecast|прогноз|разрезе\s+дн|разрезе\s+недел|разрезе\s+месяц)\b/.test(t) ||
     /\b(date_trunc|generate_series)\b/.test(t)
   ) {
     return "line";

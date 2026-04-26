@@ -1,8 +1,12 @@
+import { useMemo } from "react";
 import type { PromptCellProps } from "@/lib/notebook/block-types";
 import { Button } from "@/components/ui/button";
 import { enterpriseInputClassName } from "@/components/ui/enterprise-input";
+import { getPromptSuggestions } from "@/lib/notebook/prompt-suggestions";
 
 export function PromptCell({ block, onChange, onSubmit, disabled }: PromptCellProps) {
+  const suggestions = useMemo(() => getPromptSuggestions(block.text), [block.text]);
+
   return (
     <div className="rounded-control border border-border-subtle bg-gradient-to-br from-surface-page to-surface-card px-4 py-3">
       <div className="flex items-center justify-between gap-2">
@@ -24,6 +28,22 @@ export function PromptCell({ block, onChange, onSubmit, disabled }: PromptCellPr
             }}
             className={`${enterpriseInputClassName} mt-2 min-h-[72px] resize-y font-sans`}
           />
+          {suggestions.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => onChange(suggestion)}
+                  className="rounded-full border border-border-subtle bg-surface-page px-3 py-1 text-[11px] text-foreground-muted transition hover:border-brand-300 hover:text-foreground"
+                  disabled={disabled}
+                  title="Подставить подсказку по смыслу"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {onSubmit ? (
             <div className="mt-2 flex justify-end">
               <Button type="button" onClick={() => onSubmit(block.text)} disabled={disabled || !block.text.trim()} className="px-4 py-1.5 text-xs">

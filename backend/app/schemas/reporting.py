@@ -155,7 +155,7 @@ class QueryTemplateResponse(BaseModel):
     template_name: str
     description: Optional[str]
     nl_prompt_template: str
-    # Канонический SELECT к public.train для быстрого запуска и подстановки в сценарий.
+    # Канонический SELECT к public.incity_orders для быстрого запуска и подстановки в сценарий.
     sql_template: Optional[str] = None
     default_chart_type: Optional[str]
     default_params_json: dict[str, Any]

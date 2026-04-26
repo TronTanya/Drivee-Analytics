@@ -10,6 +10,7 @@ from app.schemas.clarification import ClarificationOption, ClarificationResponse
 from app.schemas.nl_interpretation import NLQueryInterpretation
 from app.schemas.orchestration import IntentKind, SemanticTermResolution
 from app.services.llm.llm_service import LLMService
+from app.services.orchestration.geo_scope_language import implies_aggregate_across_all_cities
 
 
 # --- Reusable option sets (values = semantic term keys or policy tokens) ---
@@ -115,6 +116,8 @@ class ClarificationEngine:
         rules_response = self._evaluate_rules(ctx)
         if self._llm is None or not self._llm.is_enabled:
             return rules_response
+        if self._has_high_specificity_business_query(ctx.effective_query):
+            return rules_response
 
         llm = self._llm.generate_clarification(
             query=ctx.effective_query,
@@ -191,6 +194,20 @@ class ClarificationEngine:
                 ],
             )
 
+        dims = ctx.entities.get("dimensions") if isinstance(ctx.entities.get("dimensions"), list) else []
+        if ctx.entities.get("scope") == "network" and "city_id" in dims:
+            # «По всем городам» ≠ противоречие network vs city_id — это фильтр охвата, не группировка.
+            if not implies_aggregate_across_all_cities(q):
+                return ClarificationResponse(
+                    clarification_required=True,
+                    clarification_reason="scope_conflict_network_vs_city",
+                    clarification_question="Вы указали и «по всей сети», и разрез по городам. Оставить общесетевой итог или группировку по городам?",
+                    clarification_options=[
+                        ClarificationOption(label="Только по всей сети (без группировки по городам)", value="scope_network_only"),
+                        ClarificationOption(label="В разрезе городов (снять ограничение «по всей сети»)", value="scope_city_breakdown"),
+                    ],
+                )
+
         if "конверси" in q and not re.search(r"принят|поезд|тендер", q):
             return ClarificationResponse(
                 clarification_required=True,
@@ -232,7 +249,11 @@ class ClarificationEngine:
                 clarification_options=list(OPTIONS_CHANNEL_EFFECTIVENESS),
             )
 
-        if any(x in q for x in ("успешн", "проблемн", "эффективн", "активн")) and nd == 0:
+        if (
+            not ctx.entities.get("driver_efficiency_slice_q1_by_city")
+            and any(x in q for x in ("успешн", "проблемн", "эффективн", "активн"))
+            and nd == 0
+        ):
             return ClarificationResponse(
                 clarification_required=True,
                 clarification_reason="vague_performance_adjective",
@@ -241,15 +262,16 @@ class ClarificationEngine:
             )
 
         if interp and ("revenue_metric_multiple" in interp.ambiguities or "revenue_definition_unclear" in interp.ambiguities):
-            return ClarificationResponse(
-                clarification_required=True,
-                clarification_reason="revenue_definition_ambiguous",
-                clarification_question=(
-                    "Что вы имеете в виду под «выручкой»: сумму цен заказов, "
-                    "число завершённых поездок или средний чек?"
-                ),
-                clarification_options=list(OPTIONS_REVENUE_DEFINITION),
-            )
+            if not ctx.entities.get("multi_kpi_last_full_month_by_city"):
+                return ClarificationResponse(
+                    clarification_required=True,
+                    clarification_reason="revenue_definition_ambiguous",
+                    clarification_question=(
+                        "Что вы имеете в виду под «выручкой»: сумму цен заказов, "
+                        "число завершённых поездок или средний чек?"
+                    ),
+                    clarification_options=list(OPTIONS_REVENUE_DEFINITION),
+                )
 
         if any(x in q for x in ("плох", "худш", "worst")) and any(x in q for x in ("город", "города", "city")):
             return ClarificationResponse(
@@ -268,12 +290,19 @@ class ClarificationEngine:
             )
 
         if interp and "city_scope_all_vs_one" in interp.ambiguities:
-            return ClarificationResponse(
-                clarification_required=True,
-                clarification_reason="city_scope_ambiguous",
-                clarification_question="Сравнить или ранжировать по всем городам или сфокусироваться на одном городе?",
-                clarification_options=list(OPTIONS_CITY_SCOPE),
-            )
+            if ctx.entities.get("scope") == "network" or re.search(
+                r"по\s+всем\s+город|всех\s+город|все\s+город\b|все\s+города|(?:по|для|во)\s+все[мх]?\s+город|(всем|всех|все)\s+город|по\s+всей\s+сети|вся\s+сеть",
+                q,
+            ):
+                pass
+            else:
+                return ClarificationResponse(
+                    clarification_required=True,
+                    clarification_reason="city_scope_ambiguous",
+                    clarification_question="Сравнить или ранжировать по всем городам или сфокусироваться на одном городе?",
+                    clarification_options=list(OPTIONS_CITY_SCOPE),
+                )
+
 
         if (
             interp
@@ -301,7 +330,12 @@ class ClarificationEngine:
                 clarification_options=list(OPTIONS_BASELINE_COMPARE),
             )
 
-        if ctx.intent == "ranking" and nd == 0 and self._mentions_dimension_hint(q):
+        if (
+            ctx.intent == "ranking"
+            and nd == 0
+            and self._mentions_dimension_hint(q)
+            and not ctx.entities.get("lost_orders_before_driver_accept_top")
+        ):
             return ClarificationResponse(
                 clarification_required=True,
                 clarification_reason="ranking_metric_unspecified",
@@ -317,7 +351,12 @@ class ClarificationEngine:
                 clarification_options=list(OPTIONS_SALES_METRICS),
             )
 
-        if ctx.intent == "comparison" and ("эффектив" in q or "efficiency" in q) and nd == 0:
+        if (
+            ctx.intent == "comparison"
+            and ("эффектив" in q or "efficiency" in q)
+            and nd == 0
+            and not ctx.entities.get("driver_efficiency_slice_q1_by_city")
+        ):
             return ClarificationResponse(
                 clarification_required=True,
                 clarification_reason="effectiveness_metric_unspecified",
@@ -376,6 +415,16 @@ class ClarificationEngine:
             base -= 0.04
         if interpretation is not None:
             base = 0.45 * base + 0.55 * float(interpretation.confidence_score)
+        if interpretation is not None and interpretation.entities.get("funnel_two_stage_conversion"):
+            base = max(base, 0.82)
+        if interpretation is not None and interpretation.entities.get("metric_hint") == "unique_client_cancels_after_start":
+            base = max(base, 0.82)
+        if interpretation is not None and interpretation.entities.get("multi_kpi_last_full_month_by_city"):
+            base = max(base, 0.84)
+        if interpretation is not None and interpretation.entities.get("lost_orders_before_driver_accept_top"):
+            base = max(base, 0.84)
+        if interpretation is not None and interpretation.entities.get("driver_efficiency_slice_q1_by_city"):
+            base = max(base, 0.84)
         if clarification.clarification_required:
             # Band for under-specified queries (product default ~0.58).
             if not resolutions or resolutions[0].surface_form == "default":
@@ -429,3 +478,18 @@ class ClarificationEngine:
         has_accept_stage = bool(re.search(r"принят|accepted|acceptance|тендер", q))
         has_complete_stage = bool(re.search(r"заверш|поездк|ride|done", q))
         return has_conversion and has_accept_stage and has_complete_stage
+
+    @staticmethod
+    def _has_high_specificity_business_query(query: str) -> bool:
+        q = query.lower()
+        has_time = bool(
+            re.search(r"\b20[0-9]{2}\b", q)
+            or re.search(r"\bq[1-4]\b", q)
+            or re.search(r"январ|феврал|март|апрел|мая|май|июн|июл|август|сентябр|октябр|ноябр|декабр", q)
+            or re.search(r"last month|за последний", q)
+        )
+        has_dimension = bool(re.search(r"по\s+город|в\s+разрезе|по\s+дням|по\s+месяц|город", q))
+        has_metric_signal = bool(
+            re.search(r"конверси|отмен|выруч|средн(ий|его)\s+чек|заказ|принят|заверш|rides|online", q)
+        )
+        return has_time and has_dimension and has_metric_signal

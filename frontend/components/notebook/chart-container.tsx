@@ -61,7 +61,7 @@ export function ChartContainer({ block, onTypeChange, body }: ChartContainerProp
         </div>
       </header>
 
-      <div className="h-[220px] rounded-control border border-border-subtle bg-gradient-to-b from-surface-card to-surface-muted/35 p-2.5 sm:h-[280px]">
+      <div className="h-[240px] min-h-0 overflow-auto rounded-control border border-border-subtle bg-gradient-to-b from-surface-card via-surface-card to-surface-muted/40 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] sm:h-[300px]">
         {body}
       </div>
 

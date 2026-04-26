@@ -278,9 +278,13 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
         tables: ["orders", "regions"]
       };
     case "table": {
-      const parsed = tryJson<{ columns?: string[]; rows?: Record<string, string | number>[]; caption?: string }>(
-        cell.content
-      );
+      const parsed = tryJson<{
+        columns?: string[];
+        rows?: Record<string, string | number>[];
+        caption?: string;
+        column_labels?: Record<string, string>;
+        columnLabels?: Record<string, string>;
+      }>(cell.content);
       if (parsed?.rows && Array.isArray(parsed.rows)) {
         const inferredColumns =
           parsed.columns && parsed.columns.length
@@ -288,12 +292,16 @@ export function legacyCellToBlock(cell: NotebookCell): NotebookBlock {
             : parsed.rows.length
               ? Object.keys(parsed.rows[0] ?? {})
               : [];
+        const columnLabels =
+          (parsed.column_labels && typeof parsed.column_labels === "object" ? parsed.column_labels : undefined) ??
+          (parsed.columnLabels && typeof parsed.columnLabels === "object" ? parsed.columnLabels : undefined);
         return {
           ...base,
           type: "table",
           columns: inferredColumns,
           rows: parsed.rows,
-          caption: parsed.caption ?? "Результат SQL-запроса"
+          caption: parsed.caption ?? "Результат SQL-запроса",
+          ...(columnLabels ? { columnLabels } : {})
         };
       }
       const parsedRowsOnly = tryJson<Array<Record<string, string | number>>>(cell.content);

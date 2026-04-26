@@ -59,7 +59,6 @@ class Settings(BaseSettings):
         "forecast",
     ]
     sql_whitelist_tables: list[str] | str = [
-        "train",
         "incity_orders",
         "passenger_daily_metrics",
         "driver_daily_metrics",
@@ -116,8 +115,8 @@ class Settings(BaseSettings):
     csv_staging_schema: str = "user_staging"
     csv_inference_max_rows: int = 100_000
     ds_default_source_table: str = "public.incity_orders"
-    # Если False (по умолчанию), NL→SQL без явного source_table в notebook_context всегда использует ds_default_source_table (train).
-    # True — подставлять последнюю успешную staging-таблицу из data_import_jobs (может расходиться с «всё из train»).
+    # Если False (по умолчанию), NL→SQL без явного source_table в notebook_context всегда использует ds_default_source_table (incity_orders).
+    # True — подставлять последнюю успешную staging-таблицу из data_import_jobs (может расходиться с «всё из incity_orders»).
     ds_implicit_source_use_latest_staging: bool = False
     ds_metric_caps: dict[str, float] = {
         "orders_count": 10_000_000.0,
@@ -155,6 +154,9 @@ class Settings(BaseSettings):
     # Если включён sample-mode по сложности (см. sql_trust), не ниже этого потолка; по умолчанию совпадает с hard cap.
     sql_sample_max_rows: int = 1_000_000
     sql_execution_hard_row_cap: int = 1_000_000
+    # Если true: валидатор не добавляет LIMIT к SELECT и исполнитель читает все строки (fetchall),
+    # пока хватает SQL_TIMEOUT_SECONDS и памяти. Для жёсткого потолка выставьте false и задайте лимиты env.
+    sql_result_fetch_unbounded: bool = True
     sql_result_cache_enabled: bool = True
     sql_result_cache_ttl_seconds: int = 60
     sql_result_cache_max_entries: int = 200

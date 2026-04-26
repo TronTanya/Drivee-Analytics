@@ -65,6 +65,8 @@ export type RunNotebookAnalyticsResponseDto = {
     columns: string[];
     rows: Record<string, string | number>[];
     caption?: string;
+    /** RU-подписи колонок (ключ = имя в `rows`). */
+    column_labels?: Record<string, string>;
   };
   chart?: Record<string, unknown>;
   insight?: string;

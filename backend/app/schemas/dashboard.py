@@ -26,9 +26,9 @@ class DashboardSuggestionResponse(BaseModel):
 
 
 class TrainDatasetSummaryResponse(BaseModel):
-    """Агрегаты по каноническому слою `public.train` (VIEW); для согласованных KPI на дашборде."""
+    """Агрегаты по каноническому слою `public.incity_orders`; для согласованных KPI на дашборде."""
 
-    source_table: str = Field(default="public.train", description="Имя поверхности в БД.")
+    source_table: str = Field(default="public.incity_orders", description="Имя поверхности в БД.")
     train_row_count: int = Field(..., ge=0, description="Строки выборки заказ×тендер.")
     distinct_orders: int = Field(..., ge=0)
     done_rides: int = Field(..., ge=0)

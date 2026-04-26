@@ -10,13 +10,13 @@ from app.core.config import settings
 
 
 class BusinessDataRepository:
-    """Access helpers для канонического датасета заказов (аналитическое имя public.train)."""
+    """Access helpers для канонического датасета заказов (public.incity_orders)."""
 
     def __init__(self, session: Session) -> None:
         self.session = session
 
     def source_table(self) -> str:
-        return "public.train"
+        return "public.incity_orders"
 
     def sample_orders(self, limit: int = 100) -> list[dict]:
         rows = self.session.execute(
@@ -46,7 +46,7 @@ class BusinessDataRepository:
                     price_order_local,
                     price_tender_local,
                     price_start_local
-                FROM public.train
+                FROM public.incity_orders
                 ORDER BY order_timestamp DESC NULLS LAST
                 LIMIT :limit
                 """
@@ -56,8 +56,8 @@ class BusinessDataRepository:
         return [dict(r) for r in rows]
 
     def fetch_train_global_summary(self) -> dict[str, Any]:
-        """Один запрос агрегатов по каноническому VIEW `public.train` (не staging)."""
-        source = "public.train"
+        """Один запрос агрегатов по канонической таблице `public.incity_orders` (не staging)."""
+        source = "public.incity_orders"
         if settings.mock_mode:
             return {
                 "source_table": source,
@@ -86,7 +86,7 @@ class BusinessDataRepository:
                     MIN(order_timestamp) AS order_timestamp_min,
                     MAX(order_timestamp) AS order_timestamp_max,
                     COALESCE(SUM(price_order_local), 0)::numeric(18, 2) AS sum_order_price
-                FROM public.train
+                FROM public.incity_orders
                 """
             )
         ).mappings().first()

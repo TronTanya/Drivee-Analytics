@@ -35,9 +35,9 @@ class DictionaryEntryUpsertRequest(BaseModel):
     synonyms: list[str] = Field(default_factory=list)
     sql_expression: str = Field(min_length=1)
     visibility_roles: list[RoleKey] = Field(default_factory=lambda: ["admin", "manager", "marketer", "executive"])
-    domain: str = "custom_train"
+    domain: str = "custom_incity_orders"
     canonical_metric_key: str | None = None
-    source_table: str = "train"
+    source_table: str = "incity_orders"
     source_column: str | None = None
     aggregation_type: str = "custom"
     term_type: str = "metric"

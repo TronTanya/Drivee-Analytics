@@ -138,7 +138,7 @@ def check_global_column_whitelist(
 def check_time_filter_heuristic(normalized: str, physical_tables: set[str]) -> list[str]:
     """Предупреждение, если по основной факт-таблице нет явного упоминания времени в запросе."""
     notes: list[str] = []
-    if not physical_tables & {"train", "user_staging", "incity_orders"}:
+    if not physical_tables & {"user_staging", "incity_orders"}:
         return notes
     if (
         "order_timestamp" in normalized
@@ -217,6 +217,7 @@ def build_preview_assessment(
     padded: str,
     sql_default_limit: int,
     has_time_tokens: bool,
+    sql_result_fetch_unbounded: bool = False,
 ) -> dict[str, Any]:
     score = 12 + min(15, len(normalized) // 6000)
     warns: list[str] = []
@@ -242,14 +243,22 @@ def build_preview_assessment(
     elif score >= 30:
         scan_risk = "medium"
 
+    if sql_result_fetch_unbounded:
+        hint_ru = (
+            "Выборка не получает принудительный LIMIT на стороне API; ограничение — "
+            "таймаут SQL (SQL_TIMEOUT_SECONDS) и ресурсы БД."
+        )
+    else:
+        hint_ru = (
+            f"Жёсткий потолок выборки: LIMIT не более {sql_default_limit} строк; "
+            "таймаут выполнения задаётся в настройках API."
+        )
     return {
         "complexity_score": min(100, score),
         "scan_risk": scan_risk,
         "warnings": warns,
         "policy_max_rows": sql_default_limit,
-        "simplification_hint_ru": (
-            f"Жёсткий потолок выборки: LIMIT не более {sql_default_limit} строк; таймаут выполнения задаётся в настройках API."
-        ),
+        "simplification_hint_ru": hint_ru,
     }
 
 
@@ -393,17 +402,24 @@ def build_performance_assessment(
     if score >= slow_score or scan_risk == "high":
         explain.append("Запрос может выполняться долго.")
 
+    unbounded = bool(getattr(settings, "sql_result_fetch_unbounded", False))
     hard_cap = int(getattr(settings, "sql_execution_hard_row_cap", 1_000_000) or 1_000_000)
     default_lim = int(getattr(settings, "sql_default_limit", 1_000_000) or 1_000_000)
-    fetch_cap = min(default_lim, hard_cap)
+    fetch_cap: int | None = None if unbounded else min(default_lim, hard_cap)
     sample_applied = False
     # Раньше при высокой сложности LIMIT принудительно урезался до sql_sample_max_rows (сотни строк),
     # что скрывало реальный объём данных. Оставляем только предупреждения — потолок выборки задаёт конфиг.
     if score >= sample_score or scan_risk == "high":
-        explain.append(
-            "Запрос помечен как потенциально тяжёлый по эвристике сложности; при долгом выполнении сузьте период или используйте агрегаты. "
-            f"Потолок выборки по политике: до {fetch_cap} строк; таймаут SQL задаётся в настройках (SQL_TIMEOUT_SECONDS)."
-        )
+        if fetch_cap is None:
+            explain.append(
+                "Запрос помечен как потенциально тяжёлый по эвристике сложности; при долгом выполнении сузьте период или используйте агрегаты. "
+                "Строки не ограничиваются LIMIT на стороне API; таймаут SQL задаётся в настройках (SQL_TIMEOUT_SECONDS)."
+            )
+        else:
+            explain.append(
+                "Запрос помечен как потенциально тяжёлый по эвристике сложности; при долгом выполнении сузьте период или используйте агрегаты. "
+                f"Потолок выборки по политике: до {fetch_cap} строк; таймаут SQL задаётся в настройках (SQL_TIMEOUT_SECONDS)."
+            )
 
     rollup_hint = ""
     if (window_days or 0) > 30 or gb_n > 3:
@@ -452,8 +468,6 @@ def collect_schema_and_table_ref_errors(
             errors.append(f"Схема «{sch}» не в whitelist разрешённых схем.")
             continue
         if tbl in global_tables:
-            if tbl == "train" and sch != implicit:
-                errors.append("Таблица train разрешена только в схеме по умолчанию (public).")
             if tbl == "incity_orders" and sch != implicit:
                 errors.append("Таблица incity_orders разрешена только в схеме по умолчанию (public).")
             continue

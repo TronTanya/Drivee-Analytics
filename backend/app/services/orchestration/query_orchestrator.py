@@ -243,6 +243,7 @@ class QueryOrchestrator:
                 "dialogue": dialogue_res.to_api_dict(),
                 "inheritance_trace": dialogue_res.inheritance_trace,
                 "effective_query": effective,
+                "input_normalization_note": entities.get("input_normalization_note"),
                 "entities": dict(entities),
                 "semantic_terms": [r.model_dump() for r in resolutions],
                 "forecast_mode": {"active": False, "method": None},
@@ -316,6 +317,7 @@ class QueryOrchestrator:
             "dialogue": dialogue_res.to_api_dict(),
             "inheritance_trace": dialogue_res.inheritance_trace,
             "effective_query": effective,
+            "input_normalization_note": entities.get("input_normalization_note"),
             "forecast_mode": {"active": False, "method": None},
             "forecast_selection": {},
             "forecast_explainability": {},
@@ -426,6 +428,42 @@ class QueryOrchestrator:
                 intent="summary",
                 signals=[*list(intent_res.signals), "coerce:intent:summary_for_dual_counts"],
             )
+        if entities.get("funnel_two_stage_conversion") and intent_res.intent != "summary":
+            intent_res = replace(
+                intent_res,
+                intent="summary",
+                signals=[*list(intent_res.signals), "coerce:intent:summary_for_funnel_conversion"],
+            )
+        dims_for_intent = entities.get("dimensions") if isinstance(entities.get("dimensions"), list) else []
+        if (
+            str(entities.get("metric_hint") or "") == "unique_client_cancels_after_start"
+            and "month_start" in dims_for_intent
+            and "city_id" in dims_for_intent
+            and intent_res.intent != "trend"
+        ):
+            intent_res = replace(
+                intent_res,
+                intent="trend",
+                signals=[*list(intent_res.signals), "coerce:intent:trend_for_month_city_breakdown"],
+            )
+        if entities.get("multi_kpi_last_full_month_by_city") and intent_res.intent != "comparison":
+            intent_res = replace(
+                intent_res,
+                intent="comparison",
+                signals=[*list(intent_res.signals), "coerce:intent:comparison_multi_kpi_last_month"],
+            )
+        if entities.get("driver_efficiency_slice_q1_by_city") and intent_res.intent != "comparison":
+            intent_res = replace(
+                intent_res,
+                intent="comparison",
+                signals=[*list(intent_res.signals), "coerce:intent:comparison_driver_efficiency_q1"],
+            )
+        if entities.get("qr_accepted_at_start_price_within_10m_daily") and intent_res.intent != "trend":
+            intent_res = replace(
+                intent_res,
+                intent="trend",
+                signals=[*list(intent_res.signals), "coerce:intent:trend_qr_accepted_start_price_daily"],
+            )
 
         steps.append(
             _step(
@@ -447,6 +485,18 @@ class QueryOrchestrator:
             if v is not None and v != "":
                 entities[k] = v
         interp = interp.model_copy(update={"entities": dict(entities)})
+        dims_post_parse = entities.get("dimensions") if isinstance(entities.get("dimensions"), list) else []
+        if (
+            str(entities.get("metric_hint") or "") == "unique_client_cancels_after_start"
+            and "month_start" in dims_post_parse
+            and "city_id" in dims_post_parse
+            and intent_res.intent != "trend"
+        ):
+            intent_res = replace(
+                intent_res,
+                intent="trend",
+                signals=[*list(intent_res.signals), "coerce:intent:trend_after_semantic_parse"],
+            )
         steps.append(
             _step(
                 "semantic_parse",
@@ -616,6 +666,7 @@ class QueryOrchestrator:
                     "dialogue": dialogue_res.to_api_dict(),
                     "inheritance_trace": dialogue_res.inheritance_trace,
                     "effective_query": effective,
+                    "input_normalization_note": entities.get("input_normalization_note"),
                     "entities": entities,
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "forecast_mode": {"active": False, "method": None},
@@ -734,6 +785,7 @@ class QueryOrchestrator:
                     "dialogue": dialogue_res.to_api_dict(),
                     "inheritance_trace": dialogue_res.inheritance_trace,
                     "effective_query": effective,
+                    "input_normalization_note": entities.get("input_normalization_note"),
                     "entities": entities,
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "sql_generation": sql_generation_trace,
@@ -823,6 +875,7 @@ class QueryOrchestrator:
                     "dialogue": dialogue_res.to_api_dict(),
                     "inheritance_trace": dialogue_res.inheritance_trace,
                     "effective_query": effective,
+                    "input_normalization_note": entities.get("input_normalization_note"),
                     "entities": entities,
                     "semantic_terms": [r.model_dump() for r in resolutions],
                     "sql_generation": sql_generation_trace,
@@ -1019,10 +1072,27 @@ class QueryOrchestrator:
             "dialogue": dialogue_res.to_api_dict(),
             "inheritance_trace": dialogue_res.inheritance_trace,
             "effective_query": effective,
+            "input_normalization_note": entities.get("input_normalization_note"),
             "forecast_mode": {"active": forecast_active, "method": forecast_method},
             "forecast_selection": forecast_selection_payload if want_forecast else {},
             "forecast_explainability": forecast_explainability_payload if want_forecast else {},
             "quality_gate": {"status": qg_status, "reasons": qg_reasons},
+            "assumptions": (
+                [
+                    "Конверсия завершения считается от принятых заказов. "
+                    "Если нужно считать от всех созданных заказов, уточните запрос."
+                ]
+                if entities.get("funnel_two_stage_conversion")
+                else []
+            ),
+            "formula_trace": (
+                {
+                    "acceptance_conversion": "accepted_orders / created_orders * 100",
+                    "completion_conversion": "completed_orders / accepted_orders * 100",
+                }
+                if entities.get("funnel_two_stage_conversion")
+                else {}
+            ),
             **self._interpretation_trace_fields(interp),
             **_trace_language_and_role_fields(effective, inp),
         }
@@ -1143,6 +1213,11 @@ def attach_interpretation_and_trace(out: OrchestrationOutput) -> OrchestrationOu
         "confidence": float(out.confidence_score),
         "requires_clarification": requires_clar,
         "clarification_question": clar_q,
+        "input_normalization_summary_ru": (
+            "Обнаружена вероятная ошибка раскладки клавиатуры (RU/EN), запрос нормализован перед интерпретацией."
+            if str(entities.get("input_normalization_note") or "").strip() == "detected_wrong_keyboard_layout_ru_en"
+            else ""
+        ),
     }
 
     steps = tp.get("pipeline_steps")

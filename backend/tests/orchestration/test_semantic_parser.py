@@ -35,6 +35,28 @@ class SemanticParserTests(unittest.TestCase):
         self.assertEqual(patch.get("time_window_anchor"), "driverdone_timestamp")
         self.assertNotIn("time_period", patch)
 
+    def test_calendar_year_client_cancel_after_start_uses_clientcancel_anchor(self) -> None:
+        p = SemanticParser()
+        q = (
+            "Какое количество уникальных отмененных поездок со стороны пассажира после начало поездки "
+            "было в разрезе месяца и города в 2026 году"
+        )
+        interp, patch = p.build(
+            effective_query=q,
+            intent="trend",
+            intent_signals=[],
+            entities={
+                "metric_hint": "unique_client_cancels_after_start",
+                "time_grain": "month",
+                "dimensions": ["city_id"],
+            },
+        )
+        self.assertEqual(interp.time_range.preset, "calendar_year")
+        self.assertEqual(interp.time_range.calendar_year, 2026)
+        self.assertEqual(interp.time_range.time_window_anchor, "clientcancel_timestamp")
+        self.assertEqual(interp.metrics[0], "unique_client_cancels_after_start")
+        self.assertEqual(patch.get("time_window_anchor"), "clientcancel_timestamp")
+
     def test_explicit_calendar_year_overrides_llm_time_period(self) -> None:
         """LLM может вернуть time_period=current_year; явный «за 2026 год» в тексте важнее для SQL."""
         p = SemanticParser()
@@ -59,6 +81,34 @@ class SemanticParserTests(unittest.TestCase):
         )
         self.assertEqual(interp.time_range.preset, "calendar_year")
         self.assertEqual(interp.time_range.calendar_year, 2025)
+
+    def test_explicit_month_year_detected_as_calendar_month(self) -> None:
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="конверсия в принятие и завершение поездки по всей сети за июнь 2025 года",
+            intent="summary",
+            intent_signals=[],
+            entities={"funnel_two_stage_conversion": True},
+        )
+        self.assertEqual(interp.time_range.preset, "calendar_month")
+        self.assertEqual(interp.time_range.calendar_month, 6)
+        self.assertEqual(interp.time_range.calendar_year, 2025)
+        self.assertEqual(patch.get("calendar_month"), 6)
+        self.assertEqual(patch.get("calendar_year"), 2025)
+
+    def test_relative_month_last_year_detected_as_calendar_month(self) -> None:
+        p = SemanticParser()
+        interp, patch = p.build(
+            effective_query="Покажи конверсию по всей сети за прошлый июнь",
+            intent="summary",
+            intent_signals=[],
+            entities={"funnel_two_stage_conversion": True},
+        )
+        self.assertEqual(interp.time_range.preset, "calendar_month")
+        self.assertEqual(interp.time_range.calendar_month, 6)
+        self.assertIsNotNone(interp.time_range.calendar_year)
+        self.assertEqual(patch.get("calendar_month"), 6)
+        self.assertIsNotNone(patch.get("calendar_year"))
 
     def test_llm_this_week_maps_to_current_week(self) -> None:
         p = SemanticParser()
@@ -87,6 +137,32 @@ class SemanticParserTests(unittest.TestCase):
         )
         self.assertIn("cancellations_total", interp.metrics)
         self.assertIsInstance(interp.chart_hint, str)
+
+    def test_city_scope_skipped_when_explicit_po_vsem_gorodam(self) -> None:
+        p = SemanticParser()
+        q = (
+            "Сколько составляет качественная метрика (QR): количество заказов принятых по стартовой цене "
+            "в течение 10 минут. В разрезе дня за февраль 2025 года по всем городам"
+        )
+        interp, _patch = p.build(
+            effective_query=q,
+            intent="comparison",
+            intent_signals=[],
+            entities={"dimensions": ["city_id"]},
+        )
+        self.assertNotIn("city_scope_all_vs_one", interp.ambiguities)
+        self.assertNotIn("city_id", interp.dimensions)
+
+    def test_city_scope_stripped_after_llm_merge_when_scope_network(self) -> None:
+        """llm_ambiguities не должны возвращать city_scope, если уже задан scope=network."""
+        p = SemanticParser()
+        interp, _patch = p.build(
+            effective_query="QR в разрезе дня по всем городам",
+            intent="trend",
+            intent_signals=[],
+            entities={"scope": "network", "llm_ambiguities": ["city_scope_all_vs_one"]},
+        )
+        self.assertNotIn("city_scope_all_vs_one", interp.ambiguities)
 
     def test_revenue_ambiguity_triggers_clarification(self) -> None:
         p = SemanticParser()

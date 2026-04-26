@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import hashlib
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -115,14 +116,14 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "train_row_count",
-        "term": "Строки train",
+        "term": "Строки incity_orders",
         "synonyms": ["количество записей", "число строк", "row count", "строк датасет"],
         "sql_expression": "COUNT(*)",
         "domain": "orders_rides",
         "canonical_metric_key": "train_row_count",
         "aggregation_type": "count",
-        "description_ru": "COUNT(*) по выборке train.",
-        "example_queries": ["Сколько строк в train за вчера?"],
+        "description_ru": "COUNT(*) по выборке incity_orders.",
+        "example_queries": ["Сколько строк в incity_orders за вчера?"],
     },
     {
         "id": "distinct_orders",
@@ -144,7 +145,7 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
         "domain": "cancellations_revenue",
         "canonical_metric_key": "cancellation_rate",
         "aggregation_type": "ratio",
-        "description_ru": "Отмены / COUNT(*) по строкам train.",
+        "description_ru": "Отмены / COUNT(*) по строкам incity_orders.",
         "example_queries": ["Какая доля отмен по каналам?"],
     },
     {
@@ -158,7 +159,7 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
         "aggregation_type": "group_by",
         "term_type": "dimension",
         "target_field": "status_order",
-        "description_ru": "Колонка train.status_order.",
+        "description_ru": "Колонка incity_orders.status_order.",
         "example_queries": ["Распределение по status_order"],
     },
     {
@@ -172,7 +173,7 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
         "aggregation_type": "group_by",
         "term_type": "dimension",
         "target_field": "status_tender",
-        "description_ru": "Колонка train.status_tender.",
+        "description_ru": "Колонка incity_orders.status_tender.",
         "example_queries": ["По status_tender и каналу"],
     },
     {
@@ -186,7 +187,7 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
         "aggregation_type": "group_by",
         "term_type": "dimension",
         "target_field": "offset_hours",
-        "description_ru": "train.offset_hours (целое смещение UTC).",
+        "description_ru": "incity_orders.offset_hours (целое смещение UTC).",
         "example_queries": ["По offset_hours"],
     },
     {
@@ -200,7 +201,7 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
         "aggregation_type": "group_by",
         "term_type": "dimension",
         "target_field": "user_id",
-        "description_ru": "train.user_id (TEXT), чувствительное поле.",
+        "description_ru": "incity_orders.user_id (TEXT), чувствительное поле.",
         "example_queries": [],
     },
     {
@@ -214,7 +215,7 @@ _TRAIN_BOOTSTRAP_TERMS: tuple[dict[str, Any], ...] = (
         "aggregation_type": "group_by",
         "term_type": "dimension",
         "target_field": "driver_id",
-        "description_ru": "train.driver_id (TEXT), чувствительное поле.",
+        "description_ru": "incity_orders.driver_id (TEXT), чувствительное поле.",
         "example_queries": [],
     },
     {
@@ -239,6 +240,45 @@ def _normalize_match_text(value: str) -> str:
     return value.lower().replace("ё", "е").strip()
 
 
+_EN_TO_RU_LAYOUT = str.maketrans(
+    "`qwertyuiop[]asdfghjkl;'zxcvbnm,./",
+    "ёйцукенгшщзхъфывапролджэячсмитьбю.",
+)
+_RU_TO_EN_LAYOUT = str.maketrans(
+    "ёйцукенгшщзхъфывапролджэячсмитьбю.",
+    "`qwertyuiop[]asdfghjkl;'zxcvbnm,./",
+)
+
+
+def _swap_keyboard_layout(value: str) -> str:
+    """Преобразует строку как будто введена в неверной раскладке (RU<->EN)."""
+    low = value.lower()
+    ru_hits = sum(1 for ch in low if "а" <= ch <= "я" or ch == "ё")
+    en_hits = sum(1 for ch in low if "a" <= ch <= "z")
+    if en_hits >= ru_hits:
+        return low.translate(_EN_TO_RU_LAYOUT)
+    return low.translate(_RU_TO_EN_LAYOUT)
+
+
+def _query_variants(query: str) -> tuple[str, ...]:
+    base = _normalize_match_text(query)
+    swapped = _normalize_match_text(_swap_keyboard_layout(query))
+    out: list[str] = []
+    for item in (base, swapped):
+        if item and item not in out:
+            out.append(item)
+    return tuple(out)
+
+
+def _token_stems(value: str) -> set[str]:
+    tokens = re.findall(r"[a-zа-яё0-9_]+", value.lower())
+    stems: set[str] = set()
+    for t in tokens:
+        if len(t) >= 4:
+            stems.add(t[:6])
+    return stems
+
+
 class SemanticLayerTerm(BaseModel):
     """Запись канонического словаря (источник правды для NL→SQL)."""
 
@@ -248,7 +288,7 @@ class SemanticLayerTerm(BaseModel):
     business_terms: list[str] = Field(default_factory=list)
     canonical_metric_key: str = ""
     synonyms: list[str] = Field(default_factory=list)
-    source_table: str = "train"
+    source_table: str = "incity_orders"
     source_column: str | None = None
     aggregation_type: str = ""
     term_type: str = "metric"
@@ -485,7 +525,7 @@ class SemanticDictionaryStore:
             business_terms=[term_text],
             canonical_metric_key=canonical,
             synonyms=synonyms,
-            source_table=str(payload.get("source_table") or "train"),
+            source_table=str(payload.get("source_table") or "incity_orders"),
             source_column=payload.get("source_column"),
             aggregation_type=str(payload.get("aggregation_type") or "custom"),
             term_type=str(payload.get("term_type") or "metric"),
@@ -507,13 +547,13 @@ class SemanticDictionaryStore:
         return slug or f"custom_{len(self._terms) + 1}"
 
     def resolve_query(self, query: str) -> list[SemanticTermResolution]:
-        qn = _normalize_match_text(query)
+        q_variants = _query_variants(query)
         hits: list[SemanticTermResolution] = []
         for t in self._terms:
             matched: str | None = None
             best_len = 0
             for pat in t.match_patterns():
-                if pat in qn and len(pat) > best_len:
+                if any(pat in qv for qv in q_variants) and len(pat) > best_len:
                     matched = pat
                     best_len = len(pat)
             if matched:
@@ -529,7 +569,8 @@ class SemanticDictionaryStore:
                     )
                 )
         if hits:
-            if "отмен" in qn or "cancel" in qn:
+            q_blob = " ".join(q_variants)
+            if "отмен" in q_blob or "cancel" in q_blob:
                 pri = {k: i for i, k in enumerate(_CANCELLATION_PRIORITY)}
 
                 def sort_key(h: SemanticTermResolution) -> tuple[int, float]:
@@ -537,6 +578,44 @@ class SemanticDictionaryStore:
 
                 hits.sort(key=sort_key)
             return hits
+
+        # Fuzzy fallback для шумных/грязных формулировок: сравниваем стемы и строковую близость.
+        q_blob = " ".join(q_variants)
+        q_stems = _token_stems(q_blob)
+        fuzzy_candidates: list[tuple[float, SemanticLayerTerm, str]] = []
+        for t in self._terms:
+            patterns = t.match_patterns()
+            if not patterns:
+                continue
+            best_score = 0.0
+            best_pat = patterns[0]
+            for pat in patterns:
+                pat_stems = _token_stems(pat)
+                overlap = 0.0
+                if q_stems and pat_stems:
+                    overlap = len(q_stems & pat_stems) / max(1, len(pat_stems))
+                ratio = SequenceMatcher(None, q_blob[:220], pat[:220]).ratio()
+                score = 0.72 * overlap + 0.28 * ratio
+                if score > best_score:
+                    best_score = score
+                    best_pat = pat
+            if best_score >= 0.46:
+                fuzzy_candidates.append((best_score, t, best_pat))
+
+        if fuzzy_candidates:
+            fuzzy_candidates.sort(key=lambda x: x[0], reverse=True)
+            out: list[SemanticTermResolution] = []
+            for score, term, pat in fuzzy_candidates[:3]:
+                out.append(
+                    SemanticTermResolution(
+                        term_key=term.canonical_metric_key or term.id,
+                        surface_form=f"fuzzy:{pat}",
+                        sql_fragment=term.sql_expression,
+                        confidence=round(min(0.82, max(0.45, score)), 2),
+                    )
+                )
+            return out
+
         d = self.default_term()
         key = d.canonical_metric_key or d.id
         return [
@@ -564,23 +643,23 @@ class SemanticDictionaryStore:
         return self.resolve_query(query)
 
     def resolve_dimensions(self, query: str) -> list[str]:
-        qn = _normalize_match_text(query)
+        q_variants = _query_variants(query)
         out: list[str] = []
         for t in self._terms:
             if t.term_type != "dimension" or not t.target_field:
                 continue
-            if any(pat in qn for pat in t.match_patterns()):
+            if any(any(pat in qv for qv in q_variants) for pat in t.match_patterns()):
                 if t.target_field not in out:
                     out.append(t.target_field)
         return out
 
     def resolve_filters(self, query: str) -> dict[str, str]:
-        qn = _normalize_match_text(query)
+        q_variants = _query_variants(query)
         out: dict[str, str] = {}
         for t in self._terms:
             if t.term_type != "filter" or not t.target_field or not t.filter_value:
                 continue
-            if any(pat in qn for pat in t.match_patterns()):
+            if any(any(pat in qv for qv in q_variants) for pat in t.match_patterns()):
                 out.setdefault(t.target_field, t.filter_value)
         return out
 
@@ -607,11 +686,11 @@ class SemanticDictionaryStore:
     def primary_source_table(self, resolutions: list[SemanticTermResolution]) -> str:
         """Таблица-источник для основной метрики (fallback: source_table дефолтного терма)."""
         if not resolutions:
-            return self.default_term().source_table or "train"
+            return self.default_term().source_table or "incity_orders"
         key = (resolutions[0].term_key or "").strip()
         if key and (term := self.get_by_metric_key(key)) is not None:
-            return term.source_table or "train"
-        return self.default_term().source_table or "train"
+            return term.source_table or "incity_orders"
+        return self.default_term().source_table or "incity_orders"
 
     def needs_marketing_join(self, query: str) -> bool:
         qn = _normalize_match_text(query)

@@ -46,13 +46,14 @@ def suggest_auto_dashboard(
     return build_suggestion_from_history(history)
 
 
-@router.get("/train-summary", response_model=TrainDatasetSummaryResponse)
+@router.get("/incity-summary", response_model=TrainDatasetSummaryResponse)
+@router.get("/train-summary", response_model=TrainDatasetSummaryResponse, include_in_schema=False)
 def train_dataset_summary(
     workspace_id: uuid.UUID,
     user: User = Depends(get_current_active_user),
     session: Session = Depends(get_db_session),
 ) -> TrainDatasetSummaryResponse:
-    """Сводные KPI по каноническому `public.train` (согласованы с NL→SQL и отчётами)."""
+    """Сводные KPI по каноническому `public.incity_orders` (согласованы с NL→SQL и отчётами)."""
     _require_workspace(session, user.id, workspace_id)
     raw = BusinessDataRepository(session).fetch_train_global_summary()
     role_key = (user.role.role_key or "").strip().lower()

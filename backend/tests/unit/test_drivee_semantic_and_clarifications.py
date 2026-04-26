@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from app.schemas.nl_interpretation import NLQueryInterpretation
 from app.services.orchestration.clarification_engine import ClarificationContext, ClarificationEngine
 from app.services.orchestration.semantic_service import SemanticService
 class DriveeSemanticAndClarificationsTests(unittest.TestCase):
@@ -50,6 +51,60 @@ class DriveeSemanticAndClarificationsTests(unittest.TestCase):
         r = eng.evaluate(self._ctx("Покажи лучшие города"))
         self.assertTrue(r.clarification_required)
         self.assertEqual(r.clarification_reason, "best_cities_vague")
+
+    def test_city_scope_rule_skipped_when_scope_network(self) -> None:
+        eng = ClarificationEngine(llm_service=None)
+        interp = NLQueryInterpretation(
+            intent="trend",
+            entities={"scope": "network", "time_grain": "day"},
+            metrics=["orders_count"],
+            dimensions=["city_id"],
+            ambiguities=["city_scope_all_vs_one"],
+            ambiguity_flags=["city_scope_all_vs_one"],
+        )
+        r = eng.evaluate(
+            ClarificationContext(
+                effective_query="показатель по всем городам за февраль 2025 по дням",
+                intent="trend",
+                entities={"scope": "network", "time_grain": "day"},
+                resolutions=[],
+                nondefault_semantic_count=1,
+                intent_signals=[],
+                interpretation=interp,
+            )
+        )
+        self.assertNotEqual(r.clarification_reason, "city_scope_ambiguous")
+
+    def test_network_and_city_scope_conflict_triggers_clarification(self) -> None:
+        eng = ClarificationEngine(llm_service=None)
+        r = eng.evaluate(
+            ClarificationContext(
+                effective_query="Покажи конверсию по всей сети в разрезе города",
+                intent="comparison",
+                entities={"scope": "network", "dimensions": ["city_id"]},
+                resolutions=[],
+                nondefault_semantic_count=0,
+                intent_signals=[],
+                interpretation=None,
+            )
+        )
+        self.assertTrue(r.clarification_required)
+        self.assertEqual(r.clarification_reason, "scope_conflict_network_vs_city")
+
+    def test_scope_conflict_skipped_when_po_vsem_gorodam(self) -> None:
+        eng = ClarificationEngine(llm_service=None)
+        r = eng.evaluate(
+            ClarificationContext(
+                effective_query="метрика qr в разрезе дня за февраль 2025 по всем городам",
+                intent="trend",
+                entities={"scope": "network", "dimensions": ["city_id", "day"], "time_grain": "day"},
+                resolutions=[],
+                nondefault_semantic_count=1,
+                intent_signals=[],
+                interpretation=None,
+            )
+        )
+        self.assertNotEqual(r.clarification_reason, "scope_conflict_network_vs_city")
 
 
 if __name__ == "__main__":

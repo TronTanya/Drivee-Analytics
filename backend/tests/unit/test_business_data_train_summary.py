@@ -13,7 +13,7 @@ def test_fetch_train_global_summary_stub_when_mock_mode(monkeypatch: pytest.Monk
     session = MagicMock()
     repo = BusinessDataRepository(session)
     out = repo.fetch_train_global_summary()
-    assert out["source_table"] == "public.train"
+    assert out["source_table"] == "public.incity_orders"
     assert out["train_row_count"] == 12_480
     assert out["sum_order_price"] is not None
     session.execute.assert_not_called()
@@ -41,3 +41,4 @@ def test_fetch_train_global_summary_queries_when_live(monkeypatch: pytest.Monkey
     stmt = session.execute.call_args[0][0]
     sql_text = str(stmt)
     assert "DISTINCT CASE" in sql_text and "driverdone_timestamp" in sql_text
+    assert "public.incity_orders" in sql_text
