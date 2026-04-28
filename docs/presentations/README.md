@@ -24,11 +24,10 @@ open docs/presentations/prezentaciya.pptx   # macOS
 
 | Ресурс | Ссылка |
 |--------|--------|
-| **Короткая ссылка (редирект)** | [https://clck.ru/3TKPVF](https://clck.ru/3TKPVF) |
+| **Прямая ссылка (предпочтительно)** | [Figma — файл «Дизайн»](https://www.figma.com/design/hRDPvxDYVvKeQSieqswq57/%D0%94%D0%B8%D0%B7%D0%B0%D0%B9%D0%BD) |
+| **Короткая ссылка (редирект)** | [clck.ru/3TKPVF](https://clck.ru/3TKPVF) — через Яндекс; иногда **SmartCaptcha**. |
 
-Редирект `clck.ru` ведёт через сервис Яндекса; при открытии в браузере иногда показывается **проверка «Вы не робот»** (SmartCaptcha) — это ограничение посредника, а не репозитория.
-
-**Рекомендация:** сохраните в Figma **прямую ссылку** вида `https://www.figma.com/design/…` (Share → Copy link) и добавьте её в таблицу выше или в описание репозитория на GitHub (**About** → *Website*) — так коллегам не придётся проходить captcha.
+Прямую ссылку можно продублировать в **About** репозитория на GitHub (*Website*).
 
 ---
 

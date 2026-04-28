@@ -18,7 +18,7 @@
 | | |
 |--|--|
 | **PowerPoint** | **[`docs/presentations/prezentaciya.pptx`](docs/presentations/prezentaciya.pptx)** — на GitHub откройте файл и скачайте (**Download raw file**). Каталог с пояснениями: [`docs/presentations/README.md`](docs/presentations/README.md). |
-| **Figma** | **[Открыть макеты (clck.ru)](https://clck.ru/3TKPVF)** — редирект; при captcha см. заметку в `docs/presentations/README.md`. Желательно продублировать прямую ссылку `figma.com/design/…` в About репозитория. |
+| **Figma** | **[Открыть макеты (прямая ссылка)](https://www.figma.com/design/hRDPvxDYVvKeQSieqswq57/%D0%94%D0%B8%D0%B7%D0%B0%D0%B9%D0%BD)** · альтернатива: [clck.ru/3TKPVF](https://clck.ru/3TKPVF) (редирект, возможна captcha). Подробнее: [`docs/presentations/README.md`](docs/presentations/README.md). |
 
 ---
 
