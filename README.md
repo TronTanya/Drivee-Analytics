@@ -13,6 +13,13 @@
 | **Проблема** | Длинный цикл «вопрос → SQL → сверка метрик → график → объяснение», разъезжающиеся определения показателей, риск галлюцинаций у «голого» LLM. |
 | **Бизнес-ценность** | Сокращение time-to-insight, единый семантический слой и guardrails снижают стоимость ошибок; notebook-артефакты и отчёты пригодны для аудита и повторного использования. |
 
+### Презентация и дизайн (жюри / защита)
+
+| | |
+|--|--|
+| **PowerPoint** | **[`docs/presentations/prezentaciya.pptx`](docs/presentations/prezentaciya.pptx)** — на GitHub откройте файл и скачайте (**Download raw file**). Каталог с пояснениями: [`docs/presentations/README.md`](docs/presentations/README.md). |
+| **Figma** | **[Открыть макеты (clck.ru)](https://clck.ru/3TKPVF)** — редирект; при captcha см. заметку в `docs/presentations/README.md`. Желательно продублировать прямую ссылку `figma.com/design/…` в About репозитория. |
+
 ---
 
 ## 1. Тема проекта
